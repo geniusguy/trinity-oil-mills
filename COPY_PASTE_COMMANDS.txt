@@ -1,0 +1,31 @@
+# COPY AND PASTE ALL THESE COMMANDS INTO POWERSHELL
+
+# Step 1: Find and add Git to PATH
+$gitPath = Get-ChildItem "$env:LOCALAPPDATA\GitHubDesktop\app-*\resources\app\git\cmd\git.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($gitPath) {
+    $gitDir = Split-Path $gitPath.FullName
+    $env:Path = "$gitDir;$env:Path"
+    Write-Host "Git found and added to PATH" -ForegroundColor Green
+} elseif (Test-Path "C:\Program Files\Git\cmd") {
+    $env:Path = "C:\Program Files\Git\cmd;$env:Path"
+    Write-Host "Git found and added to PATH" -ForegroundColor Green
+}
+
+# Step 2: Navigate to public_html
+cd D:\React\TrintyOilMills\public_html
+
+# Step 3: Add remote
+git remote add origin git@github.com:geniusguy/trinity-oil-mills.git
+
+# Step 4: Add files
+git add .
+
+# Step 5: Commit
+git commit -m "Initial commit - Port 3001, ready for deployment"
+
+# Step 6: Set main branch
+git branch -M main
+
+# Step 7: Push
+git push -u origin main
+
