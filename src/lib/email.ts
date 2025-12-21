@@ -1,11 +1,9 @@
 import nodemailer from 'nodemailer';
 
-// Load environment variables - Next.js automatically loads .env.production in production
-// Only load dotenv in development or if needed
-if (process.env.NODE_ENV !== 'production') {
-  const path = require('path');
-  require('dotenv').config({ path: path.join(process.cwd(), '.env.local') });
-}
+// Next.js automatically loads environment variables:
+// - .env.production when NODE_ENV=production
+// - .env.local for local development
+// No need to manually load dotenv
 
 // Create a transporter using SMTP env vars
 const createTransporter = () => {
