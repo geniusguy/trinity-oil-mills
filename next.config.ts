@@ -1,5 +1,8 @@
 import type { NextConfig } from 'next';
 
+// Suppress dotenv warnings during build
+process.env.DOTENV_CONFIG_QUIET = 'true';
+
 const config: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
