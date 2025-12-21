@@ -1,0 +1,481 @@
+import { mysqlTable, varchar, int, decimal, text, timestamp, boolean, json, datetime, date } from 'drizzle-orm/mysql-core';
+import { relations } from 'drizzle-orm';
+
+// Users table
+export const users = mysqlTable('users', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  email: varchar('email', { length: 255 }).notNull().unique(),
+  password: varchar('password', { length: 255 }).notNull(),
+  name: varchar('name', { length: 255 }).notNull(),
+  role: varchar('role', { length: 50 }).notNull().default('retail_staff'), // admin, accountant, retail_staff
+  resetToken: varchar('reset_token', { length: 255 }),
+  resetTokenExpiry: datetime('reset_token_expiry'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Products table
+export const products = mysqlTable('products', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  category: varchar('category', { length: 100 }).notNull(), // produced, purchased
+  type: varchar('type', { length: 100 }).notNull(), // ground_nut, gingelly, coconut, deepam, castor
+  description: text('description'),
+  basePrice: decimal('base_price', { precision: 10, scale: 2 }).notNull(), // GST-exclusive price
+  retailPrice: decimal('retail_price', { precision: 10, scale: 2 }).notNull(), // GST-inclusive price for retail
+  gstRate: decimal('gst_rate', { precision: 5, scale: 2 }).notNull().default('5.00'),
+  gstIncluded: boolean('gst_included').default(false).notNull(), // true if GST is included in base price
+  unit: varchar('unit', { length: 50 }).notNull().default('liters'),
+  barcode: varchar('barcode', { length: 100 }),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Inventory table
+export const inventory = mysqlTable('inventory', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  productId: varchar('product_id', { length: 255 }).notNull(),
+  quantity: decimal('quantity', { precision: 10, scale: 2 }).notNull().default('0'),
+  minStock: decimal('min_stock', { precision: 10, scale: 2 }).notNull().default('10'),
+  maxStock: decimal('max_stock', { precision: 10, scale: 2 }).notNull().default('1000'),
+  location: varchar('location', { length: 100 }).default('main_store'),
+  batchNumber: varchar('batch_number', { length: 100 }),
+  expiryDate: datetime('expiry_date'),
+  costPrice: decimal('cost_price', { precision: 10, scale: 2 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Customers table
+export const customers = mysqlTable('customers', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  email: varchar('email', { length: 255 }),
+  phone: varchar('phone', { length: 20 }),
+  address: text('address'),
+  city: varchar('city', { length: 100 }),
+  state: varchar('state', { length: 100 }).default('Tamil Nadu'),
+  pincode: varchar('pincode', { length: 10 }),
+  customerType: varchar('customer_type', { length: 50 }).notNull().default('retail'), // retail, canteen
+  gstNumber: varchar('gst_number', { length: 15 }),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Canteen Addresses table
+export const canteenAddresses = mysqlTable('canteen_addresses', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  canteenName: varchar('canteen_name', { length: 255 }).notNull(),
+  // Delivery Address (current address field)
+  address: text('address').notNull(),
+  city: varchar('city', { length: 100 }).notNull(),
+  state: varchar('state', { length: 100 }).default('Tamil Nadu'),
+  pincode: varchar('pincode', { length: 10 }).notNull(),
+  // Billing Address (new fields)
+  billingAddress: text('billing_address'),
+  billingCity: varchar('billing_city', { length: 100 }),
+  billingState: varchar('billing_state', { length: 100 }),
+  billingPincode: varchar('billing_pincode', { length: 10 }),
+  // Contact Information
+  contactPerson: varchar('contact_person', { length: 255 }).notNull(),
+  mobileNumber: varchar('mobile_number', { length: 15 }).notNull(),
+  gstNumber: varchar('gst_number', { length: 15 }).default('33AAAGT0316F1ZT'),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Sales table
+export const sales = mysqlTable('sales', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  customerId: varchar('customer_id', { length: 255 }),
+  userId: varchar('user_id', { length: 255 }).notNull(),
+  invoiceNumber: varchar('invoice_number', { length: 100 }).notNull(),
+  saleType: varchar('sale_type', { length: 50 }).notNull().default('retail'), // retail, canteen
+  subtotal: decimal('subtotal', { precision: 10, scale: 2 }).notNull(),
+  gstAmount: decimal('gst_amount', { precision: 10, scale: 2 }).notNull(),
+  totalAmount: decimal('total_amount', { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: varchar('payment_method', { length: 50 }).notNull().default('cash'), // cash, upi, card, canteen_autopayment
+  paymentStatus: varchar('payment_status', { length: 50 }).notNull().default('paid'), // paid, pending, failed
+  shipmentStatus: varchar('shipment_status', { length: 50 }).notNull().default('pending'), // pending, shipped, delivered, cancelled
+  canteenAddressId: varchar('canteen_address_id', { length: 255 }),
+  poNumber: varchar('po_number', { length: 100 }), // Purchase Order number for canteen sales
+  poDate: date('po_date'), // Purchase Order date
+  modeOfSales: varchar('mode_of_sales', { length: 100 }), // Mode of sales (email, phone, walk-in, etc.)
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Sale Items table
+export const saleItems = mysqlTable('sale_items', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  saleId: varchar('sale_id', { length: 255 }).notNull(),
+  productId: varchar('product_id', { length: 255 }).notNull(),
+  quantity: decimal('quantity', { precision: 10, scale: 2 }).notNull(),
+  unitPrice: decimal('unit_price', { precision: 10, scale: 2 }).notNull(),
+  gstRate: decimal('gst_rate', { precision: 5, scale: 2 }).notNull(),
+  gstAmount: decimal('gst_amount', { precision: 10, scale: 2 }).notNull(),
+  totalAmount: decimal('total_amount', { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Orders table (for canteen orders)
+export const orders = mysqlTable('orders', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  customerId: varchar('customer_id', { length: 255 }).notNull(),
+  orderNumber: varchar('order_number', { length: 100 }).notNull(),
+  status: varchar('status', { length: 50 }).notNull().default('pending'), // pending, confirmed, delivered, cancelled
+  subtotal: decimal('subtotal', { precision: 10, scale: 2 }).notNull(),
+  gstAmount: decimal('gst_amount', { precision: 10, scale: 2 }).notNull(),
+  totalAmount: decimal('total_amount', { precision: 10, scale: 2 }).notNull(),
+  deliveryDate: datetime('delivery_date'),
+  deliveryAddress: text('delivery_address'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Order Items table
+export const orderItems = mysqlTable('order_items', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  orderId: varchar('order_id', { length: 255 }).notNull(),
+  productId: varchar('product_id', { length: 255 }).notNull(),
+  quantity: decimal('quantity', { precision: 10, scale: 2 }).notNull(),
+  unitPrice: decimal('unit_price', { precision: 10, scale: 2 }).notNull(),
+  gstRate: decimal('gst_rate', { precision: 5, scale: 2 }).notNull(),
+  gstAmount: decimal('gst_amount', { precision: 10, scale: 2 }).notNull(),
+  totalAmount: decimal('total_amount', { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Production table (for produced oils)
+export const production = mysqlTable('production', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  productId: varchar('product_id', { length: 255 }).notNull(),
+  batchNumber: varchar('batch_number', { length: 100 }).notNull(),
+  quantity: decimal('quantity', { precision: 10, scale: 2 }).notNull(),
+  costPerUnit: decimal('cost_per_unit', { precision: 10, scale: 2 }).notNull(),
+  totalCost: decimal('total_cost', { precision: 10, scale: 2 }).notNull(),
+  productionDate: datetime('production_date').notNull(),
+  expiryDate: datetime('expiry_date'),
+  qualityCheck: boolean('quality_check').default(false).notNull(),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Expenses table
+export const expenses = mysqlTable('expenses', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  category: varchar('category', { length: 100 }).notNull(),
+  description: text('description').notNull(),
+  amount: decimal('amount', { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: varchar('payment_method', { length: 50 }).notNull().default('cash'),
+  receiptNumber: varchar('receipt_number', { length: 100 }),
+  expenseDate: datetime('expense_date').notNull(),
+  userId: varchar('user_id', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Savings and Investments table
+export const savingsInvestments = mysqlTable('savings_investments', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  type: varchar('type', { length: 50 }).notNull(), // 'savings', 'investment', 'fixed_deposit', 'mutual_fund', 'stock', 'property', 'gold', 'other'
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description'),
+  amount: decimal('amount', { precision: 15, scale: 2 }).notNull(),
+  currentValue: decimal('current_value', { precision: 15, scale: 2 }),
+  investmentDate: datetime('investment_date').notNull(),
+  maturityDate: datetime('maturity_date'),
+  interestRate: decimal('interest_rate', { precision: 5, scale: 2 }),
+  institution: varchar('institution', { length: 255 }), // Bank, broker, etc.
+  accountNumber: varchar('account_number', { length: 100 }),
+  status: varchar('status', { length: 50 }).notNull().default('active'), // 'active', 'matured', 'closed', 'sold'
+  userId: varchar('user_id', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Courier Rates table
+export const courierRates = mysqlTable('courier_rates', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  destination: varchar('destination', { length: 100 }).notNull(),
+  weight: decimal('weight', { precision: 10, scale: 2 }).notNull(),
+  rate: decimal('rate', { precision: 10, scale: 2 }).notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Raw Materials table
+export const rawMaterials = mysqlTable('raw_materials', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull(),
+  category: varchar('category', { length: 100 }).notNull(), // packaging, seeds, chemicals, equipment
+  type: varchar('type', { length: 100 }).notNull(), // bottle, cap, tape, groundnut, sesame, etc
+  description: text('description'),
+  unit: varchar('unit', { length: 50 }).notNull(), // pieces, kg, liters, meters
+  costPerUnit: decimal('cost_per_unit', { precision: 10, scale: 2 }).notNull(),
+  supplier: varchar('supplier', { length: 255 }),
+  minimumStock: decimal('minimum_stock', { precision: 10, scale: 2 }).default('0'),
+  currentStock: decimal('current_stock', { precision: 10, scale: 2 }).default('0'),
+  gstRate: decimal('gst_rate', { precision: 5, scale: 2 }).notNull().default('18.00'),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Production Recipes table - defines what raw materials are needed for each product
+export const productionRecipes = mysqlTable('production_recipes', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  productId: varchar('product_id', { length: 255 }).notNull(),
+  rawMaterialId: varchar('raw_material_id', { length: 255 }).notNull(),
+  quantityPerUnit: decimal('quantity_per_unit', { precision: 10, scale: 3 }).notNull(), // How much raw material needed per 1 unit of product
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Raw Material Purchases table
+export const rawMaterialPurchases = mysqlTable('raw_material_purchases', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  rawMaterialId: varchar('raw_material_id', { length: 255 }).notNull(),
+  supplier: varchar('supplier', { length: 255 }).notNull(),
+  quantity: decimal('quantity', { precision: 10, scale: 2 }).notNull(),
+  unitCost: decimal('unit_cost', { precision: 10, scale: 2 }).notNull(),
+  totalCost: decimal('total_cost', { precision: 10, scale: 2 }).notNull(),
+  gstAmount: decimal('gst_amount', { precision: 10, scale: 2 }).notNull(),
+  purchaseDate: datetime('purchase_date').notNull(),
+  invoiceNumber: varchar('invoice_number', { length: 100 }),
+  notes: text('notes'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Product Price History table
+export const productPriceHistory = mysqlTable('product_price_history', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  productId: varchar('product_id', { length: 255 }).notNull(),
+  basePrice: decimal('base_price', { precision: 10, scale: 2 }).notNull(),
+  retailPrice: decimal('retail_price', { precision: 10, scale: 2 }).notNull(),
+  gstRate: decimal('gst_rate', { precision: 5, scale: 2 }).notNull(),
+  effectiveDate: date('effective_date').notNull(),
+  endDate: date('end_date'),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdBy: varchar('created_by', { length: 255 }).notNull(),
+  notes: text('notes'),
+});
+
+// Raw Material Price History table
+export const rawMaterialPriceHistory = mysqlTable('raw_material_price_history', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  rawMaterialId: varchar('raw_material_id', { length: 255 }).notNull(),
+  costPerUnit: decimal('cost_per_unit', { precision: 10, scale: 2 }).notNull(),
+  gstRate: decimal('gst_rate', { precision: 5, scale: 2 }).notNull(),
+  effectiveDate: date('effective_date').notNull(),
+  endDate: date('end_date'),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdBy: varchar('created_by', { length: 255 }).notNull(),
+  supplier: varchar('supplier', { length: 255 }),
+  notes: text('notes'),
+});
+
+// Production Cost History table (tracks actual cost at time of production)
+export const productionCostHistory = mysqlTable('production_cost_history', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  productionId: varchar('production_id', { length: 255 }).notNull(),
+  productId: varchar('product_id', { length: 255 }).notNull(),
+  rawMaterialId: varchar('raw_material_id', { length: 255 }).notNull(),
+  quantityUsed: decimal('quantity_used', { precision: 10, scale: 3 }).notNull(),
+  costPerUnit: decimal('cost_per_unit', { precision: 10, scale: 2 }).notNull(),
+  totalCost: decimal('total_cost', { precision: 10, scale: 2 }).notNull(),
+  productionDate: date('production_date').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Define relations
+export const usersRelations = relations(users, ({ many }) => ({
+  sales: many(sales),
+  expenses: many(expenses),
+}));
+
+export const productsRelations = relations(products, ({ many }) => ({
+  inventory: many(inventory),
+  saleItems: many(saleItems),
+  orderItems: many(orderItems),
+  production: many(production),
+}));
+
+export const customersRelations = relations(customers, ({ many }) => ({
+  sales: many(sales),
+  orders: many(orders),
+}));
+
+export const salesRelations = relations(sales, ({ one, many }) => ({
+  customer: one(customers, {
+    fields: [sales.customerId],
+    references: [customers.id],
+  }),
+  user: one(users, {
+    fields: [sales.userId],
+    references: [users.id],
+  }),
+  saleItems: many(saleItems),
+}));
+
+export const saleItemsRelations = relations(saleItems, ({ one }) => ({
+  sale: one(sales, {
+    fields: [saleItems.saleId],
+    references: [sales.id],
+  }),
+  product: one(products, {
+    fields: [saleItems.productId],
+    references: [products.id],
+  }),
+}));
+
+export const ordersRelations = relations(orders, ({ one, many }) => ({
+  customer: one(customers, {
+    fields: [orders.customerId],
+    references: [customers.id],
+  }),
+  orderItems: many(orderItems),
+}));
+
+export const orderItemsRelations = relations(orderItems, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderItems.orderId],
+    references: [orders.id],
+  }),
+  product: one(products, {
+    fields: [orderItems.productId],
+    references: [products.id],
+  }),
+}));
+
+export const inventoryRelations = relations(inventory, ({ one }) => ({
+  product: one(products, {
+    fields: [inventory.productId],
+    references: [products.id],
+  }),
+}));
+
+export const productionRelations = relations(production, ({ one }) => ({
+  product: one(products, {
+    fields: [production.productId],
+    references: [products.id],
+  }),
+}));
+
+export const expensesRelations = relations(expenses, ({ one }) => ({
+  user: one(users, {
+    fields: [expenses.userId],
+    references: [users.id],
+  }),
+}));
+
+export const productPriceHistoryRelations = relations(productPriceHistory, ({ one }) => ({
+  product: one(products, {
+    fields: [productPriceHistory.productId],
+    references: [products.id],
+  }),
+  createdByUser: one(users, {
+    fields: [productPriceHistory.createdBy],
+    references: [users.id],
+  }),
+}));
+
+export const rawMaterialPriceHistoryRelations = relations(rawMaterialPriceHistory, ({ one }) => ({
+  rawMaterial: one(rawMaterials, {
+    fields: [rawMaterialPriceHistory.rawMaterialId],
+    references: [rawMaterials.id],
+  }),
+  createdByUser: one(users, {
+    fields: [rawMaterialPriceHistory.createdBy],
+    references: [users.id],
+  }),
+}));
+
+export const productionCostHistoryRelations = relations(productionCostHistory, ({ one }) => ({
+  production: one(production, {
+    fields: [productionCostHistory.productionId],
+    references: [production.id],
+  }),
+  product: one(products, {
+    fields: [productionCostHistory.productId],
+    references: [products.id],
+  }),
+  rawMaterial: one(rawMaterials, {
+    fields: [productionCostHistory.rawMaterialId],
+    references: [rawMaterials.id],
+  }),
+}));
+
+// Loans table
+export const loans = mysqlTable('loans', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  loanName: varchar('loan_name', { length: 255 }).notNull(),
+  lenderName: varchar('lender_name', { length: 255 }).notNull(),
+  loanType: varchar('loan_type', { length: 100 }).notNull(), // business_loan, personal_loan, equipment_loan, working_capital
+  principalAmount: decimal('principal_amount', { precision: 12, scale: 2 }).notNull(),
+  interestRate: decimal('interest_rate', { precision: 5, scale: 2 }).notNull(), // percentage per annum
+  tenure: int('tenure').notNull(), // in months
+  emiAmount: decimal('emi_amount', { precision: 10, scale: 2 }).notNull(),
+  startDate: date('start_date').notNull(),
+  endDate: date('end_date').notNull(),
+  accountNumber: varchar('account_number', { length: 100 }),
+  ifscCode: varchar('ifsc_code', { length: 20 }),
+  collateral: text('collateral'), // Description of collateral if any
+  purpose: text('purpose').notNull(), // Purpose of the loan
+  status: varchar('status', { length: 50 }).notNull().default('active'), // active, closed, defaulted
+  remainingBalance: decimal('remaining_balance', { precision: 12, scale: 2 }).notNull(),
+  nextPaymentDate: date('next_payment_date'),
+  notes: text('notes'),
+  createdBy: varchar('created_by', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Loan Payments table
+export const loanPayments = mysqlTable('loan_payments', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  loanId: varchar('loan_id', { length: 255 }).notNull(),
+  paymentDate: date('payment_date').notNull(),
+  paymentAmount: decimal('payment_amount', { precision: 10, scale: 2 }).notNull(),
+  principalAmount: decimal('principal_amount', { precision: 10, scale: 2 }).notNull(),
+  interestAmount: decimal('interest_amount', { precision: 10, scale: 2 }).notNull(),
+  outstandingBalance: decimal('outstanding_balance', { precision: 12, scale: 2 }).notNull(),
+  paymentMethod: varchar('payment_method', { length: 50 }).notNull().default('bank_transfer'), // bank_transfer, cash, cheque, upi
+  transactionId: varchar('transaction_id', { length: 100 }),
+  receiptNumber: varchar('receipt_number', { length: 100 }),
+  paymentStatus: varchar('payment_status', { length: 50 }).notNull().default('paid'), // paid, pending, failed
+  lateFee: decimal('late_fee', { precision: 10, scale: 2 }).default('0.00'),
+  notes: text('notes'),
+  createdBy: varchar('created_by', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Loan relations
+export const loansRelations = relations(loans, ({ one, many }) => ({
+  createdByUser: one(users, {
+    fields: [loans.createdBy],
+    references: [users.id],
+  }),
+  payments: many(loanPayments),
+}));
+
+export const loanPaymentsRelations = relations(loanPayments, ({ one }) => ({
+  loan: one(loans, {
+    fields: [loanPayments.loanId],
+    references: [loans.id],
+  }),
+  createdByUser: one(users, {
+    fields: [loanPayments.createdBy],
+    references: [users.id],
+  }),
+}));

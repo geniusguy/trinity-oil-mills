@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1757747280430,
+      "tag": "0000_odd_lake",
+      "breakpoints": true
+    }
+  ]
+}
