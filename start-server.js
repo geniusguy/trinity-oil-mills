@@ -54,7 +54,32 @@ function loadEnvFile() {
   }
 
   console.log(`✅ Loaded ${loaded} environment variables`);
-  console.log(`✅ DATABASE_URL: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}`);
+  
+  // Debug: Check if DATABASE_URL was loaded
+  if (process.env.DATABASE_URL) {
+    const masked = process.env.DATABASE_URL.replace(/:[^:@]+@/, ':****@');
+    console.log(`✅ DATABASE_URL: SET (${masked})`);
+  } else {
+    console.error(`❌ DATABASE_URL: NOT SET after loading!`);
+    console.error(`   Checking .env.production file...`);
+    
+    // Re-read file to debug
+    const content = fs.readFileSync(envPath, 'utf8');
+    const dbLine = content.split('\n').find(line => 
+      line.trim().toUpperCase().startsWith('DATABASE_URL')
+    );
+    
+    if (dbLine) {
+      console.error(`   Found DATABASE_URL line: ${dbLine.trim()}`);
+      console.error(`   Line length: ${dbLine.length}`);
+      console.error(`   Has equals: ${dbLine.includes('=')}`);
+    } else {
+      console.error(`   DATABASE_URL line NOT FOUND in file!`);
+    }
+    
+    // List all loaded keys
+    console.error(`   Loaded keys: ${Object.keys(process.env).filter(k => k.startsWith('DATABASE') || k.startsWith('DB_')).join(', ')}`);
+  }
   
   return true;
 }
@@ -64,10 +89,21 @@ loadEnvFile();
 
 // Start Next.js with loaded environment variables
 console.log('🚀 Starting Next.js server...');
+console.log(`   PORT: ${process.env.PORT || '3001'}`);
+console.log(`   NODE_ENV: ${process.env.NODE_ENV || 'NOT SET'}`);
+console.log(`   DATABASE_URL before spawn: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}`);
+
+// Explicitly pass all environment variables
 const nextProcess = spawn('node', ['node_modules/.bin/next', 'start', '-p', process.env.PORT || '3001'], {
   stdio: 'inherit',
-  env: process.env,
-  cwd: __dirname
+  env: {
+    ...process.env,  // Spread all current env vars
+    DATABASE_URL: process.env.DATABASE_URL,  // Explicitly set
+    NODE_ENV: process.env.NODE_ENV || 'production',
+    PORT: process.env.PORT || '3001'
+  },
+  cwd: __dirname,
+  shell: false
 });
 
 nextProcess.on('error', (error) => {
