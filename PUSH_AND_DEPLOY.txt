@@ -1,0 +1,49 @@
+# Commands to Push to Git and Deploy on Server
+
+# ============================================
+# LOCAL: Push to Git (Environment files excluded)
+# ============================================
+
+# Navigate to public_html
+cd D:\React\TrintyOilMills\public_html
+
+# Add Git to PATH (if needed)
+$gitDir = "C:\Users\wemar\AppData\Local\GitHubDesktop\app-3.5.4\resources\app\git\cmd"
+$env:Path = "$gitDir;$env:Path"
+
+# Add all files (except .env files - already in .gitignore)
+git add .
+
+# Commit
+git commit -m "Port 3001, database test page, ready for deployment"
+
+# Push to GitHub
+git push origin main
+
+# ============================================
+# SERVER: Pull and Test
+# ============================================
+
+# On server, run these commands:
+
+# Navigate to directory
+cd /home/trinityoil/public_html
+
+# Pull latest code
+git pull origin main
+
+# Install dependencies (if package.json changed)
+npm install
+
+# Build application
+npm run build
+
+# Restart PM2
+pm2 restart api.trinityoil.in
+
+# Test database connection
+curl http://localhost:3001/api/test-db-connection
+
+# Or visit in browser:
+# https://api.trinityoil.in/test-db
+

@@ -29,6 +29,12 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# Environment files (never commit)
+.env
+.env.production
+.env.development
+.env.test
+
 # Environment files (keep .env.production.example if you want)
 .env
 .env.production
