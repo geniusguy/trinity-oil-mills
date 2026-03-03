@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 
 // Test endpoint to debug stock data fetching
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

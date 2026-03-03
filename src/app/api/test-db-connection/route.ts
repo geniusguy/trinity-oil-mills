@@ -5,6 +5,10 @@ import bcrypt from 'bcryptjs';
 export async function GET(request: NextRequest) {
   try {
     console.log('🔍 Testing database connection...');
+    console.log('🔍 Environment check:');
+    console.log('  DATABASE_URL:', process.env.DATABASE_URL ? 'SET (length: ' + process.env.DATABASE_URL.length + ')' : 'NOT SET');
+    console.log('  NODE_ENV:', process.env.NODE_ENV);
+    console.log('  PORT:', process.env.PORT);
     
     // Get database config
     const { getDatabaseConfig } = await import('@/lib/database');

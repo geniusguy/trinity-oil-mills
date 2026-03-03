@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { db } from '@/db/db';
 import { expenses } from '@/db/schema';
 import { eq } from 'drizzle-orm';
@@ -10,7 +9,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     const body = await request.json();
     const { category, amount, description, expenseDate, paymentMethod, receiptNumber } = body;
     const { id } = await params;

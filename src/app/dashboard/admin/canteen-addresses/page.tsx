@@ -37,6 +37,9 @@ export default function AdminCanteenAddressesPage() {
   const [isCreating, setIsCreating] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   // Form data with enhanced structure
   const [formData, setFormData] = useState({
@@ -384,6 +387,39 @@ export default function AdminCanteenAddressesPage() {
     setSuccess('');
   };
 
+  const handleBulkUploadFile = async (file: File) => {
+    if (!file) return;
+
+    const form = new FormData();
+    form.append('file', file);
+
+    try {
+      setIsUploading(true);
+      setUploadError('');
+      setSuccess('');
+
+      const res = await fetch('/api/admin/canteen-addresses/bulk-upload', {
+        method: 'POST',
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setUploadError(data.error || 'Bulk upload failed');
+      } else {
+        setSuccess(
+          `Bulk upload completed. Processed ${data.totalRows ?? '?'} rows, created ${data.created ?? '?'} addresses.`,
+        );
+        fetchAddresses();
+      }
+    } catch {
+      setUploadError('Network error during bulk upload. Please try again.');
+    } finally {
+      setIsUploading(false);
+      setShowUploadModal(false);
+    }
+  };
+
   if (status === 'loading' || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -411,6 +447,13 @@ export default function AdminCanteenAddressesPage() {
               <p className="mt-2 text-gray-600">Manage delivery addresses for canteen sales</p>
             </div>
             <div className="flex items-center space-x-4">
+              <button
+                type="button"
+                onClick={() => setShowUploadModal(true)}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+              >
+                Bulk Upload (.xlsx)
+              </button>
               <button
                 onClick={openAddModal}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
@@ -440,6 +483,78 @@ export default function AdminCanteenAddressesPage() {
         {success && (
           <div className="mb-6 bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-md">
             {success}
+          </div>
+        )}
+        {uploadError && (
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md">
+            {uploadError}
+          </div>
+        )}
+
+        {/* Bulk upload modal */}
+        {showUploadModal && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div className="relative top-10 mx-auto p-5 border w-full max-w-lg shadow-lg rounded-md bg-white">
+              <div className="mt-3 space-y-5">
+                <h3 className="text-lg font-bold text-gray-900">
+                  Bulk Upload Master Canteens
+                </h3>
+                <div className="space-y-1">
+                  <p className="text-sm text-gray-600">
+                    Upload an Excel file (.xlsx) with your canteen master data.
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Step 1: Download the sample template.
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Step 2: Fill in your canteen list.
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Step 3: Click <span className="font-semibold">Browse Excel file</span> and upload.
+                  </p>
+                </div>
+                <div className="space-y-3">
+                  <label className="block text-sm font-semibold text-gray-800">
+                    Browse Excel file (.xlsx)
+                  </label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls"
+                    disabled={isUploading}
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        await handleBulkUploadFile(file);
+                        e.target.value = '';
+                      }
+                    }}
+                    className="block w-full text-sm text-gray-700"
+                  />
+                  {isUploading && (
+                    <div className="text-xs text-gray-500 mt-1">Uploading...</div>
+                  )}
+                </div>
+                <div className="pt-1">
+                  <a
+                    href="/api/admin/canteen-addresses/bulk-upload-template"
+                    className="text-xs text-indigo-600 hover:underline"
+                  >
+                    Download sample Excel template (Step 1)
+                  </a>
+                </div>
+                <div className="flex justify-end space-x-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isUploading) setShowUploadModal(false);
+                    }}
+                    className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -485,10 +600,13 @@ export default function AdminCanteenAddressesPage() {
                     <td className="px-6 py-4">
                       <div>
                         <div className="text-sm text-gray-900 whitespace-pre-line">
-                          {address.billing_address || address.address}
+                          {address.billing_address ?? '(no separate billing address)'}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {address.billing_city || address.city}, {address.billing_pincode || address.pincode}
+                          {(address.billing_city ?? '') || '(no billing city)'}
+                          {address.billing_pincode && (
+                            <> , {address.billing_pincode}</>
+                          )}
                         </div>
                         {address.gst_number && (
                           <div className="text-xs text-blue-600 font-medium">GST: {address.gst_number}</div>

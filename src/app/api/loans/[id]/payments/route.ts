@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { db } from '@/db/db';
 import { loans, loanPayments } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
@@ -9,15 +8,16 @@ import { v4 as uuidv4 } from 'uuid';
 // GET /api/loans/[id]/payments - Get all payments for a specific loan
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const resolvedParams = await params;
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const loanId = params.id;
+    const loanId = resolvedParams.id;
 
     // Verify loan exists
     const loan = await db.query.loans.findFirst({
@@ -53,10 +53,11 @@ export async function GET(
 // POST /api/loans/[id]/payments - Record a new loan payment
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const resolvedParams = await params;
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -66,7 +67,7 @@ export async function POST(
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
-    const loanId = params.id;
+    const loanId = resolvedParams.id;
     const body = await request.json();
     const {
       paymentDate,

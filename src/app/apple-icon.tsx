@@ -2,6 +2,7 @@ import { ImageResponse } from 'next/og'
  
 // Route segment config
 export const runtime = 'edge'
+export const dynamic = 'force-dynamic'
  
 // Image metadata
 export const size = {

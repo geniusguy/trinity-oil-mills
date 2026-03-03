@@ -128,6 +128,7 @@ export default function POSPage() {
   const [canteenAddresses, setCanteenAddresses] = useState<CanteenAddress[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [saleType, setSaleType] = useState<'retail' | 'canteen'>('retail');
+  const [gstMode, setGstMode] = useState<'included' | 'excluded'>('excluded');
   const [selectedCanteen, setSelectedCanteen] = useState<string>('');
   const [customerName, setCustomerName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -175,10 +176,12 @@ export default function POSPage() {
         setSaleType('canteen');
         setPaymentMethod('credit'); // Canteens use auto credit payment
         setModeOfSales('email'); // Default email for canteen sales
+        setGstMode('excluded'); // Default GST mode for canteen: GST added on top
       } else {
         setSaleType('retail');
         setPaymentMethod('cash'); // Default cash for retail
         setModeOfSales('walk_in'); // Default walk-in for retail sales
+        setGstMode('included'); // Default GST mode for retail: price includes GST
       }
     }
   }, [mounted]);
@@ -188,9 +191,11 @@ export default function POSPage() {
     if (saleType === 'canteen') {
       setPaymentMethod('credit'); // Auto credit for canteens
       setModeOfSales('email'); // Default email for canteen sales
+      setGstMode((prev) => prev || 'excluded');
     } else {
       setPaymentMethod('cash'); // Default cash for retail
       setModeOfSales('walk_in'); // Default walk-in for retail sales
+      setGstMode((prev) => prev || 'included');
     }
   }, [saleType]);
 
@@ -228,7 +233,10 @@ export default function POSPage() {
 
   // Cart management
   const addToCart = (product: Product) => {
-    const price = saleType === 'retail' ? parseFloat(product.retailPrice) : parseFloat(product.basePrice);
+    const price =
+      gstMode === 'included'
+        ? parseFloat(product.retailPrice)
+        : parseFloat(product.basePrice);
     const existingItem = cart.find(item => item.productId === product.id);
     
     if (existingItem) {
@@ -276,16 +284,16 @@ export default function POSPage() {
     const subtotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
     const gstAmount = cart.reduce((sum, item) => {
       const itemTotal = item.price * item.quantity;
-      const gst = saleType === 'retail' 
+      const gst = gstMode === 'included'
         ? (itemTotal * item.gstRate / (100 + item.gstRate)) // GST from inclusive price
         : (itemTotal * item.gstRate / 100); // GST on exclusive price
       return sum + gst;
     }, 0);
     
-    const total = saleType === 'retail' ? subtotal : subtotal + gstAmount;
+    const total = gstMode === 'included' ? subtotal : subtotal + gstAmount;
     
     return {
-      subtotal: saleType === 'retail' ? subtotal - gstAmount : subtotal,
+      subtotal: gstMode === 'included' ? subtotal - gstAmount : subtotal,
       gstAmount,
       total
     };
@@ -319,6 +327,7 @@ export default function POSPage() {
         subtotal,
         gstAmount,
         totalAmount: total,
+        gstMode,
         paymentMethod,
         customerName: customerName || 'Walk-in Customer',
         canteenAddressId: saleType === 'canteen' ? selectedCanteen : null,
@@ -940,13 +949,50 @@ export default function POSPage() {
               <div className="bg-white rounded-lg shadow-sm p-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">📄 Bill Summary</h3>
                 
+                {/* GST Mode Toggle */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    GST Calculation Method
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setGstMode('included')}
+                      className={`flex-1 px-3 py-2 rounded-md text-sm font-medium border ${
+                        gstMode === 'included'
+                          ? 'bg-green-600 text-white border-green-600'
+                          : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
+                      }`}
+                    >
+                      GST Included in item price
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGstMode('excluded')}
+                      className={`flex-1 px-3 py-2 rounded-md text-sm font-medium border ${
+                        gstMode === 'excluded'
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
+                      }`}
+                    >
+                      GST Extra (add on top)
+                    </button>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Use <span className="font-semibold">GST Included</span> when product price already has GST inside. Use{' '}
+                    <span className="font-semibold">GST Extra</span> when unit price is without GST and GST should be added separately.
+                  </p>
+                </div>
+
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gray-600">Subtotal:</span>
                     <span className="font-medium">₹{subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">GST ({saleType === 'retail' ? 'included' : 'added'}):</span>
+                    <span className="text-gray-600">
+                      GST ({gstMode === 'included' ? 'included in item price' : 'added separately'}):
+                    </span>
                     <span className="font-medium">₹{gstAmount.toFixed(2)}</span>
                   </div>
                   <div className="border-t pt-2 mt-2">

@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 
 // POST /api/setup/database - Create missing database tables
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.email || session.user.role !== 'admin') {
       return NextResponse.json({ error: 'Unauthorized - Admin access required' }, { status: 401 });
     }
@@ -165,7 +164,7 @@ export async function POST(request: NextRequest) {
 // GET /api/setup/database - Check database status
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.email || session.user.role !== 'admin') {
       return NextResponse.json({ error: 'Unauthorized - Admin access required' }, { status: 401 });
     }

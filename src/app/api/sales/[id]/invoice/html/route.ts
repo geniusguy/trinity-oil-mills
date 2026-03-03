@@ -71,7 +71,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const [saleRows] = await connection.execute(`
       SELECT s.*, u.name as userName,
-             ca.name as canteen_name, ca.address as canteenAddress, ca.contact_person, ca.phone as mobile_number, ca.email as gst_number
+             ca.canteen_name as canteen_name, ca.address as canteenAddress, ca.contact_person, ca.mobile_number as mobile_number, ca.gst_number as gst_number
       FROM sales s
       LEFT JOIN users u ON s.user_id = u.id
       LEFT JOIN canteen_addresses ca ON s.canteen_address_id = ca.id

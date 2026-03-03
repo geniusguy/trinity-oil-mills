@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 
 // GET /api/canteen-addresses
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -16,38 +15,44 @@ export async function GET(request: NextRequest) {
     const [rows] = await connection.query(`
       SELECT 
         id,
-        name as canteenName,
+        canteen_name              AS canteenName,
         address,
         city,
         state,
         pincode,
-        address as billingAddress,
-        city as billingCity,
-        state as billingState,
-        pincode as billingPincode,
-        contact_person as contactPerson,
-        phone as mobileNumber,
-        email as gstNumber,
-        is_active as isActive,
-        created_at as createdAt,
-        updated_at as updatedAt
+        COALESCE(billing_address, address)  AS billingAddress,
+        COALESCE(billing_city,   city)      AS billingCity,
+        COALESCE(billing_state,  state)     AS billingState,
+        COALESCE(billing_pincode,pincode)   AS billingPincode,
+        contact_person            AS contactPerson,
+        mobile_number             AS mobileNumber,
+        gst_number                AS gstNumber,
+        is_active                 AS isActive,
+        created_at                AS createdAt,
+        updated_at                AS updatedAt
       FROM canteen_addresses 
       WHERE is_active = true
-      ORDER BY name
+      ORDER BY canteen_name
     `);
 
     await connection.end();
     return NextResponse.json({ addresses: rows }, { status: 200 });
   } catch (error) {
     console.error('Canteen addresses GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error details:', { message: errorMessage });
+    console.error('DATABASE_URL available:', !!process.env.DATABASE_URL);
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+    }, { status: 500 });
   }
 }
 
 // POST /api/canteen-addresses
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -55,23 +60,27 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       canteenName,
+      // Billing info (optional; fall back to delivery when empty)
       billingAddress,
       billingCity,
       billingState = 'Tamil Nadu',
       billingPincode,
       billingGstNumber,
-      billingContactPerson,
-      billingMobile,
-      billingEmail,
+      // Currently unused extra billing fields:
+      // billingContactPerson,
+      // billingMobile,
+      // billingEmail,
+      // Delivery info (required)
       deliveryAddress,
       deliveryCity,
       deliveryState = 'Tamil Nadu',
       deliveryPincode,
+      // Receiving person (required)
       receivingPersonName,
       receivingPersonMobile,
-      receivingPersonEmail,
-      receivingPersonDesignation,
-      isActive = true
+      // receivingPersonEmail,
+      // receivingPersonDesignation,
+      isActive = true,
     } = body;
 
     // Validate required fields as per user requirements
@@ -110,24 +119,46 @@ export async function POST(request: NextRequest) {
 
     const addressId = `addr-${Date.now()}`;
 
-    await connection.execute(`
+    // Persist delivery and billing addresses separately.
+    // If billing fields are not provided, fall back to delivery.
+    await connection.execute(
+      `
       INSERT INTO canteen_addresses (
-        id, name, address, city, state, pincode,
-        contact_person, phone, email, is_active,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-    `, [
-      addressId,
-      canteenName,
-      deliveryAddress, // Use delivery address as main address
-      deliveryCity,
-      deliveryState,
-      deliveryPincode,
-      receivingPersonName, // Use receiving person as main contact
-      receivingPersonMobile,
-      billingGstNumber,
-      isActive
-    ]);
+        id,
+        canteen_name,
+        address,
+        city,
+        state,
+        pincode,
+        billing_address,
+        billing_city,
+        billing_state,
+        billing_pincode,
+        contact_person,
+        mobile_number,
+        gst_number,
+        is_active,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+    `,
+      [
+        addressId,
+        canteenName,
+        deliveryAddress,
+        deliveryCity,
+        deliveryState,
+        deliveryPincode,
+        billingAddress ?? deliveryAddress,
+        billingCity ?? deliveryCity,
+        billingState ?? deliveryState,
+        billingPincode ?? deliveryPincode,
+        receivingPersonName,
+        receivingPersonMobile,
+        billingGstNumber ?? null,
+        isActive,
+      ],
+    );
 
     await connection.end();
     return NextResponse.json({ 

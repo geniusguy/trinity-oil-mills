@@ -1,41 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 
 // GET - Fetch single canteen address
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const connection = await createConnection();
 
-    const [addresses] = await connection.query(`
+    const [addresses] = await connection.query(
+      `
       SELECT 
         id,
-        name as canteen_name,
+        canteen_name  AS canteen_name,
         address,
         city,
         state,
         pincode,
-        address as billing_address,
-        city as billing_city,
-        state as billing_state,
-        pincode as billing_pincode,
+        billing_address AS billing_address,
+        billing_city    AS billing_city,
+        billing_state   AS billing_state,
+        billing_pincode AS billing_pincode,
         contact_person,
-        phone as mobile_number,
-        email as gst_number,
+        mobile_number   AS mobile_number,
+        gst_number      AS gst_number,
         is_active,
         created_at,
         updated_at
       FROM canteen_addresses 
       WHERE id = ?
-    `, [params.id]);
+    `,
+      [id],
+    );
 
     await connection.end();
 
@@ -59,27 +62,31 @@ export async function GET(
 // PUT - Update canteen address
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const {
       canteenName,
+      // Delivery (required)
       deliveryAddress,
       deliveryCity,
       deliveryState,
       deliveryPincode,
+      // Receiving person (required)
       receivingPersonName,
       receivingPersonMobile,
+      // Billing (optional; fall back to delivery)
       billingAddress,
       billingCity,
       billingState,
       billingPincode,
       billingGstNumber,
-      isActive
+      isActive,
     } = await request.json();
 
     // Validate required fields as per user requirements
@@ -116,32 +123,43 @@ export async function PUT(
 
     const connection = await createConnection();
 
-    await connection.execute(`
+    await connection.execute(
+      `
       UPDATE canteen_addresses 
       SET 
-        name = ?,
-        address = ?,
-        city = ?,
-        state = ?,
-        pincode = ?,
+        canteen_name   = ?,
+        address        = ?,
+        city           = ?,
+        state          = ?,
+        pincode        = ?,
+        billing_address = ?,
+        billing_city    = ?,
+        billing_state   = ?,
+        billing_pincode = ?,
         contact_person = ?,
-        phone = ?,
-        email = ?,
-        is_active = ?,
-        updated_at = NOW()
+        mobile_number  = ?,
+        gst_number     = ?,
+        is_active      = ?,
+        updated_at     = NOW()
       WHERE id = ?
-    `, [
-      canteenName,
-      deliveryAddress, // Use delivery address as main address
-      deliveryCity,
-      deliveryState || 'Tamil Nadu',
-      deliveryPincode,
-      receivingPersonName, // Use receiving person as main contact
-      receivingPersonMobile,
-      billingGstNumber || null,
-      isActive !== undefined ? isActive : true,
-      params.id
-    ]);
+    `,
+      [
+        canteenName,
+        deliveryAddress,
+        deliveryCity,
+        deliveryState || 'Tamil Nadu',
+        deliveryPincode,
+        billingAddress ?? null,
+        billingCity ?? null,
+        billingState ?? null,
+        billingPincode ?? null,
+        receivingPersonName,
+        receivingPersonMobile,
+        billingGstNumber || null,
+        isActive !== undefined ? isActive : true,
+        id,
+      ],
+    );
 
     await connection.end();
 
@@ -160,10 +178,11 @@ export async function PUT(
 // DELETE - Delete canteen address
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -172,7 +191,7 @@ export async function DELETE(
     await connection.execute(`
       DELETE FROM canteen_addresses 
       WHERE id = ?
-    `, [params.id]);
+    `, [id]);
 
     await connection.end();
 

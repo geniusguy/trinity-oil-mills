@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 
 // Function to deduct packaging materials for both retail and canteen sales
 async function deductPackagingMaterials(connection: any, productId: string, quantity: number, saleType: string) {
@@ -81,7 +80,7 @@ async function deductPackagingMaterials(connection: any, productId: string, quan
             );
           }
         } catch (error) {
-          console.log('Could not check canteen order count for tape calculation:', error.message);
+          console.log('Could not check canteen order count for tape calculation:', error instanceof Error ? error.message : error);
         }
       }
     }
@@ -107,7 +106,7 @@ async function deductPackagingMaterials(connection: any, productId: string, quan
         );
       } catch (error) {
         // Raw materials table might not exist yet, ignore error
-        console.log('Raw materials table not available, skipping:', error.message);
+        console.log('Raw materials table not available, skipping:', error instanceof Error ? error.message : error);
       }
       
       console.log(`Deducted ${pkg.quantity} ${pkg.description} for product ${productId}`);
@@ -122,6 +121,12 @@ async function deductPackagingMaterials(connection: any, productId: string, quan
 // GET /api/sales
 export async function GET(request: NextRequest) {
   try {
+    // Check authentication
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const limit = Number(searchParams.get('limit') || 50);
     const offset = Number(searchParams.get('offset') || 0);
@@ -181,8 +186,8 @@ export async function GET(request: NextRequest) {
     
     let query = `SELECT s.id, s.invoice_number as invoiceNumber, s.sale_type as saleType, s.subtotal, s.gst_amount as gstAmount, s.total_amount as totalAmount,
                         s.payment_method as paymentMethod, s.payment_status as paymentStatus, s.shipment_status as shipmentStatus, s.notes${poNumberField}${poDateField}${modeOfSalesField}, s.created_at as createdAt,
-                        s.canteen_address_id as canteenAddressId, u.name as userName, s.notes as customerName, ca.name as canteenName, ca.address as canteenAddress,
-                        ca.contact_person as canteenContact, ca.phone as canteenMobile
+                        s.canteen_address_id as canteenAddressId, u.name as userName, s.notes as customerName, ca.canteen_name as canteenName, ca.address as canteenAddress,
+                        ca.contact_person as canteenContact, ca.mobile_number as canteenMobile
                  FROM sales s
                  JOIN users u ON u.id = s.user_id
                  LEFT JOIN canteen_addresses ca ON ca.id = s.canteen_address_id`;
@@ -204,7 +209,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ sales: rows }, { status: 200 });
   } catch (error) {
     console.error('Sales GET error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('Error details:', { message: errorMessage, stack: errorStack });
+    console.error('DATABASE_URL available:', !!process.env.DATABASE_URL);
+    return NextResponse.json({ 
+      error: 'Internal server error',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+    }, { status: 500 });
   }
 }
 
@@ -272,14 +284,29 @@ async function generateInvoiceNumber(connection: any, saleType: string, customIn
 
 // POST /api/sales (create sale with items, 5% GST, deduct inventory)
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions);
+    const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   try {
     const body = await request.json();
-    const { customerId = null, items = [], paymentMethod = 'cash', paymentStatus = 'paid', shipmentStatus = 'walk_in_delivery', saleType = 'retail', customerName = '', canteenAddressId = null, customInvoiceNumber = null, poNumber = null, poDate = null, modeOfSales = null, customerEmail = null } = body;
+    const {
+      customerId = null,
+      items = [],
+      paymentMethod = 'cash',
+      paymentStatus = 'paid',
+      shipmentStatus = 'walk_in_delivery',
+      saleType = 'retail',
+      customerName = '',
+      canteenAddressId = null,
+      customInvoiceNumber = null,
+      poNumber = null,
+      poDate = null,
+      modeOfSales = null,
+      customerEmail = null,
+      gstMode,
+    } = body;
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: 'At least one item is required' }, { status: 400 });
     }
@@ -312,39 +339,53 @@ export async function POST(request: NextRequest) {
 
     let subtotal = 0;
     let gstAmount = 0;
+    const effectiveGstMode: 'included' | 'excluded' =
+      gstMode === 'included' || gstMode === 'excluded'
+        ? gstMode
+        : (saleType === 'retail' ? 'included' : 'excluded');
+
     const preparedItems = items.map((i: any) => {
       const prod = idToProduct[i.productId];
       const quantity = Number(i.quantity);
-      
+
+      const productGstRate = prod && prod.gstRate != null ? Number(prod.gstRate) : 5.0;
       let unitPrice: number;
       let lineGstAmount: number;
-      let lineTotal: number;
-      
-      if (saleType === 'retail') {
-        // Retail: Use GST-inclusive price, GST is already included
+      let lineBase: number;
+
+      if (effectiveGstMode === 'included') {
+        // Use GST-inclusive price, GST is already inside unit price
         unitPrice = prod ? Number(prod.retailPrice) : Number(i.unitPrice || 0);
-        lineTotal = unitPrice * quantity;
-        // Calculate GST amount from inclusive price
-        lineGstAmount = Number((lineTotal * 0.05 / 1.05).toFixed(2));
-        subtotal += Number((lineTotal - lineGstAmount).toFixed(2));
+        const lineTotalInclusive = unitPrice * quantity;
+        lineGstAmount = Number((lineTotalInclusive * productGstRate / (100 + productGstRate)).toFixed(2));
+        lineBase = Number((lineTotalInclusive - lineGstAmount).toFixed(2));
+        subtotal += lineBase;
         gstAmount += lineGstAmount;
+        return {
+          ...i,
+          unitPrice,
+          quantity,
+          lineTotal: lineTotalInclusive,
+          gstAmount: lineGstAmount,
+          gstRate: productGstRate,
+        };
       } else {
-        // Canteen: Use GST-exclusive price, add GST separately
+        // Use GST-exclusive price, add GST on top
         unitPrice = prod ? Number(prod.basePrice) : Number(i.unitPrice || 0);
-        lineTotal = unitPrice * quantity;
-        lineGstAmount = Number((lineTotal * 0.05).toFixed(2));
-        subtotal += lineTotal;
+        const lineTotalExclusive = unitPrice * quantity;
+        lineGstAmount = Number((lineTotalExclusive * productGstRate / 100).toFixed(2));
+        lineBase = lineTotalExclusive;
+        subtotal += lineBase;
         gstAmount += lineGstAmount;
+        return {
+          ...i,
+          unitPrice,
+          quantity,
+          lineTotal: lineTotalExclusive + lineGstAmount,
+          gstAmount: lineGstAmount,
+          gstRate: productGstRate,
+        };
       }
-      
-      return { 
-        ...i, 
-        unitPrice, 
-        quantity, 
-        lineTotal: saleType === 'retail' ? lineTotal : lineTotal + lineGstAmount,
-        gstAmount: lineGstAmount,
-        gstRate: 5.0 
-      };
     });
 
     const totalAmount = Number((subtotal + gstAmount).toFixed(2));

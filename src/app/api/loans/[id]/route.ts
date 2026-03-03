@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { db } from '@/db/db';
 import { loans, loanPayments } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
@@ -8,15 +7,16 @@ import { eq, desc } from 'drizzle-orm';
 // GET /api/loans/[id] - Get a specific loan with its payment history
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const resolvedParams = await params;
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const loanId = params.id;
+    const loanId = resolvedParams.id;
 
     // Get loan details
     const loan = await db.query.loans.findFirst({
@@ -87,10 +87,11 @@ export async function GET(
 // PUT /api/loans/[id] - Update a loan
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const resolvedParams = await params;
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -100,7 +101,7 @@ export async function PUT(
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
-    const loanId = params.id;
+    const loanId = resolvedParams.id;
     const body = await request.json();
 
     // Check if loan exists
@@ -131,10 +132,11 @@ export async function PUT(
 // DELETE /api/loans/[id] - Delete a loan (only if no payments made)
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions);
+    const resolvedParams = await params;
+    const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -144,7 +146,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
-    const loanId = params.id;
+    const loanId = resolvedParams.id;
 
     // Check if loan exists
     const existingLoan = await db.query.loans.findFirst({

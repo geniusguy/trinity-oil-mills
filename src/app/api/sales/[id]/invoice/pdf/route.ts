@@ -74,9 +74,9 @@ export async function GET(
       `SELECT s.id, s.invoice_number as invoiceNumber, s.subtotal, s.gst_amount as gstAmount, s.total_amount as totalAmount, s.payment_method as paymentMethod, s.created_at as createdAt, s.sale_type as saleType,
               s.po_number as poNumber, s.po_date as poDate, s.mode_of_sales as modeOfSales,
               u.name as userName, s.notes as customerName,
-              ca.name as canteenName, ca.address as canteenAddress, ca.city as canteenCity, ca.state as canteenState, ca.pincode as canteenPincode,
+              ca.canteen_name as canteenName, ca.address as canteenAddress, ca.city as canteenCity, ca.state as canteenState, ca.pincode as canteenPincode,
               ca.address as billingAddress, ca.city as billingCity, ca.state as billingState, ca.pincode as billingPincode,
-              ca.contact_person as contactPerson, ca.phone as mobileNumber, ca.email as gstNumber
+              ca.contact_person as contactPerson, ca.mobile_number as mobileNumber, ca.gst_number as gstNumber
        FROM sales s
        JOIN users u ON u.id = s.user_id
        LEFT JOIN canteen_addresses ca ON ca.id = s.canteen_address_id

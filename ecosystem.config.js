@@ -25,8 +25,39 @@ function loadEnvFile() {
 
   if (envPath) {
     console.log(`📁 Loading .env.production from: ${envPath}`);
-    const envContent = fs.readFileSync(envPath, 'utf8');
-    const lines = envContent.split('\n');
+    
+    // Read file and detect encoding (same as start-server.js)
+    const buffer = fs.readFileSync(envPath);
+    let envContent;
+    let encoding = 'utf8';
+    
+    // Check if file is UTF-16
+    if (buffer.length >= 2) {
+      if (buffer[0] === 0xFF && buffer[1] === 0xFE) {
+        encoding = 'utf16le';
+        console.log('   📝 Detected UTF-16 LE encoding');
+      } else if (buffer[0] === 0xFE && buffer[1] === 0xFF) {
+        encoding = 'utf16le';
+        console.log('   📝 Detected UTF-16 BE encoding');
+      } else if (buffer[0] === 0x00) {
+        encoding = 'utf16le';
+        console.log('   📝 Detected UTF-16 LE encoding (no BOM)');
+      }
+    }
+    
+    if (encoding === 'utf16le') {
+      envContent = buffer.toString('utf16le');
+    } else {
+      envContent = buffer.toString('utf8');
+    }
+    
+    // Remove BOM
+    if (envContent.charCodeAt(0) === 0xFEFF) {
+      envContent = envContent.slice(1);
+    }
+    envContent = envContent.replace(/[\u200B-\u200D\uFEFF]/g, '');
+    
+    const lines = envContent.split(/\r?\n/);
     let loaded = 0;
     
     for (const line of lines) {
@@ -57,6 +88,8 @@ function loadEnvFile() {
   return env;
 }
 
+const env = loadEnvFile();
+
 module.exports = {
   apps: [{
     name: 'api.trinityoil.in',
@@ -69,6 +102,18 @@ module.exports = {
     max_memory_restart: '1G',
     error_file: '/var/log/pm2/api.trinityoil.in-error.log',
     out_file: '/var/log/pm2/api.trinityoil.in-out.log',
-    log_file: '/var/log/pm2/api.trinityoil.in.log'
+    log_file: '/var/log/pm2/api.trinityoil.in.log',
+    // Pass environment variables to PM2
+    env: {
+      ...env,
+      NODE_ENV: 'production',
+      // Ensure Auth.js v5 required variables are set
+      AUTH_SECRET: env.AUTH_SECRET || env.NEXTAUTH_SECRET,
+      AUTH_URL: env.AUTH_URL || env.NEXTAUTH_URL || 'https://api.trinityoil.in',
+      NEXTAUTH_URL: env.NEXTAUTH_URL || 'https://api.trinityoil.in',
+      NEXTAUTH_SECRET: env.NEXTAUTH_SECRET || env.AUTH_SECRET,
+      // Explicitly ensure DATABASE_URL is passed
+      DATABASE_URL: env.DATABASE_URL || '',
+    }
   }]
 };
