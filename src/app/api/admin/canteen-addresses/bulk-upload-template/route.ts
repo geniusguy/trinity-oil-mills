@@ -1,33 +1,58 @@
 import { NextResponse } from 'next/server';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   // Define sample rows
-  const rows = [
-    {
-      'Canteen Name': 'Sample Canteen',
-      'Billing Address': '123 Billing Street, T. Nagar',
-      'Billing City': 'Chennai',
-      'Billing State': 'Tamil Nadu',
-      'Billing Pincode': '600017',
-      'GST Number': '33AAAGT0316F1ZT',
-      'Delivery Address': '45 Delivery Road, T. Nagar',
-      'Delivery City': 'Chennai',
-      'Delivery State': 'Tamil Nadu',
-      'Delivery Pincode': '600017',
-      'Receiving Person Name': 'Raman Kumar',
-      'Receiving Person Mobile': '9876543210',
-      'Active? (Yes/No)': 'Yes',
-    },
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('CanteenAddresses');
+
+  const headers = [
+    'Canteen Name',
+    'Billing Address',
+    'Billing City',
+    'Billing State',
+    'Billing Pincode',
+    'GST Number',
+    'Delivery Address',
+    'Delivery City',
+    'Delivery State',
+    'Delivery Pincode',
+    'Receiving Person Name',
+    'Receiving Person Mobile',
+    'Active? (Yes/No)',
   ];
 
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'CanteenAddresses');
+  worksheet.addRow(headers);
+  worksheet.addRow([
+    'Sample Canteen',
+    '123 Billing Street, T. Nagar',
+    'Chennai',
+    'Tamil Nadu',
+    '600017',
+    '33AAAGT0316F1ZT',
+    '45 Delivery Road, T. Nagar',
+    'Chennai',
+    'Tamil Nadu',
+    '600017',
+    'Raman Kumar',
+    '9876543210',
+    'Yes',
+  ]);
 
-  const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  // Auto-size columns a bit
+  worksheet.columns.forEach((col) => {
+    if (!col) return;
+    let maxLength = 10;
+    col.eachCell({ includeEmpty: true }, (cell) => {
+      const v = cell.value ? cell.value.toString() : '';
+      if (v.length > maxLength) maxLength = v.length;
+    });
+    col.width = Math.min(Math.max(maxLength + 2, 12), 40);
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
 
   return new NextResponse(buffer, {
     status: 200,

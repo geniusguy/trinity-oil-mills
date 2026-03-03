@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { createConnection } from '@/lib/database';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 type Row = {
   'Canteen Name': string;
@@ -38,10 +38,54 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-    const rows = XLSX.utils.sheet_to_json<Row>(sheet, { defval: '' });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const worksheet = workbook.worksheets[0];
+
+    const headerRow = worksheet.getRow(1);
+    const headerMap: Record<string, number> = {};
+    headerRow.eachCell((cell, colNumber) => {
+      const header = String(cell.value || '').trim();
+      if (header) {
+        headerMap[header] = colNumber;
+      }
+    });
+
+    const rows: Row[] = [];
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // skip header
+      const get = (header: keyof Row): string => {
+        const col = headerMap[header as string];
+        if (!col) return '';
+        const cell = row.getCell(col);
+        const v = cell.value;
+        if (v === null || v === undefined) return '';
+        if (typeof v === 'object' && 'text' in (v as any)) return String((v as any).text ?? '');
+        return String(v);
+      };
+
+      const rowObj: Row = {
+        'Canteen Name': get('Canteen Name'),
+        'Billing Address': get('Billing Address'),
+        'Billing City': get('Billing City'),
+        'Billing State': get('Billing State'),
+        'Billing Pincode': get('Billing Pincode'),
+        'GST Number': get('GST Number'),
+        'Delivery Address': get('Delivery Address'),
+        'Delivery City': get('Delivery City'),
+        'Delivery State': get('Delivery State'),
+        'Delivery Pincode': get('Delivery Pincode'),
+        'Receiving Person Name': get('Receiving Person Name'),
+        'Receiving Person Mobile': get('Receiving Person Mobile'),
+        'Active? (Yes/No)': get('Active? (Yes/No)'),
+      };
+
+      // Skip completely empty rows
+      const hasAnyValue = Object.values(rowObj).some((v) => v && v.toString().trim() !== '');
+      if (hasAnyValue) {
+        rows.push(rowObj);
+      }
+    });
 
     if (!rows.length) {
       return NextResponse.json({ error: 'No rows found in Excel file' }, { status: 400 });
