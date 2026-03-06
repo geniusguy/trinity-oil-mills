@@ -230,7 +230,7 @@ export default function DashboardPage() {
         return (
           <div className="space-y-6">
             <div>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
                   <p className="mt-2 text-gray-600">Comprehensive overview of your oil mill operations</p>
@@ -418,7 +418,7 @@ export default function DashboardPage() {
         return (
           <div className="space-y-6">
             <div>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <h1 className="text-3xl font-bold text-gray-900">Accountant Dashboard</h1>
                 <FilterToggle />
               </div>

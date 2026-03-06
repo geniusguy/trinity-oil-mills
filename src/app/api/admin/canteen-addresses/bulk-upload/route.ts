@@ -96,9 +96,22 @@ export async function POST(request: NextRequest) {
     try {
       let created = 0;
       const now = Date.now();
+      const skipped: { rowIndex: number; reason: string }[] = [];
+
+      // Load existing canteens to detect duplicates by Canteen Name
+      const [existingRows] = await connection.query(
+        'SELECT canteen_name FROM canteen_addresses',
+      );
+      const existingKeys = new Set<string>();
+      (existingRows as any[]).forEach((r) => {
+        const name = (r.canteen_name || '').toString().toLowerCase().trim();
+        if (name) existingKeys.add(name);
+      });
+      const batchKeys = new Set<string>();
 
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
+        const excelRowNumber = i + 2; // +2 because Excel header is row 1
 
         const canteenName = row['Canteen Name']?.toString().trim();
         const deliveryAddress = row['Delivery Address']?.toString().trim();
@@ -106,20 +119,44 @@ export async function POST(request: NextRequest) {
         const deliveryState = row['Delivery State']?.toString().trim() || 'Tamil Nadu';
         const deliveryPincode = row['Delivery Pincode']?.toString().trim();
         const receivingPersonName = row['Receiving Person Name']?.toString().trim();
-        const receivingPersonMobile = row['Receiving Person Mobile']?.toString().trim();
 
-        if (
-          !canteenName ||
-          !deliveryAddress ||
-          !deliveryCity ||
-          !deliveryPincode ||
-          !receivingPersonName ||
-          !receivingPersonMobile
-        ) {
-          // Skip rows with missing mandatory fields
-          // You could also collect errors per-row if needed
+        // Normalize mobile number:
+        // - Accept cases like "9876543210 / 9123456789" by taking the first part
+        // - Keep only digits
+        // - Trim to max 15 characters (DB column is varchar(15))
+        const rawMobile = row['Receiving Person Mobile']?.toString().trim() || '';
+        const firstPart = rawMobile.split('/')[0] || rawMobile;
+        const digitsOnly = firstPart.replace(/\D+/g, '');
+        const receivingPersonMobile = digitsOnly.slice(-15); // keep last 15 digits (handles +91 prefixes etc.)
+
+        const missingFields: string[] = [];
+        if (!canteenName) missingFields.push('Canteen Name');
+        if (!deliveryAddress) missingFields.push('Delivery Address');
+        if (!deliveryCity) missingFields.push('Delivery City');
+        if (!deliveryPincode) missingFields.push('Delivery Pincode');
+        if (!receivingPersonName) missingFields.push('Receiving Person Name');
+        if (!receivingPersonMobile) missingFields.push('Receiving Person Mobile');
+
+        if (missingFields.length > 0) {
+          skipped.push({
+            rowIndex: excelRowNumber,
+            reason: `Missing required fields: ${missingFields.join(', ')}`,
+          });
           continue;
         }
+
+        // Duplicate detection: same Canteen Name (case-insensitive)
+        // We silently skip duplicates (do NOT report as error rows)
+        const dupKey = canteenName.toLowerCase();
+        if (existingKeys.has(dupKey)) {
+          // Already in DB – skip without adding to error report
+          continue;
+        }
+        if (batchKeys.has(dupKey)) {
+          // Repeated in the same Excel – skip without adding to error report
+          continue;
+        }
+        batchKeys.add(dupKey);
 
         const billingAddress = row['Billing Address']?.toString().trim() || deliveryAddress;
         const billingCity = row['Billing City']?.toString().trim() || deliveryCity;
@@ -168,11 +205,19 @@ export async function POST(request: NextRequest) {
 
       await connection.end();
 
+      const skippedSummary =
+        skipped.length === 0
+          ? 'No rows skipped.'
+          : `Skipped rows: ${skipped
+              .map((s) => `${s.rowIndex} (${s.reason})`)
+              .join('; ')}`;
+
       return NextResponse.json(
         {
-          message: 'Bulk upload completed',
+          message: `Bulk upload completed. ${skippedSummary}`,
           totalRows: rows.length,
           created,
+          skippedRows: skipped,
         },
         { status: 200 },
       );

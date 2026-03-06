@@ -445,21 +445,21 @@ export default function CanteenSalesPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Canteen Sales</h1>
               <p className="mt-2 text-gray-600">Manage canteen sales and deliveries</p>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-wrap gap-3 items-center">
               <Link
                 href="/dashboard/admin/sales/pos?type=canteen"
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="w-full sm:w-auto text-center bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 New Canteen Sale
               </Link>
               <Link
                 href="/dashboard/admin/canteen-addresses"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="w-full sm:w-auto text-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 Manage Addresses
               </Link>
@@ -468,19 +468,19 @@ export default function CanteenSalesPage() {
               </span>
               <Link
                 href="/dashboard/admin/sales"
-                className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="w-full sm:w-auto text-center bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 All Sales
               </Link>
               <Link
                 href="/dashboard/admin/sales/retail"
-                className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="w-full sm:w-auto text-center bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 Retail Sales
               </Link>
               <Link
                 href="/dashboard"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="w-full sm:w-auto text-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 Dashboard
               </Link>

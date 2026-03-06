@@ -260,24 +260,24 @@ export default function AdminUsersPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
               <p className="mt-2 text-gray-600">Manage users and reset passwords</p>
             </div>
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-wrap gap-3 items-center">
               <span className="text-sm text-gray-700">
                 Welcome, {session.user?.name} (Admin)
               </span>
               <button
                 onClick={openAddModal}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="w-full sm:w-auto text-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 Add User
               </button>
               <Link
                 href="/dashboard"
-                className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+                className="w-full sm:w-auto text-center bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium"
               >
                 Back to Dashboard
               </Link>

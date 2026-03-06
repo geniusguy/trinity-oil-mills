@@ -223,14 +223,14 @@ export default function AdminInventoryPage() {
             {queueCount} action(s) pending sync. They will be sent when you’re online.
           </div>
         )}
-        <div className="mb-8 flex items-center justify-between">
+        <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Inventory Management</h1>
             <p className="mt-2 text-gray-600">Monitor stock levels, track inventory, and manage warehouse operations</p>
           </div>
-          <div className="flex gap-3">
-            <Link href="/dashboard/admin/products" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">Products</Link>
-            <Link href="/dashboard" className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium">Back to Dashboard</Link>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/dashboard/admin/products" className="w-full sm:w-auto text-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">Products</Link>
+            <Link href="/dashboard" className="w-full sm:w-auto text-center bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium">Back to Dashboard</Link>
           </div>
         </div>
 

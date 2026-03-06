@@ -407,9 +407,23 @@ export default function AdminCanteenAddressesPage() {
       if (!res.ok) {
         setUploadError(data.error || 'Bulk upload failed');
       } else {
-        setSuccess(
-          `Bulk upload completed. Processed ${data.totalRows ?? '?'} rows, created ${data.created ?? '?'} addresses.`,
-        );
+        const total = data.totalRows ?? '?';
+        const created = data.created ?? '?';
+        const skippedRows: { rowIndex: number; reason: string }[] = data.skippedRows ?? [];
+
+        let msg = `Bulk upload completed. Processed ${total} rows, created ${created} addresses.`;
+
+        if (skippedRows.length > 0) {
+          const summary = skippedRows
+            .slice(0, 10)
+            .map((s) => `Row ${s.rowIndex}: ${s.reason}`)
+            .join(' | ');
+          msg += ` Skipped ${skippedRows.length} row(s): ${summary}${
+            skippedRows.length > 10 ? ' (showing first 10)' : ''
+          }`;
+        }
+
+        setSuccess(msg);
         fetchAddresses();
       }
     } catch {

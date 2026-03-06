@@ -209,7 +209,7 @@ const SavingsInvestmentsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-3">
           <span className="text-4xl">💰</span>
           <div>
@@ -217,12 +217,15 @@ const SavingsInvestmentsPage: React.FC = () => {
             <p className="text-gray-600">Track financial portfolio and investments</p>
           </div>
         </div>
-        <Button
-          onClick={() => setShowForm(!showForm)}
-          variant="primary"
-        >
-          {showForm ? 'Cancel' : '+ Add Investment'}
-        </Button>
+        <div className="flex">
+          <Button
+            onClick={() => setShowForm(!showForm)}
+            variant="primary"
+            className="w-full md:w-auto justify-center"
+          >
+            {showForm ? 'Cancel' : '+ Add Investment'}
+          </Button>
+        </div>
       </div>
 
       {showForm && (

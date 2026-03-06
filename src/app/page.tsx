@@ -8,6 +8,7 @@ export default function Home() {
   const { data: session } = useSession();
   const [mounted, setMounted] = useState(false);
   const [currentYear, setCurrentYear] = useState('2025');
+  const [isNavOpen, setIsNavOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -51,7 +52,7 @@ export default function Home() {
     <div className="min-h-screen bg-white">
       {/* Header */}
       <header className="fixed top-0 w-full z-50 bg-white/95 backdrop-blur-md shadow-lg border-b border-gray-200">
-        <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
+        <div className="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between gap-4">
           <div className="flex items-center">
             <img 
               src="/TOM_logo.png" 
@@ -59,6 +60,23 @@ export default function Home() {
               className="h-12 w-auto object-contain drop-shadow-md"
             />
           </div>
+          
+          {/* Mobile nav toggle */}
+          <button
+            type="button"
+            className="md:hidden inline-flex items-center justify-center rounded-md p-2 text-gray-700 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-green-700"
+            aria-label="Toggle navigation"
+            onClick={() => setIsNavOpen(!isNavOpen)}
+          >
+            <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {isNavOpen ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              )}
+            </svg>
+          </button>
+
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-700">
             <a href="#about" className="hover:text-green-700 transition-colors">About</a>
             <a href="#products" className="hover:text-green-700 transition-colors">Products</a>
@@ -82,6 +100,36 @@ export default function Home() {
             )}
           </div>
         </div>
+
+        {/* Mobile navigation panel */}
+        {isNavOpen && (
+          <div className="md:hidden border-t border-gray-100 bg-white/95 backdrop-blur-sm">
+            <nav className="mx-auto max-w-7xl px-6 py-3 flex flex-col gap-2 text-sm font-medium text-gray-700">
+              <a href="#about" className="py-1 hover:text-green-700 transition-colors" onClick={() => setIsNavOpen(false)}>About</a>
+              <a href="#products" className="py-1 hover:text-green-700 transition-colors" onClick={() => setIsNavOpen(false)}>Products</a>
+              <a href="#quality" className="py-1 hover:text-green-700 transition-colors" onClick={() => setIsNavOpen(false)}>Quality</a>
+              <a href="#contact" className="py-1 hover:text-green-700 transition-colors" onClick={() => setIsNavOpen(false)}>Contact</a>
+              {!session && (
+                <>
+                  <Link
+                    href="/login"
+                    className="mt-2 inline-flex w-full items-center justify-center rounded-full border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all"
+                    onClick={() => setIsNavOpen(false)}
+                  >
+                    Admin Login
+                  </Link>
+                  <a
+                    href="tel:+919952055660"
+                    className="mt-2 inline-flex w-full items-center justify-center rounded-full bg-yellow-500 px-6 py-2.5 text-sm font-bold text-gray-900 hover:bg-yellow-400 transition-all"
+                    onClick={() => setIsNavOpen(false)}
+                  >
+                    📞 Enquire Now
+                  </a>
+                </>
+              )}
+            </nav>
+          </div>
+        )}
       </header>
 
       {/* Hero Section with Background */}
@@ -109,8 +157,8 @@ export default function Home() {
               fontStyle: 'normal',
               fontWeight: 100,
               color: 'rgb(255, 255, 255)',
-              fontSize: '130px',
-              lineHeight: '130px'
+              fontSize: 'clamp(3rem, 10vw, 130px)',
+              lineHeight: 1.1
             }}
           >
             Trinity Oil Mills
@@ -125,13 +173,13 @@ export default function Home() {
           </p>
           
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
-            <a href="#products" className="inline-flex items-center rounded-full bg-yellow-500 px-8 py-4 text-lg font-bold text-gray-900 hover:bg-yellow-400 transition-all pulse-cta shadow-xl">
+            <a href="#products" className="inline-flex w-full sm:w-auto items-center justify-center rounded-full bg-yellow-500 px-8 py-4 text-lg font-bold text-gray-900 hover:bg-yellow-400 transition-all pulse-cta shadow-xl">
               Explore Our Oils
               <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
               </svg>
             </a>
-            <a href="tel:+919952055660" className="inline-flex items-center rounded-full border-2 border-white/30 bg-white/10 backdrop-blur px-8 py-4 text-lg font-semibold text-white hover:bg-white/20 transition-all">
+            <a href="tel:+919952055660" className="inline-flex w-full sm:w-auto items-center justify-center rounded-full border-2 border-white/30 bg-white/10 backdrop-blur px-8 py-4 text-lg font-semibold text-white hover:bg-white/20 transition-all">
               📞 Call Us
             </a>
           </div>
@@ -293,7 +341,7 @@ export default function Home() {
           </div>
 
           <div className="text-center mt-12">
-            <a href="mailto:TrintiyOilmills@gmail.com?subject=Bulk Orders & Wholesale Inquiry&body=Hi, I'm interested in bulk orders and wholesale pricing for your cold-pressed oils. Please provide more information." className="inline-flex items-center rounded-full bg-gradient-to-r from-green-600 to-green-700 px-8 py-4 text-lg font-bold text-white hover:from-green-700 hover:to-green-800 transition-all shadow-xl">
+            <a href="mailto:TrintiyOilmills@gmail.com?subject=Bulk Orders & Wholesale Inquiry&body=Hi, I'm interested in bulk orders and wholesale pricing for your cold-pressed oils. Please provide more information." className="inline-flex w-full sm:w-auto items-center justify-center rounded-full bg-gradient-to-r from-green-600 to-green-700 px-8 py-4 text-lg font-bold text-white hover:from-green-700 hover:to-green-800 transition-all shadow-xl">
               Bulk Orders & Wholesale
               <svg className="ml-2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 1.05c2.59.34 5.21-.55 7.11-2.41l.1-.1a9.97 9.97 0 001.42-12.54" />
@@ -365,7 +413,7 @@ export default function Home() {
 
       {/* CTA Section */}
       <section className="py-20 bg-gradient-to-br from-green-800 via-green-700 to-green-800">
-        <div className="mx-auto max-w-4xl px-6 text-center">
+          <div className="mx-auto max-w-4xl px-6 text-center">
           <h2 className="text-4xl md:text-5xl font-[var(--font-display)] font-bold text-white mb-6">
             Ready to Experience <span className="text-yellow-400">Pure Quality?</span>
           </h2>
@@ -373,10 +421,10 @@ export default function Home() {
             Join thousands of satisfied customers who trust Trinity Oil Mills for their cooking and wellness needs.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <a href="mailto:TrintiyOilmills@gmail.com" className="inline-flex items-center rounded-full bg-yellow-500 px-8 py-4 text-lg font-bold text-gray-900 hover:bg-yellow-400 transition-all pulse-cta">
+            <a href="mailto:TrintiyOilmills@gmail.com" className="inline-flex w-full sm:w-auto items-center justify-center rounded-full bg-yellow-500 px-8 py-4 text-lg font-bold text-gray-900 hover:bg-yellow-400 transition-all pulse-cta">
               Contact Us Today
             </a>
-            <a href="tel:+919952055660" className="inline-flex items-center rounded-full border-2 border-white bg-white/10 backdrop-blur px-8 py-4 text-lg font-semibold text-white hover:bg-white/20 transition-all">
+            <a href="tel:+919952055660" className="inline-flex w-full sm:w-auto items-center justify-center rounded-full border-2 border-white bg-white/10 backdrop-blur px-8 py-4 text-lg font-semibold text-white hover:bg-white/20 transition-all">
               Call Now
             </a>
           </div>
