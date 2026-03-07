@@ -119,6 +119,30 @@ const getProductBackground = (product: Product): string => {
   return 'bg-gradient-to-br from-green-100 to-green-200';
 };
 
+// Current financial year for PO (e.g. "24-25" for Apr 2024–Mar 2025)
+function getCurrentFY(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  if (m >= 3) return `${String(y).slice(-2)}-${String(y + 1).slice(-2)}`;
+  return `${String(y - 1).slice(-2)}-${String(y).slice(-2)}`;
+}
+
+function getPoYearOptions(): string[] {
+  const current = getCurrentFY();
+  const [a] = current.split('-').map(Number);
+  const list: string[] = [];
+  const start = Math.max(0, a - 5); // past 5 years
+  const end = 29; // up to 29-30 (FY ending March 2030)
+  for (let y1 = start; y1 <= end; y1++) {
+    const y2 = y1 + 1;
+    list.push(`${String(y1).padStart(2, '0')}-${String(y2).padStart(2, '0')}`);
+  }
+  return list;
+}
+
+const PO_YEAR_OPTIONS = getPoYearOptions();
+
 export default function POSPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -138,20 +162,40 @@ export default function POSPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [poNumber, setPoNumber] = useState('');
-  const [poDate, setPoDate] = useState('');
+  const [poNumberValue, setPoNumberValue] = useState(''); // User types just the number
+  const [poYear, setPoYear] = useState(getCurrentFY); // lazy init e.g. "24-25"
+  const [poDate, setPoDate] = useState(() => new Date().toISOString().slice(0, 10)); // Required; default today
   const [modeOfSales, setModeOfSales] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
-  const [customInvoiceNumber, setCustomInvoiceNumber] = useState('');
+  const [customInvoiceNum, setCustomInvoiceNum] = useState(''); // 4-digit number when editing
+  const [customInvoiceYear, setCustomInvoiceYear] = useState(() => new Date().getFullYear().toString());
   const [showInvoiceEdit, setShowInvoiceEdit] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [currentYear, setCurrentYear] = useState('2025');
+  const [editingQuantity, setEditingQuantity] = useState<Record<string, string>>({});
   const { addToast, ToastContainer } = useToast();
 
   // Set mounted and current year
   useEffect(() => {
     setMounted(true);
     setCurrentYear(new Date().getFullYear().toString());
+  }, []);
+
+  // Prevent Backspace from triggering browser back (better UX: don't close/navigate away from cart)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Backspace') return;
+      const target = e.target as HTMLElement;
+      const tagName = target.tagName?.toLowerCase();
+      const isEditable =
+        tagName === 'input' ||
+        tagName === 'textarea' ||
+        target.isContentEditable;
+      if (isEditable) return; // Let Backspace work normally in inputs
+      e.preventDefault(); // Stop Backspace from navigating back
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, []);
 
   // Authentication check
@@ -271,6 +315,11 @@ export default function POSPage() {
           : item
       ));
     }
+    setEditingQuantity(prev => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
   };
 
   const clearCart = () => {
@@ -311,6 +360,11 @@ export default function POSPage() {
       return;
     }
 
+    if (!poDate || !poDate.trim()) {
+      setError('Please select PO Date');
+      return;
+    }
+
     setIsSaving(true);
     setError('');
 
@@ -331,10 +385,10 @@ export default function POSPage() {
         paymentMethod,
         customerName: customerName || 'Walk-in Customer',
         canteenAddressId: saleType === 'canteen' ? selectedCanteen : null,
-        poNumber: poNumber || null, // PO number available for both retail and canteen
-        poDate: poDate || null, // PO date selected by user
+        poNumber: (poNumberValue.trim() && poYear) ? `PO-${poNumberValue.trim()} / ${poYear}` : null,
+        poDate: poDate.trim() || null, // Main date for invoice (required)
         modeOfSales: modeOfSales === 'email' && customerEmail ? `email:${customerEmail}` : modeOfSales || null, // Mode of sales with email if applicable
-        customInvoiceNumber: customInvoiceNumber || null,
+        customInvoiceNumber: (showInvoiceEdit && customInvoiceNum.trim()) ? `${saleType === 'canteen' ? 'C' : 'R'}${customInvoiceNum.replace(/\D/g, '').padStart(4, '0').slice(0, 4)}/${customInvoiceYear}` : null,
         customerEmail: customerEmail || null
       };
 
@@ -351,11 +405,13 @@ export default function POSPage() {
         setCart([]);
         setCustomerName('');
         setSelectedCanteen('');
-        setPoNumber('');
-        setPoDate('');
+        setPoNumberValue('');
+        setPoYear(getCurrentFY());
+        setPoDate(new Date().toISOString().slice(0, 10));
         setModeOfSales('');
         setCustomerEmail('');
-        setCustomInvoiceNumber('');
+        setCustomInvoiceNum('');
+        setCustomInvoiceYear(new Date().getFullYear().toString());
         setShowInvoiceEdit(false);
         setTimeout(() => {
           router.push('/dashboard/admin/sales');
@@ -532,17 +588,17 @@ export default function POSPage() {
                       {inCart ? (
                         <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
                           <button
-                            onClick={() => updateQuantity(product.id, inCart.quantity - 1)}
+                            onClick={() => updateQuantity(product.id, Math.max(0, Math.round(inCart.quantity) - 1))}
                             className="w-10 h-10 flex items-center justify-center bg-white border border-green-300 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-110 active:scale-95 touch-manipulation"
                           >
                             <span className="text-green-600 font-bold text-lg">−</span>
                           </button>
                           <div className="text-center">
-                            <div className="font-bold text-green-800 text-lg">{inCart.quantity}</div>
+                            <div className="font-bold text-green-800 text-lg">{Math.round(inCart.quantity)}</div>
                             <div className="text-xs text-green-600">in cart</div>
                           </div>
                           <button
-                            onClick={() => updateQuantity(product.id, inCart.quantity + 1)}
+                            onClick={() => updateQuantity(product.id, Math.round(inCart.quantity) + 1)}
                             className="w-10 h-10 flex items-center justify-center bg-white border border-green-300 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-110 active:scale-95 touch-manipulation"
                           >
                             <span className="text-green-600 font-bold text-lg">+</span>
@@ -607,33 +663,40 @@ export default function POSPage() {
                       </div>
                       <div className="flex items-center space-x-2">
                         <button
-                          onClick={() => updateQuantity(item.productId, item.quantity - 1)}
+                          onClick={() => updateQuantity(item.productId, Math.max(0, Math.round(item.quantity) - 1))}
                           className="w-6 h-6 flex items-center justify-center bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
                         >
                           −
                         </button>
                         <input
                           type="number"
-                          value={item.quantity}
+                          value={editingQuantity[item.productId] !== undefined ? editingQuantity[item.productId] : item.quantity}
                           onChange={(e) => {
-                            const newQuantity = parseFloat(e.target.value) || 0;
-                            if (newQuantity >= 0) {
-                              updateQuantity(item.productId, newQuantity);
+                            const raw = e.target.value;
+                            const num = parseFloat(raw);
+                            if (raw === '' || raw === '-' || Number.isNaN(num)) {
+                              setEditingQuantity(prev => ({ ...prev, [item.productId]: raw }));
+                              return;
                             }
+                            if (num <= 0) {
+                              setEditingQuantity(prev => ({ ...prev, [item.productId]: raw }));
+                              return;
+                            }
+                            updateQuantity(item.productId, num);
                           }}
                           onBlur={(e) => {
-                            // Ensure minimum quantity of 0.1 if not zero
-                            const value = parseFloat(e.target.value) || 0;
-                            if (value > 0 && value < 0.1) {
-                              updateQuantity(item.productId, 0.1);
+                            const raw = e.target.value;
+                            const num = parseFloat(raw);
+                            if (raw === '' || Number.isNaN(num) || num <= 0) {
+                              updateQuantity(item.productId, 1);
                             }
                           }}
-                          min="0"
-                          step="0.1"
+                          min="1"
+                          step="1"
                           className="w-16 text-center font-medium border border-gray-300 rounded px-1 py-1 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
                         />
                         <button
-                          onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                          onClick={() => updateQuantity(item.productId, Math.round(item.quantity) + 1)}
                           className="w-6 h-6 flex items-center justify-center bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
                         >
                           +
@@ -648,10 +711,9 @@ export default function POSPage() {
               )}
             </div>
 
-            {/* Customer Details */}
-            {cart.length > 0 && (
-              <div className="bg-white rounded-lg shadow-sm p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">👤 Customer Details</h3>
+            {/* Customer Details - always show so cart doesn't "close" when empty */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">👤 Customer Details</h3>
                 
                 {saleType === 'canteen' ? (
                   <div className="space-y-3">
@@ -679,33 +741,48 @@ export default function POSPage() {
                           PO Number (Customer Reference)
                         </label>
                       </div>
-                      <input
-                        type="text"
-                        value={poNumber}
-                        onChange={(e) => setPoNumber(e.target.value)}
-                        placeholder="e.g., PO-2025-001, REQ-123, 56-2025"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-gray-600 font-medium">PO-</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={poNumberValue}
+                          onChange={(e) => setPoNumberValue(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                          placeholder="Number"
+                          className="flex-1 min-w-[80px] max-w-[120px] px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        />
+                        <span className="text-gray-600 font-medium">/</span>
+                        <select
+                          value={poYear}
+                          onChange={(e) => setPoYear(e.target.value)}
+                          className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
+                        >
+                          {PO_YEAR_OPTIONS.map((y) => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
                       <p className="text-xs text-gray-500 mt-1">
-                        <strong>Customer's Purchase Order number</strong> - This will appear as "PO NO: [your input]" on the invoice
+                        <strong>Customer&apos;s Purchase Order</strong> — appears as &quot;PO NO: PO-{poNumberValue || '…'} / {poYear}&quot; on the invoice
                       </p>
                     </div>
 
-                    {/* PO Date Field for Canteen Sales */}
+                    {/* PO Date - main date for invoice (required) */}
                     <div className="mt-3">
                       <div className="flex items-center justify-between mb-2">
                         <label className="block text-sm font-medium text-gray-700">
-                          PO Date (Optional)
+                          PO Date <span className="text-red-500">*</span>
                         </label>
                       </div>
                       <input
                         type="date"
+                        required
                         value={poDate}
                         onChange={(e) => setPoDate(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                       />
                       <p className="text-xs text-gray-500 mt-1">
-                        <strong>Purchase Order Date</strong> - This will appear as "Dated: [your selected date]" on the invoice. If not selected, today's date will be used.
+                        <strong>Purchase Order Date</strong> — This is the main date saved and shown as &quot;Dated&quot; on the invoice.
                       </p>
                     </div>
 
@@ -773,34 +850,49 @@ export default function POSPage() {
                     
                     {/* PO Number Field for Retail Sales too */}
                     <div className="mt-3">
-                      <label className="block text-sm font-medium text-gray-700">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         PO Number (Customer Reference)
                       </label>
-                      <input
-                        type="text"
-                        value={poNumber}
-                        onChange={(e) => setPoNumber(e.target.value)}
-                        placeholder="e.g., PO-2025-001, REQ-123, 56-2025"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-gray-600 font-medium">PO-</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={poNumberValue}
+                          onChange={(e) => setPoNumberValue(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                          placeholder="Number"
+                          className="flex-1 min-w-[80px] max-w-[120px] px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        />
+                        <span className="text-gray-600 font-medium">/</span>
+                        <select
+                          value={poYear}
+                          onChange={(e) => setPoYear(e.target.value)}
+                          className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
+                        >
+                          {PO_YEAR_OPTIONS.map((y) => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
                       <p className="text-xs text-gray-500 mt-1">
-                        <strong>Customer's Purchase Order number</strong> - This will appear as "PO NO: [your input]" on the invoice
+                        <strong>Customer&apos;s Purchase Order</strong> — appears as &quot;PO NO: PO-{poNumberValue || '…'} / {poYear}&quot; on the invoice
                       </p>
                     </div>
 
-                    {/* PO Date Field for Retail Sales too */}
+                    {/* PO Date - main date for invoice (required) */}
                     <div className="mt-3">
-                      <label className="block text-sm font-medium text-gray-700">
-                        PO Date (Optional)
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        PO Date <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="date"
+                        required
                         value={poDate}
                         onChange={(e) => setPoDate(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                       />
                       <p className="text-xs text-gray-500 mt-1">
-                        <strong>Purchase Order Date</strong> - This will appear as "Dated: [your selected date]" on the invoice. If not selected, today's date will be used.
+                        <strong>Purchase Order Date</strong> — This is the main date saved and shown as &quot;Dated&quot; on the invoice.
                       </p>
                     </div>
 
@@ -916,15 +1008,29 @@ export default function POSPage() {
                   
                   {showInvoiceEdit ? (
                     <div className="space-y-2">
-                      <input
-                        type="text"
-                        value={customInvoiceNumber}
-                        onChange={(e) => setCustomInvoiceNumber(e.target.value)}
-                        placeholder={`e.g., 56 or ${saleType === 'canteen' ? 'C' : 'R'}0000056/2025`}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-gray-600 font-medium">{saleType === 'canteen' ? 'C' : 'R'}</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={customInvoiceNum}
+                          onChange={(e) => setCustomInvoiceNum(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                          placeholder="0001"
+                          className="w-20 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        />
+                        <span className="text-gray-600 font-medium">/</span>
+                        <select
+                          value={customInvoiceYear}
+                          onChange={(e) => setCustomInvoiceYear(e.target.value)}
+                          className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
+                        >
+                          {Array.from({ length: 11 }, (_, i) => 2020 + i).map((y) => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      </div>
                       <p className="text-xs text-gray-500">
-                        Enter just the number (e.g., 56) or full format ({saleType === 'canteen' ? 'C' : 'R'}0000056/2025)
+                        4-digit number + year. Example: {saleType === 'canteen' ? 'C' : 'R'}{(customInvoiceNum.replace(/\D/g, '') || '1').padStart(4, '0').slice(0, 4)}/{customInvoiceYear}
                       </p>
                     </div>
                   ) : (
@@ -936,13 +1042,12 @@ export default function POSPage() {
                         <span className="text-green-800 font-medium">Auto-Generated Invoice Number</span>
                       </div>
                       <p className="text-sm text-green-600 mt-1">
-                        Invoice number will be automatically generated in format: {saleType === 'canteen' ? 'C' : 'R'}0000001/{currentYear}
+                        Invoice number will be automatically generated in format: {saleType === 'canteen' ? 'C' : 'R'}0001/{currentYear}
                       </p>
                     </div>
                   )}
                 </div>
               </div>
-            )}
 
             {/* Bill Summary */}
             {cart.length > 0 && (

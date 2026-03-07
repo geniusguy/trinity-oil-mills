@@ -220,24 +220,24 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Function to generate auto invoice number with 8 digits and year (separate sequences for canteen and retail)
+// Function to generate auto invoice number with 4 digits and year (e.g. C0001/2026)
 async function generateInvoiceNumber(connection: any, saleType: string, customInvoiceNumber?: string) {
   if (customInvoiceNumber && customInvoiceNumber.trim() !== '') {
     let formattedNumber = customInvoiceNumber.trim();
     
-    // If user just entered a number like "56", format it properly with sale type prefix
+    // If user just entered a number like "56", format it properly with sale type prefix (4 digits)
     if (/^\d+$/.test(formattedNumber)) {
       const currentYear = new Date().getFullYear();
-      const paddedNumber = formattedNumber.padStart(7, '0'); // 7 digits since we add prefix
+      const paddedNumber = formattedNumber.padStart(4, '0');
       const prefix = saleType === 'canteen' ? 'C' : 'R';
       formattedNumber = `${prefix}${paddedNumber}/${currentYear}`;
     }
     
-    // Validate the final format (with prefix)
-    const formatRegex = /^[CR]\d{7}\/\d{4}$/;
+    // Validate the final format: C0001/2026 or R0001/2026 (4 digits)
+    const formatRegex = /^[CR]\d{4}\/\d{4}$/;
     if (!formatRegex.test(formattedNumber)) {
       const expectedPrefix = saleType === 'canteen' ? 'C' : 'R';
-      throw new Error(`Invoice number must be in format: ${expectedPrefix}0000056/2025 or just enter: 56`);
+      throw new Error(`Invoice number must be in format: ${expectedPrefix}0001/2026 or just enter: 1`);
     }
     
     // Check if the prefix matches the sale type
@@ -260,7 +260,7 @@ async function generateInvoiceNumber(connection: any, saleType: string, customIn
     return formattedNumber;
   }
   
-  // Auto-generate invoice number with separate sequences
+  // Auto-generate invoice number with separate sequences (4 digits)
   const currentYear = new Date().getFullYear();
   const prefix = saleType === 'canteen' ? 'C' : 'R';
   
@@ -274,11 +274,11 @@ async function generateInvoiceNumber(connection: any, saleType: string, customIn
   if (rows.length > 0) {
     const lastInvoice = rows[0].invoice_number;
     const numberPart = lastInvoice.split('/')[0].substring(1); // Remove prefix
-    nextNumber = parseInt(numberPart) + 1;
+    nextNumber = parseInt(numberPart, 10) + 1;
   }
   
-  // Format as 7 digits with leading zeros (since we have 1 letter prefix)
-  const paddedNumber = nextNumber.toString().padStart(7, '0');
+  // Format as 4 digits with leading zeros (e.g. C0001/2026)
+  const paddedNumber = nextNumber.toString().padStart(4, '0');
   return `${prefix}${paddedNumber}/${currentYear}`;
 }
 

@@ -103,12 +103,12 @@ export async function PUT(
       console.log('Could not check for po_date column:', error);
     }
 
-    // Validate invoice number format if provided
+    // Validate invoice number format if provided (4 digits: C0001/2026)
     if (invoiceNumber && invoiceNumber.trim() !== '') {
-      const formatRegex = /^[CR]\d{7}\/\d{4}$/;
+      const formatRegex = /^[CR]\d{4}\/\d{4}$/;
       if (!formatRegex.test(invoiceNumber.trim())) {
         await connection.end();
-        return NextResponse.json({ error: 'Invalid invoice number format. Use C0000001/2025 or R0000001/2025' }, { status: 400 });
+        return NextResponse.json({ error: 'Invalid invoice number format. Use C0001/2026 or R0001/2026' }, { status: 400 });
       }
 
       // Check for duplicate invoice numbers (excluding current sale)

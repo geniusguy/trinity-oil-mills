@@ -16,6 +16,9 @@ interface CanteenAddress {
   billing_city: string | null;
   billing_state: string | null;
   billing_pincode: string | null;
+  billing_contact_person?: string | null;
+  billing_email?: string | null;
+  billing_mobile?: string | null;
   contact_person: string;
   mobile_number: string;
   gst_number: string | null;
@@ -157,9 +160,9 @@ export default function AdminCanteenAddressesPage() {
       billingState: address.billing_state || 'Tamil Nadu',
       billingPincode: address.billing_pincode || '',
       billingGstNumber: address.gst_number || '',
-      billingContactPerson: address.contact_person, // Map existing contact to billing
-      billingMobile: address.mobile_number, // Map existing mobile to billing
-      billingEmail: '', // New field, will be empty for existing records
+      billingContactPerson: address.billing_contact_person ?? address.contact_person ?? '',
+      billingMobile: address.billing_mobile ?? address.mobile_number ?? '',
+      billingEmail: address.billing_email ?? '',
       
       // Delivery Information (map from existing delivery fields)
       deliveryAddress: address.address,
@@ -365,9 +368,9 @@ export default function AdminCanteenAddressesPage() {
       billingState: address.billing_state || address.state,
       billingPincode: address.billing_pincode || address.pincode,
       billingGstNumber: address.gst_number || '',
-      billingContactPerson: address.contact_person,
-      billingMobile: address.mobile_number,
-      billingEmail: '',
+      billingContactPerson: address.billing_contact_person ?? address.contact_person ?? '',
+      billingMobile: address.billing_mobile ?? address.mobile_number ?? '',
+      billingEmail: address.billing_email ?? '',
       
       // Delivery Information (map from existing delivery fields)
       deliveryAddress: address.address,
@@ -586,13 +589,10 @@ export default function AdminCanteenAddressesPage() {
                     Canteen Name
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Billing Address & GST
+                    Billing (Address, Person, Email, Mobile & GST)
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Delivery Address
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Receiving Person
+                    Delivery Address & Receiving Person
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
@@ -622,8 +622,21 @@ export default function AdminCanteenAddressesPage() {
                             <> , {address.billing_pincode}</>
                           )}
                         </div>
+                        {(address.billing_contact_person || address.billing_email || address.billing_mobile) && (
+                          <div className="mt-2 pt-2 border-t border-gray-100 text-sm">
+                            {address.billing_contact_person && (
+                              <div className="font-medium text-gray-900">{address.billing_contact_person}</div>
+                            )}
+                            {address.billing_email && (
+                              <div className="text-gray-600">✉ {address.billing_email}</div>
+                            )}
+                            {address.billing_mobile && (
+                              <div className="text-gray-600">📞 {address.billing_mobile}</div>
+                            )}
+                          </div>
+                        )}
                         {address.gst_number && (
-                          <div className="text-xs text-blue-600 font-medium">GST: {address.gst_number}</div>
+                          <div className="text-xs text-blue-600 font-medium mt-1">GST: {address.gst_number}</div>
                         )}
                       </div>
                     </td>
@@ -631,13 +644,10 @@ export default function AdminCanteenAddressesPage() {
                       <div>
                         <div className="text-sm text-gray-900 whitespace-pre-line">{address.address}</div>
                         <div className="text-sm text-gray-500">{address.city}, {address.pincode}</div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{address.contact_person}</div>
-                        <div className="text-sm text-gray-500">📞 {address.mobile_number}</div>
-                        <div className="text-xs text-gray-500">Receiving Person</div>
+                        <div className="mt-2 pt-2 border-t border-gray-100 text-sm">
+                          <div className="font-medium text-gray-900">{address.contact_person}</div>
+                          <div className="text-gray-600">📞 {address.mobile_number}</div>
+                        </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -779,7 +789,7 @@ export default function AdminCanteenAddressesPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Billing Contact Person *
+                        Billing Person name
                       </label>
                       <input
                         type="text"
@@ -787,25 +797,12 @@ export default function AdminCanteenAddressesPage() {
                         value={formData.billingContactPerson}
                         onChange={handleInputChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-green-500 focus:border-green-500"
-                        placeholder="Enter billing contact person"
+                        placeholder="Billing person name"
                       />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Billing Mobile *
-                      </label>
-                      <input
-                        type="text"
-                        name="billingMobile"
-                        value={formData.billingMobile}
-                        onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-green-500 focus:border-green-500"
-                        placeholder="Enter billing mobile number"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Billing Email
+                        Email id
                       </label>
                       <input
                         type="email"
@@ -813,16 +810,29 @@ export default function AdminCanteenAddressesPage() {
                         value={formData.billingEmail}
                         onChange={handleInputChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-green-500 focus:border-green-500"
-                        placeholder="Enter billing email"
+                        placeholder="Billing email"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Mobile number
+                      </label>
+                      <input
+                        type="text"
+                        name="billingMobile"
+                        value={formData.billingMobile}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-green-500 focus:border-green-500"
+                        placeholder="Billing mobile"
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* Delivery Information */}
+                {/* Delivery Information (address + receiving person & mobile merged) */}
                 <div className="mb-6">
                   <h4 className="text-lg font-semibold text-green-800 mb-4 border-b border-green-200 pb-2">
-                    🚚 Delivery Information
+                    🚚 Delivery Address & Receiving Person
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="md:col-span-2">
@@ -877,15 +887,6 @@ export default function AdminCanteenAddressesPage() {
                         placeholder="Enter delivery pincode"
                       />
                     </div>
-                  </div>
-                </div>
-
-                {/* Receiving Person Information */}
-                <div className="mb-6">
-                  <h4 className="text-lg font-semibold text-purple-800 mb-4 border-b border-purple-200 pb-2">
-                    👤 Receiving Person Details
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Receiving Person Name *
@@ -896,20 +897,7 @@ export default function AdminCanteenAddressesPage() {
                         value={formData.receivingPersonName}
                         onChange={handleInputChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-green-500 focus:border-green-500"
-                        placeholder="Enter receiving person name"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Designation
-                      </label>
-                      <input
-                        type="text"
-                        name="receivingPersonDesignation"
-                        value={formData.receivingPersonDesignation}
-                        onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-green-500 focus:border-green-500"
-                        placeholder="Enter designation (e.g., Manager, Supervisor)"
+                        placeholder="Person at delivery"
                       />
                     </div>
                     <div>
@@ -922,20 +910,7 @@ export default function AdminCanteenAddressesPage() {
                         value={formData.receivingPersonMobile}
                         onChange={handleInputChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-green-500 focus:border-green-500"
-                        placeholder="Enter receiving person mobile"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Receiving Person Email
-                      </label>
-                      <input
-                        type="email"
-                        name="receivingPersonEmail"
-                        value={formData.receivingPersonEmail}
-                        onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-green-500 focus:border-green-500"
-                        placeholder="Enter receiving person email"
+                        placeholder="Mobile at delivery"
                       />
                     </div>
                   </div>
@@ -1009,128 +984,6 @@ export default function AdminCanteenAddressesPage() {
                   </div>
                 </div>
 
-                {/* Delivery Information */}
-                <div className="mb-6">
-                  <h4 className="text-lg font-semibold text-green-800 mb-4 border-b border-green-200 pb-2">
-                    🚚 Delivery Information
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Delivery Address *
-                      </label>
-                      <textarea
-                        name="deliveryAddress"
-                        value={formData.deliveryAddress}
-                        onChange={handleInputChange}
-                        rows={3}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Enter complete delivery address"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Delivery City *
-                      </label>
-                      <input
-                        type="text"
-                        name="deliveryCity"
-                        value={formData.deliveryCity}
-                        onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Enter delivery city"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Delivery State
-                      </label>
-                      <input
-                        type="text"
-                        name="deliveryState"
-                        value={formData.deliveryState}
-                        onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Enter delivery state"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Delivery Pincode *
-                      </label>
-                      <input
-                        type="text"
-                        name="deliveryPincode"
-                        value={formData.deliveryPincode}
-                        onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Enter delivery pincode"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Receiving Person Information */}
-                <div className="mb-6">
-                  <h4 className="text-lg font-semibold text-purple-800 mb-4 border-b border-purple-200 pb-2">
-                    👤 Receiving Person Details
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Receiving Person Name *
-                      </label>
-                      <input
-                        type="text"
-                        name="receivingPersonName"
-                        value={formData.receivingPersonName}
-                        onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Enter receiving person name"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Designation
-                      </label>
-                      <input
-                        type="text"
-                        name="receivingPersonDesignation"
-                        value={formData.receivingPersonDesignation}
-                        onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Enter designation (e.g., Manager, Supervisor)"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Receiving Person Mobile *
-                      </label>
-                      <input
-                        type="text"
-                        name="receivingPersonMobile"
-                        value={formData.receivingPersonMobile}
-                        onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Enter receiving person mobile"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Receiving Person Email
-                      </label>
-                      <input
-                        type="email"
-                        name="receivingPersonEmail"
-                        value={formData.receivingPersonEmail}
-                        onChange={handleInputChange}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="Enter receiving person email"
-                      />
-                    </div>
-                  </div>
-                </div>
-
                 {/* Billing Information */}
                 <div className="mb-6">
                   <h4 className="text-lg font-semibold text-blue-800 mb-4 border-b border-blue-200 pb-2">
@@ -1191,6 +1044,45 @@ export default function AdminCanteenAddressesPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Billing Person name
+                      </label>
+                      <input
+                        type="text"
+                        name="billingContactPerson"
+                        value={formData.billingContactPerson}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Billing person name"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Email id
+                      </label>
+                      <input
+                        type="email"
+                        name="billingEmail"
+                        value={formData.billingEmail}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Billing email"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Mobile number
+                      </label>
+                      <input
+                        type="text"
+                        name="billingMobile"
+                        value={formData.billingMobile}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Billing mobile"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         GST Number
                       </label>
                       <input
@@ -1200,6 +1092,93 @@ export default function AdminCanteenAddressesPage() {
                         onChange={handleInputChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                         placeholder="Enter GST number (optional)"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Delivery Address & Receiving Person (merged) */}
+                <div className="mb-6">
+                  <h4 className="text-lg font-semibold text-green-800 mb-4 border-b border-green-200 pb-2">
+                    🚚 Delivery Address & Receiving Person
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Delivery Address *
+                      </label>
+                      <textarea
+                        name="deliveryAddress"
+                        value={formData.deliveryAddress}
+                        onChange={handleInputChange}
+                        rows={3}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Enter complete delivery address"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Delivery City *
+                      </label>
+                      <input
+                        type="text"
+                        name="deliveryCity"
+                        value={formData.deliveryCity}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Enter delivery city"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Delivery State
+                      </label>
+                      <input
+                        type="text"
+                        name="deliveryState"
+                        value={formData.deliveryState}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Enter delivery state"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Delivery Pincode *
+                      </label>
+                      <input
+                        type="text"
+                        name="deliveryPincode"
+                        value={formData.deliveryPincode}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Enter delivery pincode"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Receiving Person Name *
+                      </label>
+                      <input
+                        type="text"
+                        name="receivingPersonName"
+                        value={formData.receivingPersonName}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Person at delivery"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Receiving Person Mobile *
+                      </label>
+                      <input
+                        type="text"
+                        name="receivingPersonMobile"
+                        value={formData.receivingPersonMobile}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Mobile at delivery"
                       />
                     </div>
                   </div>

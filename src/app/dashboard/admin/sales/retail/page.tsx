@@ -745,7 +745,7 @@ export default function RetailSalesPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     placeholder="e.g., R0000056/2025"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Format: C0000001/2025 for canteen, R0000001/2025 for retail</p>
+                  <p className="text-xs text-gray-500 mt-1">Format: C0001/2026 for canteen, R0001/2026 for retail</p>
                 </div>
 
                 {/* PO Number */}

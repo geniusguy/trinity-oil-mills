@@ -34,6 +34,20 @@ export async function POST(request: NextRequest) {
           console.log('mode_of_sales column already exists or error:', error.message);
         }
 
+        // Add billing person/email/mobile to canteen_addresses if missing
+        for (const [colName, def] of [
+          ['billing_contact_person', 'VARCHAR(255) NULL'],
+          ['billing_email', 'VARCHAR(255) NULL'],
+          ['billing_mobile', 'VARCHAR(20) NULL']
+        ]) {
+          try {
+            await connection.execute(`ALTER TABLE canteen_addresses ADD COLUMN ${colName} ${def}`);
+            console.log(`Added canteen_addresses.${colName}`);
+          } catch (e) {
+            console.log(`canteen_addresses.${colName} already exists or error:`, (e as Error).message);
+          }
+        }
+
         // Create savings_investments table
         const createTableSQL = `
           CREATE TABLE IF NOT EXISTS savings_investments (

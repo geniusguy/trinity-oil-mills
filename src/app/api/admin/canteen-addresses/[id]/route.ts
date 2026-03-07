@@ -28,6 +28,9 @@ export async function GET(
         billing_city    AS billing_city,
         billing_state   AS billing_state,
         billing_pincode AS billing_pincode,
+        billing_contact_person AS billing_contact_person,
+        billing_email   AS billing_email,
+        billing_mobile  AS billing_mobile,
         contact_person,
         mobile_number   AS mobile_number,
         gst_number      AS gst_number,
@@ -72,20 +75,20 @@ export async function PUT(
     }
     const {
       canteenName,
-      // Delivery (required)
       deliveryAddress,
       deliveryCity,
       deliveryState,
       deliveryPincode,
-      // Receiving person (required)
       receivingPersonName,
       receivingPersonMobile,
-      // Billing (optional; fall back to delivery)
       billingAddress,
       billingCity,
       billingState,
       billingPincode,
       billingGstNumber,
+      billingContactPerson,
+      billingEmail,
+      billingMobile,
       isActive,
     } = await request.json();
 
@@ -127,20 +130,23 @@ export async function PUT(
       `
       UPDATE canteen_addresses 
       SET 
-        canteen_name   = ?,
-        address        = ?,
-        city           = ?,
-        state          = ?,
-        pincode        = ?,
+        canteen_name    = ?,
+        address         = ?,
+        city            = ?,
+        state           = ?,
+        pincode         = ?,
         billing_address = ?,
         billing_city    = ?,
         billing_state   = ?,
         billing_pincode = ?,
-        contact_person = ?,
-        mobile_number  = ?,
-        gst_number     = ?,
-        is_active      = ?,
-        updated_at     = NOW()
+        billing_contact_person = ?,
+        billing_email   = ?,
+        billing_mobile  = ?,
+        contact_person  = ?,
+        mobile_number   = ?,
+        gst_number      = ?,
+        is_active       = ?,
+        updated_at      = NOW()
       WHERE id = ?
     `,
       [
@@ -153,6 +159,9 @@ export async function PUT(
         billingCity ?? null,
         billingState ?? null,
         billingPincode ?? null,
+        billingContactPerson ?? null,
+        billingEmail ?? null,
+        billingMobile ?? null,
         receivingPersonName,
         receivingPersonMobile,
         billingGstNumber || null,

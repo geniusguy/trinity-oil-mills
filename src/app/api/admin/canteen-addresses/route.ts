@@ -23,6 +23,9 @@ export async function GET() {
         billing_city    AS billing_city,
         billing_state   AS billing_state,
         billing_pincode AS billing_pincode,
+        billing_contact_person AS billing_contact_person,
+        billing_email   AS billing_email,
+        billing_mobile  AS billing_mobile,
         contact_person,
         mobile_number   AS mobile_number,
         gst_number      AS gst_number,
@@ -65,6 +68,9 @@ export async function POST(request: NextRequest) {
       billingState,
       billingPincode,
       billingGstNumber,
+      billingContactPerson,
+      billingEmail,
+      billingMobile,
       isActive = true
     } = await request.json();
 
@@ -110,9 +116,11 @@ export async function POST(request: NextRequest) {
       INSERT INTO canteen_addresses 
       (id, canteen_name, address, city, state, pincode,
        billing_address, billing_city, billing_state, billing_pincode,
+       billing_contact_person, billing_email, billing_mobile,
        contact_person, mobile_number, gst_number, is_active, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?,
               ?, ?, ?, ?,
+              ?, ?, ?,
               ?, ?, ?, ?, NOW(), NOW())
     `,
       [
@@ -126,6 +134,9 @@ export async function POST(request: NextRequest) {
         billingCity ?? deliveryCity,
         billingState ?? (deliveryState || 'Tamil Nadu'),
         billingPincode ?? deliveryPincode,
+        billingContactPerson ?? null,
+        billingEmail ?? null,
+        billingMobile ?? null,
         receivingPersonName,
         receivingPersonMobile,
         billingGstNumber || null,

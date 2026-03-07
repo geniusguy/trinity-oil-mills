@@ -28,7 +28,8 @@
     "deploy:staging": "bash scripts/deploy.sh staging",
     "deploy:production": "bash scripts/deploy.sh production",
     "health:check": "curl -f http://localhost:3001/api/health",
-    "migrate:price-history": "node migrate-price-history.js"
+    "migrate:price-history": "node migrate-price-history.js",
+    "migrate:canteen-billing": "node scripts/migrate-canteen-billing.js"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.10.0",
