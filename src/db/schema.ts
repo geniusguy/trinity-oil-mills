@@ -151,6 +151,22 @@ export const orderItems = mysqlTable('order_items', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// Stock Purchases table (product inventory purchases: when & from whom)
+export const stockPurchases = mysqlTable('stock_purchases', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  productId: varchar('product_id', { length: 255 }).notNull(),
+  quantity: decimal('quantity', { precision: 10, scale: 2 }).notNull(),
+  supplierName: varchar('supplier_name', { length: 255 }).notNull(),
+  purchaseDate: datetime('purchase_date').notNull(),
+  unitPrice: decimal('unit_price', { precision: 10, scale: 2 }),
+  totalAmount: decimal('total_amount', { precision: 10, scale: 2 }),
+  invoiceNumber: varchar('invoice_number', { length: 100 }),
+  notes: text('notes'),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
 // Production table (for produced oils)
 export const production = mysqlTable('production', {
   id: varchar('id', { length: 255 }).primaryKey(),

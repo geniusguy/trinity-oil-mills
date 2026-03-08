@@ -6,6 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const cron = require('node-cron');
 
 // Load .env.production
 function loadEnvFile() {
@@ -434,12 +435,24 @@ console.log(`   DATABASE_URL: ${nextEnv.DATABASE_URL ? 'SET (' + nextEnv.DATABAS
 console.log(`   AUTH_SECRET: ${nextEnv.AUTH_SECRET ? 'SET' : 'NOT SET ❌'}`);
 console.log(`   NODE_ENV: ${nextEnv.NODE_ENV}`);
 
-const nextProcess = spawn('node', ['node_modules/.bin/next', 'start', '-p', productionEnv.PORT || '3001'], {
+const nextBin = path.join(__dirname, 'node_modules', 'next', 'dist', 'bin', 'next');
+const nextProcess = spawn('node', [nextBin, 'start', '-p', productionEnv.PORT || '3001'], {
   stdio: 'inherit',
   env: nextEnv,
   cwd: __dirname,
   shell: false
 });
+
+// Daily backup at 00:00 (Asia/Kolkata) – dump DB and email to rvkiran@yahoo.com
+const backupScript = path.join(__dirname, 'scripts', 'backup-and-email.js');
+if (fs.existsSync(backupScript)) {
+  cron.schedule('0 0 * * *', () => {
+    console.log('[backup] Running scheduled daily backup at', new Date().toISOString());
+    const child = spawn('node', [backupScript], { stdio: 'inherit', env: nextEnv, cwd: __dirname, shell: false });
+    child.on('close', (code) => { if (code !== 0) console.error('[backup] Backup exited with code', code); });
+  }, { timezone: 'Asia/Kolkata' });
+  console.log('📧 Daily DB backup scheduled at 00:00 (emailed to rvkiran@yahoo.com)');
+}
 
 nextProcess.on('error', (error) => {
   console.error('❌ Failed to start Next.js:', error);

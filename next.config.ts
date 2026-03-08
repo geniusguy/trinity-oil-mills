@@ -14,6 +14,13 @@ const config: NextConfig = {
   // Allow cross-origin requests from api.trinityoil.in in development
   allowedDevOrigins: ['https://api.trinityoil.in', 'http://api.trinityoil.in'],
   
+  // Redirect old Add Stock URL to new route (avoids 404 with hyphen segment)
+  async redirects() {
+    return [
+      { source: '/dashboard/admin/stock-purchases', destination: '/dashboard/admin/purchases', permanent: false },
+    ];
+  },
+
   // Security headers
   async headers() {
     return [

@@ -25,6 +25,8 @@ interface SaleRow {
   contactPerson?: string;
   mobileNumber?: string;
   poNumber?: string;
+  poDate?: string;
+  invoiceDate?: string;
   canteenAddressId?: string;
 }
 
@@ -66,6 +68,8 @@ export default function AdminSalesPage() {
     notes: '',
     invoiceNumber: '',
     poNumber: '',
+    poDate: '',
+    invoiceDate: '',
     customerName: '',
     canteenAddressId: '',
     paymentMethod: ''
@@ -289,16 +293,19 @@ export default function AdminSalesPage() {
 
   const handleEditSale = (sale: SaleRow) => {
     setSelectedSale(sale);
-    
+    const poDateVal = sale.poDate ? (typeof sale.poDate === 'string' && sale.poDate.includes('T') ? sale.poDate.slice(0, 10) : sale.poDate) : '';
+    const invDateVal = sale.invoiceDate ? (typeof sale.invoiceDate === 'string' && sale.invoiceDate.includes('T') ? sale.invoiceDate.slice(0, 10) : sale.invoiceDate) : (sale.createdAt ? sale.createdAt.slice(0, 10) : '');
     setEditForm({
       paymentStatus: sale.paymentStatus,
-      shipmentStatus: sale.shipmentStatus || 'walk_in_delivery', // Default to walk in delivery
+      shipmentStatus: sale.shipmentStatus || 'walk_in_delivery',
       notes: '',
       invoiceNumber: sale.invoiceNumber,
       poNumber: sale.poNumber || '',
+      poDate: poDateVal,
+      invoiceDate: invDateVal,
       customerName: sale.canteenName || sale.customerName || '',
       canteenAddressId: sale.canteenAddressId || '',
-      paymentMethod: sale.saleType === 'canteen' ? 'credit' : sale.paymentMethod // Auto credit for canteen
+      paymentMethod: sale.saleType === 'canteen' ? 'credit' : sale.paymentMethod
     });
     setShowEditModal(true);
     setError('');
@@ -379,6 +386,8 @@ export default function AdminSalesPage() {
       notes: '',
       invoiceNumber: '',
       poNumber: '',
+      poDate: '',
+      invoiceDate: '',
       customerName: '',
       canteenAddressId: '',
       paymentMethod: ''
@@ -809,6 +818,36 @@ export default function AdminSalesPage() {
                   <p className="text-xs text-gray-500 mt-1">Customer's Purchase Order number</p>
                 </div>
 
+                {/* PO Date */}
+                <div>
+                  <label htmlFor="poDate" className="block text-sm font-medium text-gray-700 mb-1">
+                    PO Date
+                  </label>
+                  <input
+                    id="poDate"
+                    type="date"
+                    value={editForm.poDate}
+                    onChange={(e) => setEditForm({ ...editForm, poDate: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Purchase Order date (Dated on invoice)</p>
+                </div>
+
+                {/* Invoice Date */}
+                <div>
+                  <label htmlFor="invoiceDate" className="block text-sm font-medium text-gray-700 mb-1">
+                    Invoice Date
+                  </label>
+                  <input
+                    id="invoiceDate"
+                    type="date"
+                    value={editForm.invoiceDate}
+                    onChange={(e) => setEditForm({ ...editForm, invoiceDate: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Date shown as Invoice Date on the invoice</p>
+                </div>
+
                 {/* Customer/Canteen Selection */}
                 <div>
                   <label htmlFor="canteenAddressId" className="block text-sm font-medium text-gray-700 mb-1">
@@ -912,6 +951,7 @@ export default function AdminSalesPage() {
                     onChange={(e) => setEditForm({ ...editForm, shipmentStatus: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   >
+                    <option value="courier">Courier</option>
                     <option value="walk_in_delivery">Walk in delivery</option>
                     <option value="pending">Pending</option>
                     <option value="shipped">Shipped</option>

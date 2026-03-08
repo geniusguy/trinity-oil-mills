@@ -174,7 +174,7 @@ function renderRetailInvoice(doc: jsPDF, sale: any, items: any[]) {
   
   // Address
   doc.setFontSize(8);
-  doc.text('337, 339, Paper Mills Road, Bunder Garden, Perambur, Chennai - 600011', 80, 58);
+  doc.text('337, 339, Paper Mills Road, Perambur, Chennai - 600011', 80, 58);
   doc.text('GST: 33BOBPS7844L1ZG', 80, 66);
   
   // Professional invoice badge
@@ -447,7 +447,7 @@ function renderRetailInvoice(doc: jsPDF, sale: any, items: any[]) {
   doc.setFont('helvetica', 'normal');
   
   doc.text('Registered Office:', 20, footerY);
-  doc.text('Trinity Oil Mills, 337, 339, Paper Mills Road, Bunder Garden, Perambur, Chennai, Tamil Nadu 600011', 20, footerY + 8);
+  doc.text('Trinity Oil Mills, 337, 339, Paper Mills Road, Perambur, Chennai, Tamil Nadu 600011', 20, footerY + 8);
   doc.text('Tel: 99520 55660 / 97109 03330', 20, footerY + 16);
   doc.text('www.Trinityoil.in', 20, footerY + 24);
   doc.text('GST No: 33BOBPS7844L1ZG', 20, footerY + 32);
@@ -508,7 +508,7 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
   
   // Address
   doc.setFontSize(8);
-  doc.text('337, 339, Paper Mills Road, Bunder Garden, Perambur, Chennai - 600011', 80, 58);
+  doc.text('337, 339, Paper Mills Road, Perambur, Chennai - 600011', 80, 58);
   doc.text('GST: 33BOBPS7844L1ZG', 80, 66);
   
   // Professional invoice badge
@@ -768,7 +768,7 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
   doc.setFont('helvetica', 'normal');
   
   doc.text('Registered Office:', 20, footerY);
-  doc.text('Trinity Oil Mills, 337, 339, Paper Mills Road, Bunder Garden, Perambur, Chennai, Tamil Nadu 600011', 20, footerY + 8);
+  doc.text('Trinity Oil Mills, 337, 339, Paper Mills Road, Perambur, Chennai, Tamil Nadu 600011', 20, footerY + 8);
   doc.text('Tel: 99520 55660 / 97109 03330', 20, footerY + 16);
   doc.text('www.Trinityoil.in', 20, footerY + 24);
   doc.text('GST No: 33BOBPS7844L1ZG', 20, footerY + 32);

@@ -22,6 +22,8 @@ interface Sale {
   canteenAddress?: string;
   contactPerson?: string;
   mobileNumber?: string;
+  canteenContact?: string;
+  canteenMobile?: string;
   poNumber?: string;
   poDate?: string;
   canteenAddressId?: string;
@@ -54,6 +56,7 @@ export default function CanteenSalesPage() {
     paymentMethod: '',
     paymentStatus: '',
     shipmentStatus: '',
+    canteenId: '',
     dateFrom: '',
     dateTo: '',
     month: '',
@@ -135,13 +138,13 @@ export default function CanteenSalesPage() {
     }
   };
 
-  // Extract available months and years from sales data
+  // Extract available months and years from sales data (use PO Date when present)
   const extractAvailableDates = (salesData: Sale[]) => {
     const months = new Set<string>();
     const years = new Set<string>();
     
     salesData.forEach(sale => {
-      const date = new Date(sale.createdAt);
+      const date = sale.poDate ? new Date(sale.poDate) : new Date(sale.createdAt);
       const year = date.getFullYear().toString();
       const month = `${year}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       
@@ -194,30 +197,33 @@ export default function CanteenSalesPage() {
     if (filters.shipmentStatus) {
       filtered = filtered.filter(s => s.shipmentStatus === filters.shipmentStatus);
     }
+    if (filters.canteenId) {
+      filtered = filtered.filter(s => s.canteenAddressId === filters.canteenId);
+    }
 
-    // Apply date filters
+    // Use PO Date as main date when present (for filtering/sorting)
+    const getSaleDate = (s: Sale) => (s.poDate ? new Date(s.poDate) : new Date(s.createdAt));
+
+    // Apply date filters (by PO Date when present)
     if (filters.dateFrom) {
       const fromDate = new Date(filters.dateFrom);
-      filtered = filtered.filter(s => new Date(s.createdAt) >= fromDate);
+      filtered = filtered.filter(s => getSaleDate(s) >= fromDate);
     }
     if (filters.dateTo) {
       const toDate = new Date(filters.dateTo);
       toDate.setHours(23, 59, 59, 999);
-      filtered = filtered.filter(s => new Date(s.createdAt) <= toDate);
+      filtered = filtered.filter(s => getSaleDate(s) <= toDate);
     }
     if (filters.month) {
       const [year, month] = filters.month.split('-');
       filtered = filtered.filter(s => {
-        const saleDate = new Date(s.createdAt);
+        const saleDate = getSaleDate(s);
         return saleDate.getFullYear() === parseInt(year) && 
                saleDate.getMonth() === parseInt(month) - 1;
       });
     }
     if (filters.year) {
-      filtered = filtered.filter(s => {
-        const saleDate = new Date(s.createdAt);
-        return saleDate.getFullYear() === parseInt(filters.year);
-      });
+      filtered = filtered.filter(s => getSaleDate(s).getFullYear() === parseInt(filters.year));
     }
 
     // Apply sorting
@@ -246,12 +252,12 @@ export default function CanteenSalesPage() {
           bValue = b.shipmentStatus.toLowerCase();
           break;
         case 'createdAt':
-          aValue = new Date(a.createdAt).getTime();
-          bValue = new Date(b.createdAt).getTime();
+          aValue = (a.poDate ? new Date(a.poDate) : new Date(a.createdAt)).getTime();
+          bValue = (b.poDate ? new Date(b.poDate) : new Date(b.createdAt)).getTime();
           break;
         default:
-          aValue = new Date(a.createdAt).getTime();
-          bValue = new Date(b.createdAt).getTime();
+          aValue = (a.poDate ? new Date(a.poDate) : new Date(a.createdAt)).getTime();
+          bValue = (b.poDate ? new Date(b.poDate) : new Date(b.createdAt)).getTime();
       }
 
       if (sortOrder === 'asc') {
@@ -286,6 +292,7 @@ export default function CanteenSalesPage() {
       paymentMethod: '',
       paymentStatus: '',
       shipmentStatus: '',
+      canteenId: '',
       dateFrom: '',
       dateTo: '',
       month: '',
@@ -312,7 +319,7 @@ export default function CanteenSalesPage() {
     
     setEditForm({
       paymentStatus: sale.paymentStatus,
-      shipmentStatus: sale.shipmentStatus || 'walk_in_delivery', // Default to walk in delivery
+      shipmentStatus: sale.shipmentStatus || 'pending', // Default to pending for canteen
       notes: '',
       invoiceNumber: sale.invoiceNumber,
       poNumber: sale.poNumber || '',
@@ -560,11 +567,29 @@ export default function CanteenSalesPage() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               >
                 <option value="">All Status</option>
+                <option value="courier">Courier</option>
                 <option value="pending">Pending</option>
                 <option value="shipped">Shipped</option>
                 <option value="delivered">Delivered</option>
                 <option value="cancelled">Cancelled</option>
                 <option value="walk_in_delivery">Walk in delivery</option>
+              </select>
+            </div>
+
+            {/* Canteen Filter */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Canteen</label>
+              <select
+                value={filters.canteenId}
+                onChange={(e) => handleFilterChange('canteenId', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="">All Canteens</option>
+                {canteenAddresses.map(addr => (
+                  <option key={addr.id} value={addr.id}>
+                    {addr.canteenName}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -747,10 +772,19 @@ export default function CanteenSalesPage() {
                       </div>
                     </td>
                     
-                    {/* Date - Hidden on mobile */}
+                    {/* Date - show PO Date (main date) when present, else created date */}
                     <td className="hidden md:table-cell px-3 py-4 whitespace-nowrap text-sm text-gray-600">
-                      <div>{new Date(sale.createdAt).toLocaleDateString()}</div>
-                      <div className="text-xs text-gray-500">{new Date(sale.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                      {sale.poDate ? (
+                        <>
+                          <div>{new Date(sale.poDate).toLocaleDateString()}</div>
+                          <div className="text-xs text-gray-500">PO Date</div>
+                        </>
+                      ) : (
+                        <>
+                          <div>{new Date(sale.createdAt).toLocaleDateString()}</div>
+                          <div className="text-xs text-gray-500">{new Date(sale.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                        </>
+                      )}
                     </td>
                     
                     {/* PO Number - Hidden on mobile */}
@@ -766,12 +800,12 @@ export default function CanteenSalesPage() {
                       </div>
                     </td>
                     
-                    {/* Contact - Hidden on mobile */}
+                    {/* Contact - from canteen (canteenContact/canteenMobile) or fallback */}
                     <td className="hidden lg:table-cell px-3 py-4 whitespace-nowrap text-sm text-gray-600">
                       <div className="max-w-28">
-                        <div className="font-medium">{sale.contactPerson || 'N/A'}</div>
-                        {sale.mobileNumber && (
-                          <div className="text-xs text-gray-500">{sale.mobileNumber}</div>
+                        <div className="font-medium">{(sale.canteenContact ?? sale.contactPerson) || 'N/A'}</div>
+                        {(sale.canteenMobile ?? sale.mobileNumber) && (
+                          <div className="text-xs text-gray-500">{sale.canteenMobile ?? sale.mobileNumber}</div>
                         )}
                       </div>
                     </td>
@@ -781,7 +815,9 @@ export default function CanteenSalesPage() {
                       <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
                         sale.shipmentStatus === 'delivered' ? 'bg-green-100 text-green-800' :
                         sale.shipmentStatus === 'shipped' ? 'bg-blue-100 text-blue-800' :
+                        sale.shipmentStatus === 'courier' ? 'bg-indigo-100 text-indigo-800' :
                         sale.shipmentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        sale.shipmentStatus === 'walk_in_delivery' ? 'bg-gray-100 text-gray-800' :
                         'bg-red-100 text-red-800'
                       }`}>
                         {sale.shipmentStatus}
@@ -1024,6 +1060,7 @@ export default function CanteenSalesPage() {
                     onChange={(e) => setEditForm({ ...editForm, shipmentStatus: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   >
+                    <option value="courier">Courier</option>
                     <option value="walk_in_delivery">Walk in delivery</option>
                     <option value="pending">Pending</option>
                     <option value="shipped">Shipped</option>

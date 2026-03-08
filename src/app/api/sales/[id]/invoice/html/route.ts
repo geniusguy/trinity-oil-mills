@@ -63,6 +63,19 @@ function convertNumberToWords(num: number): string {
   return result.trim() + ' Only';
 }
 
+// Convert 0-99 to words (for paise)
+function convertPaiseToWords(n: number): string {
+  if (n === 0) return 'Zero';
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  if (n >= 20) {
+    return (tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '')).trim();
+  }
+  if (n >= 10) return teens[n - 10];
+  return ones[n];
+}
+
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
@@ -70,8 +83,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const connection = await createConnection();
 
     const [saleRows] = await connection.execute(`
-      SELECT s.*, u.name as userName,
-             ca.canteen_name as canteen_name, ca.address as canteenAddress, ca.contact_person, ca.mobile_number as mobile_number, ca.gst_number as gst_number
+      SELECT s.*, s.notes as customer_name, u.name as userName,
+             ca.canteen_name as canteen_name,
+             ca.address as canteenAddress, ca.city as canteenCity, ca.state as canteenState, ca.pincode as canteenPincode,
+             ca.contact_person, ca.mobile_number as mobile_number,
+             ca.billing_address as billing_address, ca.billing_city as billing_city, ca.billing_state as billing_state, ca.billing_pincode as billing_pincode,
+             ca.billing_contact_person as billing_contact_person, ca.billing_email as billing_email, ca.billing_mobile as billing_mobile,
+             ca.gst_number as gst_number
       FROM sales s
       LEFT JOIN users u ON s.user_id = u.id
       LEFT JOIN canteen_addresses ca ON s.canteen_address_id = ca.id
@@ -79,9 +97,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     `, [id]);
 
     const [itemRows] = await connection.execute(`
-      SELECT si.*, p.name as productName, p.unit
+      SELECT si.*, p.name as productName, p.name as product_name, p.unit
       FROM sale_items si
-      JOIN products p ON si.product_id = p.id
+      LEFT JOIN products p ON si.product_id = p.id
       WHERE si.sale_id = ?
       ORDER BY si.id
     `, [id]);
@@ -385,7 +403,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         <!-- INVOICE DETAILS (4 columns) -->
         <tr style="height: 35px;">
             <td class="bg-accent invoice-label" style="font-size: 12pt; border-left: 2px solid #2d4e52; border-top: 1px solid #c0c0c0; border-bottom: 1px solid #c0c0c0; border-right: none;" colspan="2">
-                <strong>Invoice Date:</strong> ${new Date(sale.created_at).toLocaleDateString('en-GB')}
+                <strong>Invoice Date:</strong> ${(sale.invoice_date ? new Date(sale.invoice_date) : new Date(sale.created_at)).toLocaleDateString('en-GB')}
             </td>
             <td class="bg-accent" style="border-top: 1px solid #c0c0c0; border-bottom: 1px solid #c0c0c0; border-left: none; border-right: none;"></td>
             <td class="bg-accent invoice-label text-right" style="font-size: 12pt; border-right: 2px solid #2d4e52; border-top: 1px solid #c0c0c0; border-bottom: 1px solid #c0c0c0; border-left: none;">
@@ -397,13 +415,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         <tr style="height: 65px;">
             <td class="bg-header" style="vertical-align: top;" colspan="4">
                 <div style="display: flex; width: 100%;">
-                    <!-- Billing Address - Left Half -->
+                    <!-- Billing Address - Left Half (billing address + billing person name + email) -->
                     <div style="width: 50%; padding-right: 20px;">
                         <div style="font-weight: bold; color: #2d4e52; margin-bottom: 8px; font-size: 12pt;">Billing To:</div>
                         <div style="color: #2d4e52; line-height: 1.4; font-size: 11pt;">
-                            ${isCanteen ? (sale.canteen_name || 'N/A') : (sale.customer_name || 'Walk-in Customer')}<br>
-                            ${isCanteen ? (sale.canteenAddress || '') : 'Walk-in Customer'}<br>
-                            GSTIN: ${isCanteen ? (sale.canteenGst || 'N/A') : 'N/A'}
+                            ${!isCanteen ? (sale.customer_name || 'Walk-in Customer') + '<br>' : ''}
+                            ${(() => {
+                              if (!isCanteen) return 'Walk-in Customer';
+                              const addr = (sale.billing_address || sale.canteenAddress || '').toString().trim();
+                              const city = (sale.billing_city || sale.canteenCity || '').toString().trim();
+                              const state = (sale.billing_state || sale.canteenState || '').toString().trim();
+                              const pin = (sale.billing_pincode || sale.canteenPincode || '').toString().trim();
+                              const parts = [addr];
+                              if (city || state || pin) parts.push([city, state].filter(Boolean).join(', ') + (pin ? ' - ' + pin : ''));
+                              return parts.filter(Boolean).join('<br>') || '—';
+                            })()}<br>
+                            ${isCanteen && (sale.billing_contact_person || sale.billing_email) ? (
+                              (sale.billing_contact_person ? (sale.billing_contact_person + (sale.billing_email ? ' | ' + sale.billing_email : '')) : (sale.billing_email || ''))
+                            ) : ''}
+                            ${isCanteen && (sale.billing_contact_person || sale.billing_email) ? '<br>' : ''}GSTIN: ${isCanteen ? (sale.gst_number || 'N/A') : 'N/A'}
                         </div>
                     </div>
                     <!-- Delivery Address - Right Half -->
@@ -411,18 +441,29 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                         <div style="font-weight: bold; color: #2d4e52; margin-bottom: 8px; font-size: 12pt;">Delivered To:</div>
                         <div style="color: #2d4e52; line-height: 1.4; font-size: 11pt;">
                             ${isCanteen ? (sale.canteen_name || 'N/A') : (sale.customer_name || 'Walk-in Customer')}<br>
-                            ${isCanteen ? (sale.canteenAddress || '') : 'Walk-in Customer'}<br>
-                            Contact: ${isCanteen ? ((sale.contact_person || 'N/A') + ' - ' + (sale.mobile_number || 'N/A')) : 'N/A'}
+                            ${(() => {
+                              if (!isCanteen) return 'Walk-in Customer';
+                              const addr = (sale.canteenAddress || '').toString().trim();
+                              const city = (sale.canteenCity || '').toString().trim();
+                              const state = (sale.canteenState || '').toString().trim();
+                              const pin = (sale.canteenPincode || '').toString().trim();
+                              const parts = [addr];
+                              if (city || state || pin) parts.push([city, state].filter(Boolean).join(', ') + (pin ? ' - ' + pin : ''));
+                              return parts.filter(Boolean).join('<br>') || '—';
+                            })()}<br>
+                            Contact: ${isCanteen ? ((sale.contact_person || 'N/A') + (sale.mobile_number ? ' - ' + sale.mobile_number : '')) : 'N/A'}
                         </div>
                     </div>
                 </div>
             </td>
         </tr>
+        <!-- Blank line below billing/delivery -->
+        <tr style="height: 14px;"><td class="bg-header" colspan="4" style="border-left: 2px solid #2d4e52; border-right: 2px solid #2d4e52; border-bottom: 1px solid #c0c0c0; border-top: none; padding: 0; line-height: 0;"></td></tr>
         
         <!-- ORDER HEADER -->
         <tr style="height: 32px;">
             <td class="bg-dark text-center font-bold order-col-1">Order No. & Date</td>
-            <td class="bg-dark text-center font-bold order-col-2">Mode of Order / Payment</td>
+            <td class="bg-dark text-center font-bold order-col-2">Mode of Order</td>
             <td class="bg-dark text-center font-bold order-col-3">No. of Boxes</td>
             <td class="bg-dark text-center font-bold order-col-4">Gross Weight in Kgs</td>
         </tr>
@@ -451,46 +492,41 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                   // Fallback defaults when not stored
                   mode = (sale.sale_type === 'canteen') ? '📧 Email' : '🚶 Walk-in';
                 }
-                const pm = (sale.payment_method || '').toString().toLowerCase();
-                let payment = '';
-                if (pm) {
-                  payment = pm === 'cash' ? '💵 Cash'
-                          : pm === 'upi' ? '📱 UPI'
-                          : pm === 'card' ? '💳 Card'
-                          : pm === 'credit' ? '🏦 Credit'
-                          : (sale.payment_method || 'N/A');
-                } else {
-                  // Fallback defaults when not stored
-                  payment = (sale.sale_type === 'canteen') ? '🏦 Credit' : '💵 Cash';
-                }
-                return `${mode} | ${payment}`;
+                return mode;
             })()}</td>
             <td class="bg-white text-center order-col-3">${isCanteen ? '1' : '0'}</td>
             <td class="bg-white text-center order-col-4">${(() => {
-                // Calculate gross weight based on product type and quantity
-                const totalWeight = items.reduce((total, item) => {
-                    const quantity = Number(item.quantity) || 0;
-                    const productName = (item.productName || '').toLowerCase();
-                    
-                    // Weight calculation based on product size
-                    let weightPerUnit = 0.5; // default weight
-                    
-                    if (productName.includes('200ml') || productName.includes('0.2')) {
-                        weightPerUnit = 0.25; // 200ml bottle
-                    } else if (productName.includes('500ml') || productName.includes('0.5')) {
-                        weightPerUnit = 0.6; // 500ml bottle  
-                    } else if (productName.includes('1l') || productName.includes('1 l') || productName.includes('liter') || productName.includes('litre')) {
-                        weightPerUnit = 1.1; // 1 liter bottle
-                    } else if (productName.includes('5l') || productName.includes('5 l')) {
-                        weightPerUnit = 5.5; // 5 liter container
-                    } else if (productName.includes('tin') && productName.includes('16')) {
-                        weightPerUnit = 16.5; // 16L tin
+                // Gross weight in kg: parse volume from product name (e.g. 200ml, 1L), then qty * weight per unit.
+                function getWeightPerUnitKg(name) {
+                    const n = (name || '').toLowerCase();
+                    // Extract volume: "200 ml", "200ml", "500 ml", "1 l", "5l", "16 l" etc.
+                    const mlMatch = n.match(/\b(\d+)\s*ml/);
+                    if (mlMatch) {
+                        const ml = parseInt(mlMatch[1], 10);
+                        if (ml <= 250) return 0.2;    // 200ml bottle: 40 x 200ml = 8 L = 8 kg
+                        if (ml <= 600) return 0.5;   // 500ml: 1 L ≈ 1 kg
+                        return (ml / 1000);           // 1 L = 1 kg
                     }
-                    
-                    return total + (quantity * weightPerUnit);
+                    const literMatch = n.match(/\b(16|5|1)\s*l(it(er|re))?/);
+                    if (literMatch) {
+                        const num = parseInt(literMatch[1], 10);
+                        if (num >= 16) return 16;   // 16L = 16 kg
+                        if (num >= 5) return 5;     // 5L = 5 kg
+                        return 1;                   // 1L = 1 kg
+                    }
+                    if (/\b16\b/.test(n) && (n.includes('l') || n.includes('tin'))) return 16;
+                    if (/\b5\s*l|\b5l\b/.test(n)) return 5;
+                    if (/\b1\s*l|\b1l\b|\b1\s*liter|\b1\s*litre/.test(n)) return 1;
+                    if (n.includes('500') && (n.includes('ml') || n.includes('0.5'))) return 0.5;  // 500ml = 0.5 kg
+                    if (n.includes('200') || n.includes('0.2')) return 0.2;
+                    return 0.2;   // default: assume 200ml (40 x 200ml = 8 kg)
+                }
+                const totalKg = items.reduce((sum, item) => {
+                    const qty = Number(item.quantity) || 0;
+                    const name = item.productName || item.product_name || '';
+                    return sum + qty * getWeightPerUnitKg(name);
                 }, 0);
-                
-                return totalWeight.toFixed(2);
+                return totalKg.toFixed(2);
             })()}</td>
         </tr>
         
@@ -510,15 +546,25 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             // Show actual items first with alternating colors
             items.forEach((item, index) => {
                 const bgClass = rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray';
+                const qty = Number(item.quantity) || 0;
+                const lineTotalFinal = Number(item.total_amount || 0);
+                const lineGst = Number(item.gst_amount || 0);
+                const lineTotalBeforeGst = lineTotalFinal - lineGst;
+                const unitPriceBeforeGst = qty > 0 ? lineTotalBeforeGst / qty : 0;
+                let itemName = (item.productName ?? item.product_name ?? item.name ?? '').toString().trim();
+                if (!itemName && (String(item.product_id || '') === '55336' || String(item.product_id || '') === '68539')) itemName = 'TOM-Castor Oil - 200ml';
+                if (!itemName) itemName = 'Product';
+                const productCode = String(item.product_id ?? '').trim();
+                const line1 = productCode ? `${productCode} : ${itemName}` : itemName;
                 productRowsHTML += `
                 <tr style="height: 35px;">
                     <td class="${bgClass} text-left item-desc" style="padding: 6px 8px; line-height: 1.2; font-size: 10pt;">
-                        <strong>${item.productName || 'Product'}</strong><br>
-                        <span style="font-size: 9pt; color: #666;">${item.productName || 'Product'} | HSN Code: ${item.productName && item.productName.includes('Oil') ? '15180011' : '15180011'}</span>
+                        <strong>${line1}</strong><br>
+                        <span style="font-size: 9pt; color: #666;">HSN Code : 15180011</span>
                     </td>
-                    <td class="${bgClass} text-center item-qty">${Number(item.quantity).toFixed(2)}</td>
-                    <td class="${bgClass} text-right item-total">₹ ${Number(item.unit_price || 0).toFixed(0)}</td>
-                    <td class="${bgClass} text-right item-total">₹ ${Number(item.total_amount || 0).toLocaleString()}</td>
+                    <td class="${bgClass} text-center item-qty">${qty.toFixed(2)}</td>
+                    <td class="${bgClass} text-right item-total">₹ ${Number(unitPriceBeforeGst.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td class="${bgClass} text-right item-total">₹ ${Number(lineTotalBeforeGst.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>`;
                 rowIndex++;
             });
@@ -544,55 +590,60 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         <tr style="height: 25px;">
             <td class="bg-accent border-medium" colspan="2"></td>
             <td class="bg-white total-label text-right border-medium" style="font-size: 10pt; padding: 4px;">Subtotal</td>
-            <td class="bg-white total-value text-right border-medium" style="font-size: 10pt; padding: 4px;">₹ ${Number(sale.subtotal || 0).toLocaleString()}</td>
+            <td class="bg-white total-value text-right border-medium" style="font-size: 10pt; padding: 4px;">₹ ${Number(Number(sale.subtotal || 0).toFixed(1)).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>
         </tr>
         
         <tr style="height: 25px;">
             <td class="bg-accent border-light" colspan="2"></td>
             <td class="bg-white total-label text-right border-light" style="font-size: 10pt; padding: 4px; line-height: 1.1;">SGST / IGST<br>2.5%</td>
-            <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">₹ ${(Number(sale.gst_amount || 0) / 2).toFixed(2)}</td>
+            <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">₹ ${Math.round(Number(sale.gst_amount || 0) / 2).toLocaleString('en-IN')}</td>
         </tr>
         
         <tr style="height: 25px;">
             <td class="bg-accent border-light" colspan="2"></td>
             <td class="bg-white total-label text-right border-light" style="font-size: 10pt; padding: 4px; line-height: 1.1;">CGST / IGST<br>2.5%</td>
-            <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">₹ ${(Number(sale.gst_amount || 0) / 2).toFixed(2)}</td>
+            <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">₹ ${Math.round(Number(sale.gst_amount || 0) / 2).toLocaleString('en-IN')}</td>
         </tr>
         
         <tr style="height: 32px;">
             <td class="bg-accent border-thick" style="padding: 6px 12px; font-size: 10pt; line-height: 1.2;" colspan="2">
                 <strong>Amount in Words:</strong><br>
-                <em style="font-size: 9pt; color: #666;">${convertNumberToWords(Math.floor(Number(sale.total_amount || 0)))}</em>
+                <em style="font-size: 9pt; color: #666;">${(() => {
+                  const totalVal = Number(Number(sale.subtotal || 0).toFixed(1)) + Math.round(Number(sale.gst_amount || 0) / 2) + Math.round(Number(sale.gst_amount || 0) / 2);
+                  const rupees = Math.floor(totalVal);
+                  const paise = Math.round((totalVal - rupees) * 100);
+                  const rupeesWords = convertNumberToWords(rupees).replace(' Only', '');
+                  if (paise > 0) {
+                    return rupeesWords + ' Rupees and ' + convertPaiseToWords(paise) + ' Paise Only';
+                  }
+                  return rupeesWords + ' Rupees Only';
+                })()}</em>
             </td>
             <td class="bg-dark final-total text-right border-thick" style="color: white; font-size: 11pt; padding: 6px;">Total Invoice Value</td>
-            <td class="bg-dark final-total text-right border-thick" style="color: white; font-size: 13pt; padding: 6px;">₹ ${Number(sale.total_amount || 0).toLocaleString()}</td>
+            <td class="bg-dark final-total text-right border-thick" style="color: white; font-size: 13pt; padding: 6px;">₹ ${(Number(Number(sale.subtotal || 0).toFixed(1)) + Math.round(Number(sale.gst_amount || 0) / 2) + Math.round(Number(sale.gst_amount || 0) / 2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>
         
-        <!-- SIGNATURE SECTION - Balanced Single Row Layout -->
-        <tr style="height: 65px;">
-            <td class="bg-white" style="padding: 10px;" colspan="4">
-                <div style="display: flex; width: 100%; justify-content: space-between;">
-                    <!-- Customer Signature -->
-                    <div class="signature-box" style="width: 18%; margin-right: 2%;">
-                        <div class="signature-line"></div>
-                        <div class="signature-label" style="font-size: 9pt;">Customer Signature</div>
+        <!-- SIGNATURE SECTION - One row: Customer Signature | Checked By + Prepared By (one box) | For Trinity Oil Mills (fits A4) -->
+        <tr style="height: 58px;">
+            <td class="bg-white" style="padding: 6px 8px;" colspan="4">
+                <div style="display: flex; width: 100%; justify-content: space-between; gap: 4px;">
+                    <div class="signature-box" style="flex: 1; text-align: center; padding: 6px; min-height: 44px; display: flex; flex-direction: column; justify-content: flex-end;">
+                        <div style="border-bottom: 1px solid #666; margin-bottom: 2px;"></div>
+                        <div class="signature-label" style="font-size: 8pt;">Customer Signature</div>
                     </div>
-                    <!-- Prepared By -->
-                    <div class="signature-box" style="width: 18%; margin-right: 2%;">
-                        <div class="signature-line"></div>
-                        <div class="signature-label" style="font-size: 9pt;">Prepared By</div>
+                    <div class="signature-box" style="flex: 1; text-align: center; padding: 4px 6px; min-height: 44px; display: flex; flex-direction: column; justify-content: space-between;">
+                        <div>
+                            <div class="signature-line" style="height: 18px;"></div>
+                            <div class="signature-label" style="font-size: 8pt;">Checked By</div>
+                        </div>
+                        <div>
+                            <div class="signature-line" style="height: 18px;"></div>
+                            <div class="signature-label" style="font-size: 8pt;">Prepared By</div>
+                        </div>
                     </div>
-                    <!-- Checked By -->
-                    <div class="signature-box" style="width: 24%; margin-right: 2%;">
-                        <div class="signature-line"></div>
-                        <div class="signature-label" style="font-size: 9pt;">Checked By</div>
-                    </div>
-                    <!-- For Trinity Oil Mills & Authorised Signatory -->
-                    <div style="width: 32%; border: 1px solid #2d4e52; padding: 8px; vertical-align: bottom; min-height: 45px;">
-                        <div style="height: 12px; margin-bottom: 6px;"></div>
-                        <div class="signature-label" style="font-size: 9pt; margin-bottom: 10px;">For Trinity Oil Mills</div>
-                        <div style="height: 12px; border-bottom: 1px solid #666; margin-bottom: 6px;"></div>
-                        <div class="signature-label" style="font-size: 9pt;">Authorised Signatory</div>
+                    <div style="flex: 1; border: 1px solid #2d4e52; padding: 6px; min-height: 44px; display: flex; flex-direction: column; justify-content: flex-end;">
+                        <div style="border-bottom: 1px solid #666; margin-bottom: 2px;"></div>
+                        <div class="signature-label" style="font-size: 8pt; line-height: 1.1;">For Trinity Oil Mills<br>Authorised Signatory</div>
                     </div>
                 </div>
             </td>
@@ -607,7 +658,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         <tr style="height: 55px;">
             <td class="bg-header text-center font-bold" colspan="4" style="font-size: 10pt;">
                 <div style="font-weight: bold; color: #2d4e52; margin-bottom: 8px;">Registered Office:</div>
-                Trinity Oil Mills, 337, 339, Paper Mills Road, Bunder Garden, Perambur, Chennai, Tamil Nadu 600011<br>
+                Trinity Oil Mills, 337, 339, Paper Mills Road, Perambur, Chennai, Tamil Nadu 600011<br>
                 Tel: 99520 55660 / 97109 03330 | www.Trinityoil.in | GST No: 33BOBPS7844L1ZG
             </td>
         </tr>

@@ -38,6 +38,26 @@ interface CanteenAddress {
   state?: string;
   pincode?: string;
   gstNumber?: string;
+  billingEmail?: string | null;
+  billingContactPerson?: string | null;
+  billingMobile?: string | null;
+}
+
+// Castor Oil 200ml: two billing codes, same product — one card, code selector (new default), full name everywhere
+const CASTOR_200ML_OLD_CODE = '55336';
+const CASTOR_200ML_NEW_CODE = '68539';
+const CASTOR_200ML_DISPLAY_NAME = 'TOM-Castor Oil - 200ml';
+
+function isCastor200mlById(p: Product): boolean {
+  const id = String(p.id).trim();
+  return id === CASTOR_200ML_OLD_CODE || id === CASTOR_200ML_NEW_CODE;
+}
+
+function isCastor200ml(p: Product): boolean {
+  if (isCastor200mlById(p)) return true;
+  const name = (p.name || '').toLowerCase();
+  const unit = (p.unit || '').toLowerCase();
+  return name.includes('castor') && (name.includes('200') || unit.includes('200ml'));
 }
 
 // Helper function to get product-specific icons
@@ -152,7 +172,7 @@ export default function POSPage() {
   const [canteenAddresses, setCanteenAddresses] = useState<CanteenAddress[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [saleType, setSaleType] = useState<'retail' | 'canteen'>('retail');
-  const [gstMode, setGstMode] = useState<'included' | 'excluded'>('excluded');
+  const [gstMode, setGstMode] = useState<'included' | 'excluded'>('included');
   const [selectedCanteen, setSelectedCanteen] = useState<string>('');
   const [customerName, setCustomerName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -165,6 +185,7 @@ export default function POSPage() {
   const [poNumberValue, setPoNumberValue] = useState(''); // User types just the number
   const [poYear, setPoYear] = useState(getCurrentFY); // lazy init e.g. "24-25"
   const [poDate, setPoDate] = useState(() => new Date().toISOString().slice(0, 10)); // Required; default today
+  const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10)); // Invoice date; default today
   const [modeOfSales, setModeOfSales] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customInvoiceNum, setCustomInvoiceNum] = useState(''); // 4-digit number when editing
@@ -173,6 +194,7 @@ export default function POSPage() {
   const [mounted, setMounted] = useState(false);
   const [currentYear, setCurrentYear] = useState('2025');
   const [editingQuantity, setEditingQuantity] = useState<Record<string, string>>({});
+  const [castor200mlBillingCode, setCastor200mlBillingCode] = useState<string>(CASTOR_200ML_NEW_CODE); // default new code
   const { addToast, ToastContainer } = useToast();
 
   // Set mounted and current year
@@ -220,7 +242,7 @@ export default function POSPage() {
         setSaleType('canteen');
         setPaymentMethod('credit'); // Canteens use auto credit payment
         setModeOfSales('email'); // Default email for canteen sales
-        setGstMode('excluded'); // Default GST mode for canteen: GST added on top
+        setGstMode('included'); // Default GST mode for canteen: GST included in price
       } else {
         setSaleType('retail');
         setPaymentMethod('cash'); // Default cash for retail
@@ -235,7 +257,7 @@ export default function POSPage() {
     if (saleType === 'canteen') {
       setPaymentMethod('credit'); // Auto credit for canteens
       setModeOfSales('email'); // Default email for canteen sales
-      setGstMode((prev) => prev || 'excluded');
+      setGstMode((prev) => prev || 'included');
     } else {
       setPaymentMethod('cash'); // Default cash for retail
       setModeOfSales('walk_in'); // Default walk-in for retail sales
@@ -275,24 +297,32 @@ export default function POSPage() {
     }
   };
 
+  // Castor 200ml: always use selected billing code (55336 or 68539) for cart/API
+  const getProductIdForCart = (product: Product): string => {
+    if (isCastor200ml(product)) return castor200mlBillingCode;
+    return product.id;
+  };
+
   // Cart management
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product, forceProductId?: string) => {
+    const productId = forceProductId ?? getProductIdForCart(product);
     const price =
       gstMode === 'included'
         ? parseFloat(product.retailPrice)
         : parseFloat(product.basePrice);
-    const existingItem = cart.find(item => item.productId === product.id);
+    const existingItem = cart.find(item => item.productId === productId);
     
     if (existingItem) {
       setCart(cart.map(item => 
-        item.productId === product.id 
+        item.productId === productId 
           ? { ...item, quantity: item.quantity + 1 }
           : item
       ));
     } else {
+      const itemName = isCastor200ml(product) ? CASTOR_200ML_DISPLAY_NAME : product.name;
       setCart([...cart, {
-        productId: product.id,
-        name: product.name,
+        productId,
+        name: itemName,
         price,
         quantity: 1,
         unit: product.unit,
@@ -300,8 +330,8 @@ export default function POSPage() {
       }]);
     }
 
-    // Visual feedback
-    setSuccess(`${product.name} added to cart!`);
+    const successName = isCastor200ml(product) ? CASTOR_200ML_DISPLAY_NAME : product.name;
+    setSuccess(`${successName} added to cart!`);
     setTimeout(() => setSuccess(''), 2000);
   };
 
@@ -318,6 +348,21 @@ export default function POSPage() {
     setEditingQuantity(prev => {
       const next = { ...prev };
       delete next[productId];
+      return next;
+    });
+  };
+
+  const changeCastorCodeInCart = (currentProductId: string, newCode: string) => {
+    if (newCode === currentProductId) return;
+    setCart(cart.map(item =>
+      item.productId === currentProductId ? { ...item, productId: newCode } : item
+    ));
+    setEditingQuantity(prev => {
+      const next = { ...prev };
+      if (next[currentProductId] !== undefined) {
+        next[newCode] = next[currentProductId];
+        delete next[currentProductId];
+      }
       return next;
     });
   };
@@ -348,25 +393,86 @@ export default function POSPage() {
     };
   };
 
+  // Format validation helpers
+  const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((email || '').trim());
+  const isValidDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test((d || '').trim()) && !Number.isNaN(Date.parse(d));
+
   // Process sale
   const processSale = async () => {
+    setError('');
     if (cart.length === 0) {
-      setError('Please add items to cart');
+      const msg = 'Please add items to cart';
+      setError(msg);
+      addToast(msg, 'error');
       return;
     }
 
     if (saleType === 'canteen' && !selectedCanteen) {
-      setError('Please select a canteen address');
+      const msg = 'Please select a canteen address';
+      setError(msg);
+      addToast(msg, 'error');
       return;
     }
 
     if (!poDate || !poDate.trim()) {
-      setError('Please select PO Date');
+      const msg = 'Please select PO Date';
+      setError(msg);
+      addToast(msg, 'error');
+      return;
+    }
+    if (!isValidDate(poDate.trim())) {
+      const msg = 'PO Date must be a valid date (YYYY-MM-DD)';
+      setError(msg);
+      addToast(msg, 'error');
       return;
     }
 
+    if (!poNumberValue || !poNumberValue.trim()) {
+      const msg = 'Please enter PO Number (Customer Reference)';
+      setError(msg);
+      addToast(msg, 'error');
+      return;
+    }
+    if (!/^\d{1,10}$/.test(poNumberValue.trim())) {
+      const msg = 'PO Number must be 1–10 digits only';
+      setError(msg);
+      addToast(msg, 'error');
+      return;
+    }
+
+    if (invoiceDate && invoiceDate.trim() && !isValidDate(invoiceDate.trim())) {
+      const msg = 'Invoice Date must be a valid date (YYYY-MM-DD)';
+      setError(msg);
+      addToast(msg, 'error');
+      return;
+    }
+
+    if (saleType === 'canteen' && modeOfSales === 'email') {
+      if (!customerEmail || !customerEmail.trim()) {
+        const msg = 'Please enter customer email for email orders';
+        setError(msg);
+        addToast(msg, 'error');
+        return;
+      }
+      if (!isValidEmail(customerEmail)) {
+        const msg = 'Please enter a valid email address';
+        setError(msg);
+        addToast(msg, 'error');
+        return;
+      }
+    }
+
+    if (showInvoiceEdit && customInvoiceNum.trim()) {
+      const num = customInvoiceNum.replace(/\D/g, '');
+      if (num.length === 0 || num.length > 4) {
+        const msg = 'Custom invoice number must be 1–4 digits (e.g. 1 or 0001)';
+        setError(msg);
+        addToast(msg, 'error');
+        return;
+      }
+    }
+
     setIsSaving(true);
-    setError('');
 
     try {
       const { subtotal, gstAmount, total } = calculateTotals();
@@ -387,6 +493,7 @@ export default function POSPage() {
         canteenAddressId: saleType === 'canteen' ? selectedCanteen : null,
         poNumber: (poNumberValue.trim() && poYear) ? `PO-${poNumberValue.trim()} / ${poYear}` : null,
         poDate: poDate.trim() || null, // Main date for invoice (required)
+        invoiceDate: invoiceDate.trim() || new Date().toISOString().slice(0, 10), // Invoice date (default today)
         modeOfSales: modeOfSales === 'email' && customerEmail ? `email:${customerEmail}` : modeOfSales || null, // Mode of sales with email if applicable
         customInvoiceNumber: (showInvoiceEdit && customInvoiceNum.trim()) ? `${saleType === 'canteen' ? 'C' : 'R'}${customInvoiceNum.replace(/\D/g, '').padStart(4, '0').slice(0, 4)}/${customInvoiceYear}` : null,
         customerEmail: customerEmail || null
@@ -408,6 +515,7 @@ export default function POSPage() {
         setPoNumberValue('');
         setPoYear(getCurrentFY());
         setPoDate(new Date().toISOString().slice(0, 10));
+        setInvoiceDate(new Date().toISOString().slice(0, 10));
         setModeOfSales('');
         setCustomerEmail('');
         setCustomInvoiceNum('');
@@ -436,6 +544,13 @@ export default function POSPage() {
   });
 
   const categories = ['all', ...Array.from(new Set(products.map(p => p.category)))];
+
+  // One card for Castor Oil 200ml: show new code (68539) only, hide old (55336) when both exist
+  const hasCastorNew = filteredProducts.some(p => String(p.id).trim() === CASTOR_200ML_NEW_CODE);
+  const displayProducts = hasCastorNew
+    ? filteredProducts.filter(p => String(p.id).trim() !== CASTOR_200ML_OLD_CODE)
+    : filteredProducts;
+
   const { subtotal, gstAmount, total } = calculateTotals();
 
   if (status === 'loading' || isLoading || !mounted) {
@@ -551,10 +666,13 @@ export default function POSPage() {
 
             {/* Product Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredProducts.map((product) => {
+              {displayProducts.map((product) => {
                 const price = saleType === 'retail' ? parseFloat(product.retailPrice) : parseFloat(product.basePrice);
-                const inCart = cart.find(item => item.productId === product.id);
-                
+                const isCastor = isCastor200ml(product);
+                const inCart = isCastor
+                  ? cart.find(item => item.productId === CASTOR_200ML_OLD_CODE || item.productId === CASTOR_200ML_NEW_CODE)
+                  : cart.find(item => item.productId === product.id);
+                const cartProductId = inCart ? inCart.productId : getProductIdForCart(product);
                 return (
                   <div
                     key={product.id}
@@ -569,10 +687,29 @@ export default function POSPage() {
                     
                     {/* Product Details */}
                     <div className="p-4">
-                      <h3 className="font-semibold text-gray-900 mb-1">{product.name}</h3>
+                      <h3 className="font-semibold text-gray-900 mb-1">
+                        {isCastor ? CASTOR_200ML_DISPLAY_NAME : product.name}
+                      </h3>
                       <p className="text-sm text-gray-600 mb-2">
-                        {product.type.replace('_', ' ').toUpperCase()} • {product.unit}
+                        {isCastor ? `200ml • Code ${castor200mlBillingCode}` : `${product.type.replace('_', ' ').toUpperCase()} • ${product.unit}`}
                       </p>
+
+                      {/* Billing code: always show for Castor Oil 200ml (by name or id) */}
+                      {isCastor && (
+                        <div className="mb-2">
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Billing code</label>
+                          <select
+                            value={castor200mlBillingCode}
+                            onChange={(e) => setCastor200mlBillingCode(e.target.value)}
+                            disabled={!!inCart}
+                            className="w-full text-sm px-2 py-1.5 border border-gray-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100 disabled:text-gray-600"
+                          >
+                            <option value={CASTOR_200ML_NEW_CODE}>{CASTOR_200ML_NEW_CODE} (new)</option>
+                            <option value={CASTOR_200ML_OLD_CODE}>{CASTOR_200ML_OLD_CODE} (old)</option>
+                          </select>
+                          {inCart && <p className="text-xs text-gray-500 mt-0.5">Change code in cart below</p>}
+                        </div>
+                      )}
                       
                       <div className="flex items-center justify-between mb-3">
                         <div>
@@ -588,7 +725,7 @@ export default function POSPage() {
                       {inCart ? (
                         <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
                           <button
-                            onClick={() => updateQuantity(product.id, Math.max(0, Math.round(inCart.quantity) - 1))}
+                            onClick={() => updateQuantity(cartProductId, Math.max(0, Math.round(inCart.quantity) - 1))}
                             className="w-10 h-10 flex items-center justify-center bg-white border border-green-300 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-110 active:scale-95 touch-manipulation"
                           >
                             <span className="text-green-600 font-bold text-lg">−</span>
@@ -598,7 +735,7 @@ export default function POSPage() {
                             <div className="text-xs text-green-600">in cart</div>
                           </div>
                           <button
-                            onClick={() => updateQuantity(product.id, Math.round(inCart.quantity) + 1)}
+                            onClick={() => updateQuantity(cartProductId, Math.round(inCart.quantity) + 1)}
                             className="w-10 h-10 flex items-center justify-center bg-white border border-green-300 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-110 active:scale-95 touch-manipulation"
                           >
                             <span className="text-green-600 font-bold text-lg">+</span>
@@ -621,7 +758,7 @@ export default function POSPage() {
               })}
             </div>
 
-            {filteredProducts.length === 0 && (
+            {displayProducts.length === 0 && (
               <div className="text-center py-12">
                 <div className="text-6xl mb-4">🔍</div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No products found</h3>
@@ -655,13 +792,30 @@ export default function POSPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {cart.map((item) => (
-                    <div key={item.productId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex-1">
-                        <h4 className="font-medium text-gray-900">{item.name}</h4>
-                        <p className="text-sm text-gray-600">₹{item.price} × {item.quantity}</p>
-                      </div>
-                      <div className="flex items-center space-x-2">
+                  {cart.map((item) => {
+                    const isCastor = item.productId === CASTOR_200ML_OLD_CODE || item.productId === CASTOR_200ML_NEW_CODE;
+                    const displayName = isCastor ? `${CASTOR_200ML_DISPLAY_NAME} (${item.productId})` : item.name;
+                    return (
+                    <div key={item.productId} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="flex items-start justify-between gap-2 min-w-0">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-medium text-gray-900 text-sm truncate" title={displayName}>{displayName}</h4>
+                          {isCastor && (
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              <span className="text-xs text-gray-600 shrink-0">Code:</span>
+                              <select
+                                value={item.productId}
+                                onChange={(e) => changeCastorCodeInCart(item.productId, e.target.value)}
+                                className="text-xs px-1.5 py-0.5 border border-gray-300 rounded max-w-[6rem] focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                              >
+                                <option value={CASTOR_200ML_NEW_CODE}>{CASTOR_200ML_NEW_CODE} (new)</option>
+                                <option value={CASTOR_200ML_OLD_CODE}>{CASTOR_200ML_OLD_CODE} (old)</option>
+                              </select>
+                            </div>
+                          )}
+                          <p className="text-sm text-gray-600 mt-0.5">₹{item.price} × {item.quantity}</p>
+                        </div>
+                        <div className="flex items-center space-x-1 shrink-0">
                         <button
                           onClick={() => updateQuantity(item.productId, Math.max(0, Math.round(item.quantity) - 1))}
                           className="w-6 h-6 flex items-center justify-center bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
@@ -701,12 +855,14 @@ export default function POSPage() {
                         >
                           +
                         </button>
-                        <span className="w-16 text-right font-semibold text-gray-900">
+                        <span className="w-14 text-right font-semibold text-gray-900 text-sm">
                           ₹{(item.price * item.quantity).toFixed(2)}
                         </span>
+                        </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -722,7 +878,13 @@ export default function POSPage() {
                     </label>
                     <select
                       value={selectedCanteen}
-                      onChange={(e) => setSelectedCanteen(e.target.value)}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setSelectedCanteen(id);
+                        const addr = canteenAddresses.find((a) => a.id === id);
+                        if (addr?.billingEmail) setCustomerEmail(addr.billingEmail);
+                        else if (!id) setCustomerEmail('');
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                       required
                     >
@@ -738,7 +900,7 @@ export default function POSPage() {
                     <div className="mt-3">
                       <div className="flex items-center justify-between mb-2">
                         <label className="block text-sm font-medium text-gray-700">
-                          PO Number (Customer Reference)
+                          PO Number (Customer Reference) <span className="text-red-500">*</span>
                         </label>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -783,6 +945,22 @@ export default function POSPage() {
                       />
                       <p className="text-xs text-gray-500 mt-1">
                         <strong>Purchase Order Date</strong> — This is the main date saved and shown as &quot;Dated&quot; on the invoice.
+                      </p>
+                    </div>
+
+                    {/* Invoice Date - default today */}
+                    <div className="mt-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Invoice Date
+                      </label>
+                      <input
+                        type="date"
+                        value={invoiceDate}
+                        onChange={(e) => setInvoiceDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Date shown as &quot;Invoice Date&quot; on the invoice. Defaults to today.
                       </p>
                     </div>
 
@@ -851,7 +1029,7 @@ export default function POSPage() {
                     {/* PO Number Field for Retail Sales too */}
                     <div className="mt-3">
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        PO Number (Customer Reference)
+                        PO Number (Customer Reference) <span className="text-red-500">*</span>
                       </label>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-gray-600 font-medium">PO-</span>
@@ -893,6 +1071,22 @@ export default function POSPage() {
                       />
                       <p className="text-xs text-gray-500 mt-1">
                         <strong>Purchase Order Date</strong> — This is the main date saved and shown as &quot;Dated&quot; on the invoice.
+                      </p>
+                    </div>
+
+                    {/* Invoice Date - default today (Retail) */}
+                    <div className="mt-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Invoice Date
+                      </label>
+                      <input
+                        type="date"
+                        value={invoiceDate}
+                        onChange={(e) => setInvoiceDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Date shown as &quot;Invoice Date&quot; on the invoice. Defaults to today.
                       </p>
                     </div>
 

@@ -74,6 +74,7 @@ export async function PUT(
       invoiceNumber, 
       poNumber, 
       poDate,
+      invoiceDate,
       customerName, 
       paymentMethod,
       canteenAddressId,
@@ -145,6 +146,16 @@ export async function PUT(
     if (hasPoDateColumn && poDate !== undefined) {
       updateFields.push('po_date = ?');
       updateValues.push(poDate || null);
+    }
+
+    let hasInvoiceDateColumn = false;
+    try {
+      const [invCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "invoice_date"');
+      hasInvoiceDateColumn = Array.isArray(invCols) && invCols.length > 0;
+    } catch (_) {}
+    if (hasInvoiceDateColumn && invoiceDate !== undefined) {
+      updateFields.push('invoice_date = ?');
+      updateValues.push(invoiceDate && String(invoiceDate).trim() ? String(invoiceDate).trim() : null);
     }
 
     if (paymentMethod && paymentMethod.trim() !== '') {

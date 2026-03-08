@@ -172,7 +172,15 @@ export async function GET(request: NextRequest) {
     }
 
     const poDateField = hasPoDateColumn ? ', s.po_date as poDate' : ', NULL as poDate';
-    
+
+    let invoiceDateField = ', NULL as invoiceDate';
+    try {
+      const [invCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "invoice_date"');
+      if (Array.isArray(invCols) && invCols.length > 0) {
+        invoiceDateField = ', s.invoice_date as invoiceDate';
+      }
+    } catch (_) {}
+
     // Check for mode_of_sales column
     let hasModeOfSalesColumn = false;
     try {
@@ -185,7 +193,7 @@ export async function GET(request: NextRequest) {
     const modeOfSalesField = hasModeOfSalesColumn ? ', s.mode_of_sales as modeOfSales' : ', NULL as modeOfSales';
     
     let query = `SELECT s.id, s.invoice_number as invoiceNumber, s.sale_type as saleType, s.subtotal, s.gst_amount as gstAmount, s.total_amount as totalAmount,
-                        s.payment_method as paymentMethod, s.payment_status as paymentStatus, s.shipment_status as shipmentStatus, s.notes${poNumberField}${poDateField}${modeOfSalesField}, s.created_at as createdAt,
+                        s.payment_method as paymentMethod, s.payment_status as paymentStatus, s.shipment_status as shipmentStatus, s.notes${poNumberField}${poDateField}${invoiceDateField}${modeOfSalesField}, s.created_at as createdAt,
                         s.canteen_address_id as canteenAddressId, u.name as userName, s.notes as customerName, ca.canteen_name as canteenName, ca.address as canteenAddress,
                         ca.contact_person as canteenContact, ca.mobile_number as canteenMobile
                  FROM sales s
@@ -282,6 +290,53 @@ async function generateInvoiceNumber(connection: any, saleType: string, customIn
   return `${prefix}${paddedNumber}/${currentYear}`;
 }
 
+// Castor Oil 200ml: POS may send 55336/68539 but inventory can be under castor-200ml or 55336/68539 — check all.
+const CASTOR_200ML_LOOKUP_IDS = ['55336', '68539', 'castor-200ml'];
+
+/**
+ * Deduct quantity from inventory.
+ * 1) Find row by product_id. For Castor (55336/68539), also look for product_id 'castor-200ml' and pick row with most stock.
+ * 2) If found: UPDATE by id. If not: INSERT row then UPDATE by id.
+ */
+async function deductInventory(connection: any, productId: string, quantity: number): Promise<void> {
+  const pid = String(productId).trim();
+  const isCastor = ['55336', '68539'].includes(pid);
+  const lookupIds = isCastor ? CASTOR_200ML_LOOKUP_IDS : [pid];
+
+  // 1) Find inventory row. For Castor, try every possible product_id and pick the row with highest quantity.
+  let invId: string | null = null;
+  if (lookupIds.length === 1) {
+    const [rows]: any = await connection.query('SELECT id FROM inventory WHERE product_id = ? LIMIT 1', [lookupIds[0]]);
+    if (rows && rows[0]) invId = rows[0].id;
+  } else {
+    let best: { id: string; quantity: number } | null = null;
+    for (const id of lookupIds) {
+      const [rows]: any = await connection.query('SELECT id, quantity FROM inventory WHERE product_id = ? LIMIT 1', [id]);
+      if (rows && rows[0]) {
+        const q = Number(rows[0].quantity ?? 0);
+        if (!best || q > best.quantity) best = { id: rows[0].id, quantity: q };
+      }
+    }
+    if (best) invId = best.id;
+  }
+
+  if (!invId) {
+    const insertProductId = isCastor ? 'castor-200ml' : pid;
+    invId = `inv-${insertProductId}-${Date.now()}`;
+    await connection.execute(
+      `INSERT INTO inventory (id, product_id, quantity, min_stock, max_stock, location, created_at, updated_at)
+       VALUES (?, ?, 0, 10, 1000, 'main_store', NOW(), NOW())`,
+      [invId, insertProductId]
+    );
+  }
+
+  // 2) Deduct by primary key (same style as PUT /api/inventory)
+  await connection.execute(
+    'UPDATE inventory SET quantity = quantity - ?, updated_at = NOW() WHERE id = ?',
+    [quantity, invId]
+  );
+}
+
 // POST /api/sales (create sale with items, 5% GST, deduct inventory)
 export async function POST(request: NextRequest) {
     const session = await auth();
@@ -303,6 +358,7 @@ export async function POST(request: NextRequest) {
       customInvoiceNumber = null,
       poNumber = null,
       poDate = null,
+      invoiceDate = null,
       modeOfSales = null,
       customerEmail = null,
       gstMode,
@@ -317,7 +373,7 @@ export async function POST(request: NextRequest) {
     
     if (saleType === 'canteen') {
       finalPaymentStatus = 'pending'; // Default to pending for canteen
-      finalShipmentStatus = 'pending'; // Default to pending for canteen
+      finalShipmentStatus = 'pending'; // Default to pending for canteen orders
       
       // Make email mandatory for canteen sales
       if (modeOfSales === 'email' && !customerEmail) {
@@ -326,7 +382,8 @@ export async function POST(request: NextRequest) {
     }
 
     const connection = await createConnection();
-    await connection.beginTransaction();
+    try {
+      await connection.beginTransaction();
 
     // Fetch product prices to ensure server-trusted pricing
     const productIds = items.map((i: any) => i.productId);
@@ -342,7 +399,7 @@ export async function POST(request: NextRequest) {
     const effectiveGstMode: 'included' | 'excluded' =
       gstMode === 'included' || gstMode === 'excluded'
         ? gstMode
-        : (saleType === 'retail' ? 'included' : 'excluded');
+        : 'included';
 
     const preparedItems = items.map((i: any) => {
       const prod = idToProduct[i.productId];
@@ -434,9 +491,30 @@ export async function POST(request: NextRequest) {
       console.log('Could not check for mode_of_sales column:', error);
     }
 
+    // Check if invoice_date column exists
+    let hasInvoiceDateColumn = false;
+    let invoiceDateValue: string | null = typeof invoiceDate === 'string' && invoiceDate.trim() ? invoiceDate.trim() : null;
+    if (!invoiceDateValue) {
+      invoiceDateValue = new Date().toISOString().slice(0, 10);
+    }
+    try {
+      const [invDateCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "invoice_date"');
+      hasInvoiceDateColumn = Array.isArray(invDateCols) && invDateCols.length > 0;
+      if (!hasInvoiceDateColumn) {
+        try {
+          await connection.query('ALTER TABLE sales ADD COLUMN invoice_date DATE NULL');
+          hasInvoiceDateColumn = true;
+        } catch (e: any) {
+          console.log('ALTER add invoice_date failed:', e?.message);
+        }
+      }
+    } catch (error) {
+      console.log('Could not check for invoice_date column:', error);
+    }
+
     // Build dynamic insert query
     let insertFields = 'id, customer_id, user_id, invoice_number, sale_type, subtotal, gst_amount, total_amount, payment_method, payment_status, shipment_status, notes, canteen_address_id';
-    let insertValues = [saleId, customerId, session.user.id, invoiceNumber, saleType, subtotal, gstAmount, totalAmount, paymentMethod, paymentStatus, shipmentStatus, customerName, canteenAddressId];
+    let insertValues = [saleId, customerId, session.user.id, invoiceNumber, saleType, subtotal, gstAmount, totalAmount, paymentMethod, finalPaymentStatus, finalShipmentStatus, customerName, canteenAddressId];
     let insertPlaceholders = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
 
     if (hasPoNumberColumn) {
@@ -461,12 +539,18 @@ export async function POST(request: NextRequest) {
       insertPlaceholders += ', ?';
     }
 
+    if (hasInvoiceDateColumn) {
+      insertFields += ', invoice_date';
+      insertValues.push(invoiceDateValue);
+      insertPlaceholders += ', ?';
+    }
+
     insertFields += ', created_at, updated_at';
     insertPlaceholders += ', NOW(), NOW()';
 
         await connection.execute(
           `INSERT INTO sales (${insertFields}) VALUES (${insertPlaceholders})`,
-          [saleId, customerId, session.user.id, invoiceNumber, saleType, subtotal, gstAmount, totalAmount, paymentMethod, finalPaymentStatus, finalShipmentStatus, customerName, canteenAddressId, poNumber, poDate, finalModeOfSales]
+          insertValues
         );
 
     for (const it of preparedItems) {
@@ -486,29 +570,32 @@ export async function POST(request: NextRequest) {
         ]
       );
 
-      // Deduct inventory for product if exists
-      await connection.execute(
-        `UPDATE inventory SET quantity = quantity - ? WHERE product_id = ?`,
-        [it.quantity, it.productId]
-      );
+      await deductInventory(connection, it.productId, it.quantity);
 
-      // Deduct packaging materials for both retail and canteen sales
-      await deductPackagingMaterials(connection, it.productId, it.quantity, saleType);
+      try {
+        await deductPackagingMaterials(connection, it.productId, it.quantity, saleType);
+      } catch (packErr) {
+        console.error('[sales] Packaging deduction failed (sale and inventory still saved):', packErr);
+      }
     }
 
-    await connection.commit();
-    await connection.end();
-
-    return NextResponse.json({
-      sale: {
-        id: saleId,
-        invoiceNumber,
-        subtotal,
-        gstAmount,
-        totalAmount,
-        paymentMethod,
-      },
-    }, { status: 201 });
+      await connection.commit();
+      return NextResponse.json({
+        sale: {
+          id: saleId,
+          invoiceNumber,
+          subtotal,
+          gstAmount,
+          totalAmount,
+          paymentMethod,
+        },
+      }, { status: 201 });
+    } catch (txError) {
+      try { await connection.rollback(); } catch (_) {}
+      throw txError;
+    } finally {
+      try { await connection.end(); } catch (_) {}
+    }
   } catch (error) {
     console.error('Sales POST error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
