@@ -31,6 +31,7 @@ export async function GET(
         billing_contact_person AS billing_contact_person,
         billing_email   AS billing_email,
         billing_mobile  AS billing_mobile,
+        delivery_email  AS delivery_email,
         contact_person,
         mobile_number   AS mobile_number,
         gst_number      AS gst_number,
@@ -89,6 +90,7 @@ export async function PUT(
       billingContactPerson,
       billingEmail,
       billingMobile,
+      receivingPersonEmail,
       isActive,
     } = await request.json();
 
@@ -142,6 +144,7 @@ export async function PUT(
         billing_contact_person = ?,
         billing_email   = ?,
         billing_mobile  = ?,
+        delivery_email  = ?,
         contact_person  = ?,
         mobile_number   = ?,
         gst_number      = ?,
@@ -162,6 +165,7 @@ export async function PUT(
         billingContactPerson ?? null,
         billingEmail ?? null,
         billingMobile ?? null,
+        receivingPersonEmail ?? null,
         receivingPersonName,
         receivingPersonMobile,
         billingGstNumber || null,

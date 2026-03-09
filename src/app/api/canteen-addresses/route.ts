@@ -27,12 +27,13 @@ export async function GET(request: NextRequest) {
         billing_contact_person   AS billingContactPerson,
         billing_email            AS billingEmail,
         billing_mobile           AS billingMobile,
+        delivery_email           AS deliveryEmail,
         contact_person            AS contactPerson,
         mobile_number             AS mobileNumber,
         gst_number                AS gstNumber,
         is_active                 AS isActive,
         created_at                AS createdAt,
-        updated_at                AS updatedAt
+        updated_at                AS UpdatedAt
       FROM canteen_addresses 
       WHERE is_active = true
       ORDER BY canteen_name

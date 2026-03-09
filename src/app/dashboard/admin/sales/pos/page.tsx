@@ -41,6 +41,7 @@ interface CanteenAddress {
   billingEmail?: string | null;
   billingContactPerson?: string | null;
   billingMobile?: string | null;
+   deliveryEmail?: string | null;
 }
 
 // Castor Oil 200ml: two billing codes, same product — one card, code selector (new default), full name everywhere
@@ -882,8 +883,13 @@ export default function POSPage() {
                         const id = e.target.value;
                         setSelectedCanteen(id);
                         const addr = canteenAddresses.find((a) => a.id === id);
-                        if (addr?.billingEmail) setCustomerEmail(addr.billingEmail);
-                        else if (!id) setCustomerEmail('');
+                        // Prefer delivery email for mode-of-order; fall back to billing email
+                        if (addr) {
+                          const primary = (addr.deliveryEmail || addr.billingEmail || '').trim();
+                          setCustomerEmail(primary);
+                        } else if (!id) {
+                          setCustomerEmail('');
+                        }
                       }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                       required
@@ -895,6 +901,23 @@ export default function POSPage() {
                         </option>
                       ))}
                     </select>
+
+                    {selectedCanteen && (() => {
+                      const addr = canteenAddresses.find(a => a.id === selectedCanteen);
+                      if (!addr) return null;
+                      return (
+                        <div className="mt-2 text-xs text-gray-600 space-y-1">
+                          <div>
+                            <span className="font-semibold">Billing Email:</span>{' '}
+                            {addr.billingEmail?.trim() || '—'}
+                          </div>
+                          <div>
+                            <span className="font-semibold">Delivery Email:</span>{' '}
+                            {addr.deliveryEmail?.trim() || '—'}
+                          </div>
+                        </div>
+                      );
+                    })()}
                     
                     {/* PO Number Field for Canteen Sales */}
                     <div className="mt-3">
@@ -988,24 +1011,52 @@ export default function POSPage() {
                         <option value="online">💻 Online Order</option>
                       </select>
                       
-                      {/* Email Input - Shows only when Email Order is selected */}
+                      {/* Receiving Person Email ID - required for canteen email orders */}
                       {modeOfSales === 'email' && (
-                        <div className="mt-2">
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Customer Email Address
-                          </label>
-                          <input
-                            type="email"
-                            value={customerEmail}
-                            onChange={(e) => setCustomerEmail(e.target.value)}
-                            placeholder="customer@example.com"
-                            required={modeOfSales === 'email'}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                          />
-                          <p className="text-xs text-gray-500 mt-1">
-                            Email address where the order was received
-                          </p>
-                        </div>
+                        <>
+                          <div className="mt-2">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Receiving Person Email ID <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="email"
+                              value={customerEmail}
+                              onChange={(e) => setCustomerEmail(e.target.value)}
+                              placeholder="receiving.person@canteen.com"
+                              required={modeOfSales === 'email'}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">
+                              This will be used as the email under <strong>Mode of Order</strong> on the invoice.
+                            </p>
+                          </div>
+
+                          {/* Billing Person Email ID - optional informative field */}
+                          {selectedCanteen && (
+                            <div className="mt-2">
+                              <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Billing Person Email ID (optional)
+                              </label>
+                              {(() => {
+                                const addr = canteenAddresses.find(a => a.id === selectedCanteen);
+                                const billing = (addr?.billingEmail || '').trim();
+                                return (
+                                  <input
+                                    type="email"
+                                    value={billing}
+                                    readOnly
+                                    disabled={!billing}
+                                    placeholder={billing ? '' : 'Not set in canteen master'}
+                                    className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-gray-600"
+                                  />
+                                );
+                              })()}
+                              <p className="text-xs text-gray-500 mt-1">
+                                Pulled from the canteen master Billing Email. This is **not** mandatory.
+                              </p>
+                            </div>
+                          )}
+                        </>
                       )}
                       
                       <p className="text-xs text-gray-500 mt-1">

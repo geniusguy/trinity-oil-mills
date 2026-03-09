@@ -34,14 +34,15 @@ export async function POST(request: NextRequest) {
           console.log('mode_of_sales column already exists or error:', error.message);
         }
 
-        // Add billing person/email/mobile to canteen_addresses if missing
+        // Add billing / delivery contact columns to canteen_addresses if missing
         for (const [colName, def] of [
           ['billing_contact_person', 'VARCHAR(255) NULL'],
           ['billing_email', 'VARCHAR(255) NULL'],
-          ['billing_mobile', 'VARCHAR(20) NULL']
+          ['billing_mobile', 'VARCHAR(20) NULL'],
+          ['delivery_email', 'VARCHAR(255) NULL'],
         ]) {
           try {
-            await connection.execute(`ALTER TABLE canteen_addresses ADD COLUMN ${colName} ${def}`);
+            await connection.execute(`ALTER TABLE canteen_addresses ADD COLUMN IF NOT EXISTS ${colName} ${def}`);
             console.log(`Added canteen_addresses.${colName}`);
           } catch (e) {
             console.log(`canteen_addresses.${colName} already exists or error:`, (e as Error).message);

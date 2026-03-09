@@ -26,6 +26,7 @@ export async function GET() {
         billing_contact_person AS billing_contact_person,
         billing_email   AS billing_email,
         billing_mobile  AS billing_mobile,
+        delivery_email  AS delivery_email,
         contact_person,
         mobile_number   AS mobile_number,
         gst_number      AS gst_number,
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
       deliveryPincode,
       receivingPersonName,
       receivingPersonMobile,
+      receivingPersonEmail,
       billingAddress,
       billingCity,
       billingState,
@@ -117,11 +119,13 @@ export async function POST(request: NextRequest) {
       (id, canteen_name, address, city, state, pincode,
        billing_address, billing_city, billing_state, billing_pincode,
        billing_contact_person, billing_email, billing_mobile,
-       contact_person, mobile_number, gst_number, is_active, created_at, updated_at)
+       contact_person, mobile_number, gst_number, delivery_email,
+       is_active, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?,
               ?, ?, ?, ?,
               ?, ?, ?,
-              ?, ?, ?, ?, NOW(), NOW())
+              ?, ?, ?, ?, ?,
+              ?, NOW(), NOW())
     `,
       [
         id,
@@ -140,6 +144,7 @@ export async function POST(request: NextRequest) {
         receivingPersonName,
         receivingPersonMobile,
         billingGstNumber || null,
+        receivingPersonEmail ?? null,
         isActive,
       ],
     );

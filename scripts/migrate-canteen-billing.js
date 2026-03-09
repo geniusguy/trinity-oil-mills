@@ -75,6 +75,7 @@ const COLUMNS = [
   { name: 'billing_contact_person', def: 'VARCHAR(255) NULL' },
   { name: 'billing_email', def: 'VARCHAR(255) NULL' },
   { name: 'billing_mobile', def: 'VARCHAR(20) NULL' },
+  { name: 'delivery_email', def: 'VARCHAR(255) NULL' },
 ];
 
 async function run() {

@@ -7,18 +7,20 @@ const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
 
 async function main() {
-  // Load env.local from project root (one level up)
-  const envPath = path.resolve(__dirname, '..', 'env.local');
-  if (fs.existsSync(envPath)) {
-    dotenv.config({ path: envPath });
-  } else {
-    // Fallback to env.production or .env if needed
-    const prodPath = path.resolve(__dirname, '..', 'env.production');
-    const rootEnv = path.resolve(__dirname, '.env');
-    if (fs.existsSync(prodPath)) {
-      dotenv.config({ path: prodPath });
-    } else if (fs.existsSync(rootEnv)) {
-      dotenv.config({ path: rootEnv });
+  // Load env: try oil-shop-web folder first, then parent
+  const envPaths = [
+    path.resolve(__dirname, '.env.local'),
+    path.resolve(__dirname, '.env'),
+    path.resolve(__dirname, '..', 'env.local'),
+    path.resolve(__dirname, '..', '.env'),
+    path.resolve(__dirname, '.env.production'),
+    path.resolve(__dirname, '..', 'env.production'),
+  ];
+  for (const p of envPaths) {
+    if (fs.existsSync(p)) {
+      dotenv.config({ path: p });
+      console.log('Using env:', p);
+      break;
     }
   }
 

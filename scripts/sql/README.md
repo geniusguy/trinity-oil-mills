@@ -4,6 +4,54 @@ Run these with your MySQL client when you want to apply schema changes directly 
 
 ---
 
+## Full fresh DB: drop database, create database, create all tables
+
+Use this when you want to **remove the database and recreate it from scratch** (e.g. to fix migration issues). **All data will be lost.**
+
+**1. Upload the SQL file to the server**
+
+- File: `oil-shop-web/scripts/sql/drop_create_db_and_schema.sql`
+- Upload to the server (e.g. `/var/www/trinityoil-api/oil-shop-web/scripts/sql/` or any path you prefer).
+
+**2. On the server, run (replace USER and path):**
+
+```bash
+mysql -u USER -p < /path/to/drop_create_db_and_schema.sql
+```
+
+Example:
+
+```bash
+mysql -u root -p < /var/www/trinityoil-api/oil-shop-web/scripts/sql/drop_create_db_and_schema.sql
+```
+
+**3. If your database name is different**
+
+Edit `drop_create_db_and_schema.sql` and change `trinityoil_oil_shop_db_new` to your database name in these lines:
+
+```sql
+DROP DATABASE IF EXISTS trinityoil_oil_shop_db_new;
+CREATE DATABASE trinityoil_oil_shop_db_new ...
+USE trinityoil_oil_shop_db_new;
+```
+
+**4. After running**
+
+- Ensure `.env.production` (or your app env) has `DATABASE_URL=mysql://USER:PASSWORD@host:3306/trinityoil_oil_shop_db_new`.
+- Create an admin user again via the app (Register or your seed) since the DB is fresh.
+
+---
+
+## Tables only (database already exists): full_schema_fresh.sql
+
+If the database already exists and you only want to **drop and recreate all tables** (no DROP DATABASE):
+
+```bash
+mysql -u USER -p trinityoil_oil_shop_db_new < /path/to/full_schema_fresh.sql
+```
+
+---
+
 ## Quick: one SQL command for server (stock_purchases)
 
 Run this in your MySQL client (e.g. on the server or phpMyAdmin). Replace `YOUR_DATABASE_NAME` with your actual DB name (e.g. `trinityoil_oil_shop_db_new`):
@@ -91,6 +139,48 @@ CREATE TABLE IF NOT EXISTS stock_purchases (
 ```
 
 Use the same database name as in your app (e.g. `trinityoil_oil_shop_db_new` or from `DATABASE_URL`).
+
+---
+
+## Add Delivery Person Email ID to canteen_addresses (safe migration)
+
+Use this when you only want to **add the new delivery email field** (`delivery_email`) to an existing database.
+
+**From command line (replace user, dbname, and path):**
+
+```bash
+mysql -u YOUR_USER -p YOUR_DATABASE_NAME < scripts/sql/migrate_add_delivery_email.sql
+```
+
+This runs:
+
+```sql
+ALTER TABLE canteen_addresses
+  ADD COLUMN IF NOT EXISTS delivery_email VARCHAR(255) NULL;
+```
+
+No data is dropped; it only adds the new column if it is missing.
+
+---
+
+## Seed data (initial users, products, inventory)
+
+After creating the schema, load initial data so you can log in and use the app:
+
+```bash
+mysql -u YOUR_USER -p trinityoil_oil_shop_db_new < scripts/sql/seed_data.sql
+```
+
+Or from inside MySQL:
+
+```sql
+USE trinityoil_oil_shop_db_new;
+SOURCE /path/to/seed_data.sql;
+```
+
+**Default admin login:** `admin@trinityoil.com` / `Admin@123` — change the password after first login.
+
+The seed adds: one admin user, four sample products, inventory rows for them, and one sample canteen address. Safe to run multiple times (uses ON DUPLICATE KEY UPDATE).
 
 ---
 

@@ -89,6 +89,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
              ca.contact_person, ca.mobile_number as mobile_number,
              ca.billing_address as billing_address, ca.billing_city as billing_city, ca.billing_state as billing_state, ca.billing_pincode as billing_pincode,
              ca.billing_contact_person as billing_contact_person, ca.billing_email as billing_email, ca.billing_mobile as billing_mobile,
+             ca.delivery_email as delivery_email,
              ca.gst_number as gst_number
       FROM sales s
       LEFT JOIN users u ON s.user_id = u.id
@@ -451,7 +452,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                               if (city || state || pin) parts.push([city, state].filter(Boolean).join(', ') + (pin ? ' - ' + pin : ''));
                               return parts.filter(Boolean).join('<br>') || '—';
                             })()}<br>
-                            Contact: ${isCanteen ? ((sale.contact_person || 'N/A') + (sale.mobile_number ? ' - ' + sale.mobile_number : '')) : 'N/A'}
+                            Contact: ${isCanteen ? ((sale.contact_person || 'N/A') + (sale.mobile_number ? ' - ' + sale.mobile_number : '')) : 'N/A'}<br>
+                            ${isCanteen && sale.delivery_email ? ('Delivery Email: ' + sale.delivery_email) : ''}
                         </div>
                     </div>
                 </div>

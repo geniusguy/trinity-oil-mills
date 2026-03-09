@@ -19,6 +19,7 @@ interface CanteenAddress {
   billing_contact_person?: string | null;
   billing_email?: string | null;
   billing_mobile?: string | null;
+  delivery_email?: string | null;
   contact_person: string;
   mobile_number: string;
   gst_number: string | null;
@@ -171,7 +172,7 @@ export default function AdminCanteenAddressesPage() {
       deliveryPincode: address.pincode,
       receivingPersonName: address.contact_person, // Map existing contact to receiving person
       receivingPersonMobile: address.mobile_number, // Map existing mobile to receiving person
-      receivingPersonEmail: '', // New field, will be empty for existing records
+      receivingPersonEmail: address.delivery_email ?? '', // New field; use stored delivery email when available
       receivingPersonDesignation: '', // New field, will be empty for existing records
       
       // Status
@@ -647,6 +648,9 @@ export default function AdminCanteenAddressesPage() {
                         <div className="mt-2 pt-2 border-t border-gray-100 text-sm">
                           <div className="font-medium text-gray-900">{address.contact_person}</div>
                           <div className="text-gray-600">📞 {address.mobile_number}</div>
+                          {address.delivery_email && (
+                            <div className="text-gray-600">✉ {address.delivery_email}</div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -717,8 +721,8 @@ export default function AdminCanteenAddressesPage() {
                 </div>
 
                 {/* Billing Information */}
-                <div className="mb-6">
-                  <h4 className="text-lg font-semibold text-blue-800 mb-4 border-b border-blue-200 pb-2">
+                <div className="mb-6 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-4">
+                  <h4 className="text-lg font-semibold text-blue-900 mb-3 border-b border-blue-200 pb-2">
                     💼 Billing Information
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -830,8 +834,8 @@ export default function AdminCanteenAddressesPage() {
                 </div>
 
                 {/* Delivery Information (address + receiving person & mobile merged) */}
-                <div className="mb-6">
-                  <h4 className="text-lg font-semibold text-green-800 mb-4 border-b border-green-200 pb-2">
+                <div className="mb-6 rounded-lg border border-green-100 bg-green-50/70 px-4 py-4">
+                  <h4 className="text-lg font-semibold text-green-900 mb-3 border-b border-green-200 pb-2">
                     🚚 Delivery Address & Receiving Person
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -913,6 +917,19 @@ export default function AdminCanteenAddressesPage() {
                         placeholder="Mobile at delivery"
                       />
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Receiving Person Email ID
+                      </label>
+                      <input
+                        type="email"
+                        name="receivingPersonEmail"
+                        value={formData.receivingPersonEmail}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-green-500 focus:border-green-500"
+                        placeholder="Email used for delivery communication"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -985,8 +1002,8 @@ export default function AdminCanteenAddressesPage() {
                 </div>
 
                 {/* Billing Information */}
-                <div className="mb-6">
-                  <h4 className="text-lg font-semibold text-blue-800 mb-4 border-b border-blue-200 pb-2">
+                <div className="mb-6 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-4">
+                  <h4 className="text-lg font-semibold text-blue-900 mb-3 border-b border-blue-200 pb-2">
                     💼 Billing Information
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1098,8 +1115,8 @@ export default function AdminCanteenAddressesPage() {
                 </div>
 
                 {/* Delivery Address & Receiving Person (merged) */}
-                <div className="mb-6">
-                  <h4 className="text-lg font-semibold text-green-800 mb-4 border-b border-green-200 pb-2">
+                <div className="mb-6 rounded-lg border border-green-100 bg-green-50/70 px-4 py-4">
+                  <h4 className="text-lg font-semibold text-green-900 mb-3 border-b border-green-200 pb-2">
                     🚚 Delivery Address & Receiving Person
                   </h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1179,6 +1196,19 @@ export default function AdminCanteenAddressesPage() {
                         onChange={handleInputChange}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                         placeholder="Mobile at delivery"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Receiving Person Email ID
+                      </label>
+                      <input
+                        type="email"
+                        name="receivingPersonEmail"
+                        value={formData.receivingPersonEmail}
+                        onChange={handleInputChange}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        placeholder="Email used for delivery communication"
                       />
                     </div>
                   </div>

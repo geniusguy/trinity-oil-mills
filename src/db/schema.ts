@@ -79,8 +79,19 @@ export const canteenAddresses = mysqlTable('canteen_addresses', {
   billingState: varchar('billing_state', { length: 100 }),
   billingPincode: varchar('billing_pincode', { length: 10 }),
   // Contact Information
+  // Billing contact details (accounts department)
   contactPerson: varchar('contact_person', { length: 255 }).notNull(),
   mobileNumber: varchar('mobile_number', { length: 15 }).notNull(),
+  // Optional billing / delivery specific emails
+  // Note: billingEmail column is created via migrations / setup route for backward compatibility
+  // and may not be present in all databases; drizzle schema models the core shape and new delivery_email.
+  // When present, billingEmail is used for finance, deliveryEmail for day-to-day canteen contact.
+  // (Keep these optional in application code.)
+  // @ts-ignore - column may be missing in some environments until migration runs
+  billingEmail: varchar('billing_email', { length: 255 }),
+  // Delivery person email (new)
+  // @ts-ignore - column may be missing in some environments until migration runs
+  deliveryEmail: varchar('delivery_email', { length: 255 }),
   gstNumber: varchar('gst_number', { length: 15 }).default('33AAAGT0316F1ZT'),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -151,6 +162,16 @@ export const orderItems = mysqlTable('order_items', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+// Order status history (for order status changes)
+export const orderStatusHistory = mysqlTable('order_status_history', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  orderId: varchar('order_id', { length: 255 }).notNull(),
+  status: varchar('status', { length: 50 }).notNull(),
+  notes: text('notes'),
+  changedBy: varchar('changed_by', { length: 255 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // Stock Purchases table (product inventory purchases: when & from whom)
 export const stockPurchases = mysqlTable('stock_purchases', {
   id: varchar('id', { length: 255 }).primaryKey(),
@@ -181,6 +202,38 @@ export const production = mysqlTable('production', {
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Production batches (extended batch tracking)
+export const productionBatches = mysqlTable('production_batches', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  productionId: varchar('production_id', { length: 255 }).notNull(),
+  batchNumber: varchar('batch_number', { length: 100 }).notNull(),
+  quantity: decimal('quantity', { precision: 10, scale: 2 }).notNull(),
+  status: varchar('status', { length: 50 }).notNull().default('active'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
+// Production materials (materials used in production)
+export const productionMaterials = mysqlTable('production_materials', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  productionId: varchar('production_id', { length: 255 }).notNull(),
+  rawMaterialId: varchar('raw_material_id', { length: 255 }).notNull(),
+  quantityUsed: decimal('quantity_used', { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Quality control (for production batches)
+export const qualityControl = mysqlTable('quality_control', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  productionId: varchar('production_id', { length: 255 }).notNull(),
+  batchId: varchar('batch_id', { length: 255 }),
+  status: varchar('status', { length: 50 }).notNull().default('pending'),
+  notes: text('notes'),
+  checkedBy: varchar('checked_by', { length: 255 }),
+  checkedAt: datetime('checked_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
 // Expenses table

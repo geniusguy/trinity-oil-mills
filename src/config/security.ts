@@ -1,5 +1,18 @@
 import { NextRequest } from 'next/server';
 
+// Security event and severity types (for audit logs)
+export type SecurityEventType =
+  | 'login_success'
+  | 'login_failure'
+  | 'logout'
+  | 'password_reset'
+  | 'password_change'
+  | 'suspicious_activity'
+  | 'rate_limit_exceeded'
+  | 'unauthorized_access';
+
+export type SecuritySeverity = 'low' | 'medium' | 'high' | 'critical';
+
 // Security configuration
 export const securityConfig = {
   // Rate limiting

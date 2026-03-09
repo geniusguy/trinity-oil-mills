@@ -76,6 +76,7 @@ export async function GET(
               u.name as userName, s.notes as customerName,
               ca.canteen_name as canteenName, ca.address as canteenAddress, ca.city as canteenCity, ca.state as canteenState, ca.pincode as canteenPincode,
               ca.address as billingAddress, ca.city as billingCity, ca.state as billingState, ca.pincode as billingPincode,
+              ca.billing_email as billingEmail, ca.delivery_email as deliveryEmail,
               ca.contact_person as contactPerson, ca.mobile_number as mobileNumber, ca.gst_number as gstNumber
        FROM sales s
        JOIN users u ON u.id = s.user_id
@@ -585,7 +586,13 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
     doc.text(`${sale.canteenCity}, ${sale.canteenState} - ${sale.canteenPincode}`, 25, cardY + 40);
   }
   
+  // GST and emails
   doc.text(`GST: ${sale.gstNumber || '33AAAGT0316F1ZT'}`, 25, cardY + 48);
+  if (sale.billingEmail) {
+    doc.setFontSize(8);
+    doc.text(`Billing Email: ${sale.billingEmail}`, 25, cardY + 54);
+    doc.setFontSize(9);
+  }
   
   // Right card - Delivery & Invoice Details
   doc.setFillColor(255, 255, 255);
@@ -624,6 +631,14 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
   doc.text('Mobile:', 115, cardY + 44);
   doc.setFont('helvetica', 'bold');
   doc.text(sale.mobileNumber || 'N/A', 145, cardY + 44);
+  if (sale.deliveryEmail) {
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Delivery Email:', 115, cardY + 52);
+    doc.setFont('helvetica', 'bold');
+    doc.text(String(sale.deliveryEmail), 145, cardY + 52);
+    doc.setFontSize(9);
+  }
   
   // Items Table - Professional Design (same as retail)
   const itemsTableY = 170;

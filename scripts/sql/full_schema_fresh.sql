@@ -1,0 +1,411 @@
+-- Trinity Oil Mills - Full database schema (MariaDB/MySQL)
+-- Option A: Tables only (database must exist). Run: mysql -u USER -p DATABASE_NAME < full_schema_fresh.sql
+-- Option B: Use drop_create_db_and_schema.sql to drop DB, create DB, and create all tables.
+
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ========== DROP EXISTING TABLES (order can be arbitrary with FK checks off) ==========
+DROP TABLE IF EXISTS loan_payments;
+DROP TABLE IF EXISTS loans;
+DROP TABLE IF EXISTS production_cost_history;
+DROP TABLE IF EXISTS raw_material_price_history;
+DROP TABLE IF EXISTS product_price_history;
+DROP TABLE IF EXISTS raw_material_purchases;
+DROP TABLE IF EXISTS production_recipes;
+DROP TABLE IF EXISTS raw_materials;
+DROP TABLE IF EXISTS courier_rates;
+DROP TABLE IF EXISTS savings_investments;
+DROP TABLE IF EXISTS expenses;
+DROP TABLE IF EXISTS quality_control;
+DROP TABLE IF EXISTS production_materials;
+DROP TABLE IF EXISTS production_batches;
+DROP TABLE IF EXISTS production;
+DROP TABLE IF EXISTS stock_purchases;
+DROP TABLE IF EXISTS order_status_history;
+DROP TABLE IF EXISTS order_items;
+DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS sale_items;
+DROP TABLE IF EXISTS sales;
+DROP TABLE IF EXISTS canteen_addresses;
+DROP TABLE IF EXISTS customers;
+DROP TABLE IF EXISTS inventory;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS users;
+
+-- ========== CREATE TABLES ==========
+
+CREATE TABLE users (
+  id VARCHAR(255) PRIMARY KEY,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  role VARCHAR(50) NOT NULL DEFAULT 'retail_staff',
+  reset_token VARCHAR(255) NULL,
+  reset_token_expiry DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE products (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  category VARCHAR(100) NOT NULL,
+  type VARCHAR(100) NOT NULL,
+  description TEXT NULL,
+  base_price DECIMAL(10,2) NOT NULL,
+  retail_price DECIMAL(10,2) NOT NULL,
+  gst_rate DECIMAL(5,2) NOT NULL DEFAULT 5.00,
+  gst_included TINYINT(1) NOT NULL DEFAULT 0,
+  unit VARCHAR(50) NOT NULL DEFAULT 'liters',
+  barcode VARCHAR(100) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE inventory (
+  id VARCHAR(255) PRIMARY KEY,
+  product_id VARCHAR(255) NOT NULL,
+  quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+  min_stock DECIMAL(10,2) NOT NULL DEFAULT 10,
+  max_stock DECIMAL(10,2) NOT NULL DEFAULT 1000,
+  location VARCHAR(100) NULL DEFAULT 'main_store',
+  batch_number VARCHAR(100) NULL,
+  expiry_date DATETIME NULL,
+  cost_price DECIMAL(10,2) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE customers (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NULL,
+  phone VARCHAR(20) NULL,
+  address TEXT NULL,
+  city VARCHAR(100) NULL,
+  state VARCHAR(100) NULL DEFAULT 'Tamil Nadu',
+  pincode VARCHAR(10) NULL,
+  customer_type VARCHAR(50) NOT NULL DEFAULT 'retail',
+  gst_number VARCHAR(15) NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE canteen_addresses (
+  id VARCHAR(255) PRIMARY KEY,
+  canteen_name VARCHAR(255) NOT NULL,
+  address TEXT NOT NULL,
+  city VARCHAR(100) NOT NULL,
+  state VARCHAR(100) NULL DEFAULT 'Tamil Nadu',
+  pincode VARCHAR(10) NOT NULL,
+  billing_address TEXT NULL,
+  billing_city VARCHAR(100) NULL,
+  billing_state VARCHAR(100) NULL,
+  billing_pincode VARCHAR(10) NULL,
+  billing_contact_person VARCHAR(255) NULL,
+  billing_email VARCHAR(255) NULL,
+  billing_mobile VARCHAR(20) NULL,
+  delivery_email VARCHAR(255) NULL,
+  contact_person VARCHAR(255) NOT NULL,
+  mobile_number VARCHAR(15) NOT NULL,
+  gst_number VARCHAR(15) NULL DEFAULT '33AAAGT0316F1ZT',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE sales (
+  id VARCHAR(255) PRIMARY KEY,
+  customer_id VARCHAR(255) NULL,
+  user_id VARCHAR(255) NOT NULL,
+  invoice_number VARCHAR(100) NOT NULL,
+  sale_type VARCHAR(50) NOT NULL DEFAULT 'retail',
+  subtotal DECIMAL(10,2) NOT NULL,
+  gst_amount DECIMAL(10,2) NOT NULL,
+  total_amount DECIMAL(10,2) NOT NULL,
+  payment_method VARCHAR(50) NOT NULL DEFAULT 'cash',
+  payment_status VARCHAR(50) NOT NULL DEFAULT 'paid',
+  shipment_status VARCHAR(50) NOT NULL DEFAULT 'pending',
+  canteen_address_id VARCHAR(255) NULL,
+  po_number VARCHAR(100) NULL,
+  po_date DATE NULL,
+  mode_of_sales VARCHAR(100) NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE sale_items (
+  id VARCHAR(255) PRIMARY KEY,
+  sale_id VARCHAR(255) NOT NULL,
+  product_id VARCHAR(255) NOT NULL,
+  quantity DECIMAL(10,2) NOT NULL,
+  unit_price DECIMAL(10,2) NOT NULL,
+  gst_rate DECIMAL(5,2) NOT NULL,
+  gst_amount DECIMAL(10,2) NOT NULL,
+  total_amount DECIMAL(10,2) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE orders (
+  id VARCHAR(255) PRIMARY KEY,
+  customer_id VARCHAR(255) NOT NULL,
+  order_number VARCHAR(100) NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'pending',
+  subtotal DECIMAL(10,2) NOT NULL,
+  gst_amount DECIMAL(10,2) NOT NULL,
+  total_amount DECIMAL(10,2) NOT NULL,
+  delivery_date DATETIME NULL,
+  delivery_address TEXT NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE order_items (
+  id VARCHAR(255) PRIMARY KEY,
+  order_id VARCHAR(255) NOT NULL,
+  product_id VARCHAR(255) NOT NULL,
+  quantity DECIMAL(10,2) NOT NULL,
+  unit_price DECIMAL(10,2) NOT NULL,
+  gst_rate DECIMAL(5,2) NOT NULL,
+  gst_amount DECIMAL(10,2) NOT NULL,
+  total_amount DECIMAL(10,2) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE order_status_history (
+  id VARCHAR(255) PRIMARY KEY,
+  order_id VARCHAR(255) NOT NULL,
+  status VARCHAR(50) NOT NULL,
+  notes TEXT NULL,
+  changed_by VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE stock_purchases (
+  id VARCHAR(255) PRIMARY KEY,
+  product_id VARCHAR(255) NOT NULL,
+  quantity DECIMAL(10,2) NOT NULL,
+  supplier_name VARCHAR(255) NOT NULL,
+  purchase_date DATETIME NOT NULL,
+  unit_price DECIMAL(10,2) NULL,
+  total_amount DECIMAL(10,2) NULL,
+  invoice_number VARCHAR(100) NULL,
+  notes TEXT NULL,
+  created_by VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE production (
+  id VARCHAR(255) PRIMARY KEY,
+  product_id VARCHAR(255) NOT NULL,
+  batch_number VARCHAR(100) NOT NULL,
+  quantity DECIMAL(10,2) NOT NULL,
+  cost_per_unit DECIMAL(10,2) NOT NULL,
+  total_cost DECIMAL(10,2) NOT NULL,
+  production_date DATETIME NOT NULL,
+  expiry_date DATETIME NULL,
+  quality_check TINYINT(1) NOT NULL DEFAULT 0,
+  notes TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE production_batches (
+  id VARCHAR(255) PRIMARY KEY,
+  production_id VARCHAR(255) NOT NULL,
+  batch_number VARCHAR(100) NOT NULL,
+  quantity DECIMAL(10,2) NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE production_materials (
+  id VARCHAR(255) PRIMARY KEY,
+  production_id VARCHAR(255) NOT NULL,
+  raw_material_id VARCHAR(255) NOT NULL,
+  quantity_used DECIMAL(10,2) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE quality_control (
+  id VARCHAR(255) PRIMARY KEY,
+  production_id VARCHAR(255) NOT NULL,
+  batch_id VARCHAR(255) NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'pending',
+  notes TEXT NULL,
+  checked_by VARCHAR(255) NULL,
+  checked_at DATETIME NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE expenses (
+  id VARCHAR(255) PRIMARY KEY,
+  category VARCHAR(100) NOT NULL,
+  description TEXT NOT NULL,
+  amount DECIMAL(10,2) NOT NULL,
+  payment_method VARCHAR(50) NOT NULL DEFAULT 'cash',
+  receipt_number VARCHAR(100) NULL,
+  expense_date DATETIME NOT NULL,
+  user_id VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE savings_investments (
+  id VARCHAR(255) PRIMARY KEY,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  amount DECIMAL(15,2) NOT NULL,
+  current_value DECIMAL(15,2) NULL,
+  investment_date DATETIME NOT NULL,
+  maturity_date DATETIME NULL,
+  interest_rate DECIMAL(5,2) NULL,
+  institution VARCHAR(255) NULL,
+  account_number VARCHAR(100) NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'active',
+  user_id VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE courier_rates (
+  id VARCHAR(255) PRIMARY KEY,
+  destination VARCHAR(100) NOT NULL,
+  weight DECIMAL(10,2) NOT NULL,
+  rate DECIMAL(10,2) NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE raw_materials (
+  id VARCHAR(255) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  category VARCHAR(100) NOT NULL,
+  type VARCHAR(100) NOT NULL,
+  description TEXT NULL,
+  unit VARCHAR(50) NOT NULL,
+  cost_per_unit DECIMAL(10,2) NOT NULL,
+  supplier VARCHAR(255) NULL,
+  minimum_stock DECIMAL(10,2) NULL DEFAULT 0,
+  current_stock DECIMAL(10,2) NULL DEFAULT 0,
+  gst_rate DECIMAL(5,2) NOT NULL DEFAULT 18.00,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE production_recipes (
+  id VARCHAR(255) PRIMARY KEY,
+  product_id VARCHAR(255) NOT NULL,
+  raw_material_id VARCHAR(255) NOT NULL,
+  quantity_per_unit DECIMAL(10,3) NOT NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE raw_material_purchases (
+  id VARCHAR(255) PRIMARY KEY,
+  raw_material_id VARCHAR(255) NOT NULL,
+  supplier VARCHAR(255) NOT NULL,
+  quantity DECIMAL(10,2) NOT NULL,
+  unit_cost DECIMAL(10,2) NOT NULL,
+  total_cost DECIMAL(10,2) NOT NULL,
+  gst_amount DECIMAL(10,2) NOT NULL,
+  purchase_date DATETIME NOT NULL,
+  invoice_number VARCHAR(100) NULL,
+  notes TEXT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE product_price_history (
+  id VARCHAR(255) PRIMARY KEY,
+  product_id VARCHAR(255) NOT NULL,
+  base_price DECIMAL(10,2) NOT NULL,
+  retail_price DECIMAL(10,2) NOT NULL,
+  gst_rate DECIMAL(5,2) NOT NULL,
+  effective_date DATE NOT NULL,
+  end_date DATE NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_by VARCHAR(255) NOT NULL,
+  notes TEXT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE raw_material_price_history (
+  id VARCHAR(255) PRIMARY KEY,
+  raw_material_id VARCHAR(255) NOT NULL,
+  cost_per_unit DECIMAL(10,2) NOT NULL,
+  gst_rate DECIMAL(5,2) NOT NULL,
+  effective_date DATE NOT NULL,
+  end_date DATE NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_by VARCHAR(255) NOT NULL,
+  supplier VARCHAR(255) NULL,
+  notes TEXT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE production_cost_history (
+  id VARCHAR(255) PRIMARY KEY,
+  production_id VARCHAR(255) NOT NULL,
+  product_id VARCHAR(255) NOT NULL,
+  raw_material_id VARCHAR(255) NOT NULL,
+  quantity_used DECIMAL(10,3) NOT NULL,
+  cost_per_unit DECIMAL(10,2) NOT NULL,
+  total_cost DECIMAL(10,2) NOT NULL,
+  production_date DATE NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE loans (
+  id VARCHAR(255) PRIMARY KEY,
+  loan_name VARCHAR(255) NOT NULL,
+  lender_name VARCHAR(255) NOT NULL,
+  loan_type VARCHAR(100) NOT NULL,
+  principal_amount DECIMAL(12,2) NOT NULL,
+  interest_rate DECIMAL(5,2) NOT NULL,
+  tenure INT NOT NULL,
+  emi_amount DECIMAL(10,2) NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  account_number VARCHAR(100) NULL,
+  ifsc_code VARCHAR(20) NULL,
+  collateral TEXT NULL,
+  purpose TEXT NOT NULL,
+  status VARCHAR(50) NOT NULL DEFAULT 'active',
+  remaining_balance DECIMAL(12,2) NOT NULL,
+  next_payment_date DATE NULL,
+  notes TEXT NULL,
+  created_by VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE loan_payments (
+  id VARCHAR(255) PRIMARY KEY,
+  loan_id VARCHAR(255) NOT NULL,
+  payment_date DATE NOT NULL,
+  payment_amount DECIMAL(10,2) NOT NULL,
+  principal_amount DECIMAL(10,2) NOT NULL,
+  interest_amount DECIMAL(10,2) NOT NULL,
+  outstanding_balance DECIMAL(12,2) NOT NULL,
+  payment_method VARCHAR(50) NOT NULL DEFAULT 'bank_transfer',
+  transaction_id VARCHAR(100) NULL,
+  receipt_number VARCHAR(100) NULL,
+  payment_status VARCHAR(50) NOT NULL DEFAULT 'paid',
+  late_fee DECIMAL(10,2) NULL DEFAULT 0.00,
+  notes TEXT NULL,
+  created_by VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET FOREIGN_KEY_CHECKS = 1;
