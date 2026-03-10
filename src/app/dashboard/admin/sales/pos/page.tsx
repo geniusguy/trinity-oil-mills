@@ -48,6 +48,8 @@ interface CanteenAddress {
 const CASTOR_200ML_OLD_CODE = '55336';
 const CASTOR_200ML_NEW_CODE = '68539';
 const CASTOR_200ML_DISPLAY_NAME = 'TOM-Castor Oil - 200ml';
+const CASTOR_200ML_NEW_PRICE = 76.19; // GST-inclusive unit price for new code (68539)
+const CASTOR_200ML_OLD_PRICE = 80;    // Keep old code at 80
 
 function isCastor200mlById(p: Product): boolean {
   const id = String(p.id).trim();
@@ -173,7 +175,7 @@ export default function POSPage() {
   const [canteenAddresses, setCanteenAddresses] = useState<CanteenAddress[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [saleType, setSaleType] = useState<'retail' | 'canteen'>('retail');
-  const [gstMode, setGstMode] = useState<'included' | 'excluded'>('included');
+  const [gstMode, setGstMode] = useState<'included' | 'excluded'>('excluded');
   const [selectedCanteen, setSelectedCanteen] = useState<string>('');
   const [customerName, setCustomerName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -243,12 +245,12 @@ export default function POSPage() {
         setSaleType('canteen');
         setPaymentMethod('credit'); // Canteens use auto credit payment
         setModeOfSales('email'); // Default email for canteen sales
-        setGstMode('included'); // Default GST mode for canteen: GST included in price
+        setGstMode('excluded'); // Default GST mode: GST extra (excluded from unit price)
       } else {
         setSaleType('retail');
         setPaymentMethod('cash'); // Default cash for retail
         setModeOfSales('walk_in'); // Default walk-in for retail sales
-        setGstMode('included'); // Default GST mode for retail: price includes GST
+        setGstMode('excluded'); // Default GST mode: GST extra (excluded from unit price)
       }
     }
   }, [mounted]);
@@ -258,11 +260,11 @@ export default function POSPage() {
     if (saleType === 'canteen') {
       setPaymentMethod('credit'); // Auto credit for canteens
       setModeOfSales('email'); // Default email for canteen sales
-      setGstMode((prev) => prev || 'included');
+      setGstMode((prev) => prev || 'excluded'); // Default GST mode: GST extra
     } else {
       setPaymentMethod('cash'); // Default cash for retail
       setModeOfSales('walk_in'); // Default walk-in for retail sales
-      setGstMode((prev) => prev || 'included');
+      setGstMode((prev) => prev || 'excluded'); // Default GST mode: GST extra
     }
   }, [saleType]);
 
@@ -307,10 +309,18 @@ export default function POSPage() {
   // Cart management
   const addToCart = (product: Product, forceProductId?: string) => {
     const productId = forceProductId ?? getProductIdForCart(product);
-    const price =
-      gstMode === 'included'
-        ? parseFloat(product.retailPrice)
-        : parseFloat(product.basePrice);
+    let price: number;
+    if (isCastor200ml(product)) {
+      // Special pricing for Castor 200ml:
+      // - New code 68539 must always be 76.19 (as per requirement)
+      // - Old code 55336 stays at 80
+      price = productId === CASTOR_200ML_NEW_CODE ? CASTOR_200ML_NEW_PRICE : CASTOR_200ML_OLD_PRICE;
+    } else {
+      price =
+        gstMode === 'included'
+          ? parseFloat(product.retailPrice)
+          : parseFloat(product.basePrice);
+    }
     const existingItem = cart.find(item => item.productId === productId);
     
     if (existingItem) {
@@ -355,9 +365,11 @@ export default function POSPage() {
 
   const changeCastorCodeInCart = (currentProductId: string, newCode: string) => {
     if (newCode === currentProductId) return;
-    setCart(cart.map(item =>
-      item.productId === currentProductId ? { ...item, productId: newCode } : item
-    ));
+    setCart(cart.map(item => {
+      if (item.productId !== currentProductId) return item;
+      const newPrice = newCode === CASTOR_200ML_NEW_CODE ? CASTOR_200ML_NEW_PRICE : CASTOR_200ML_OLD_PRICE;
+      return { ...item, productId: newCode, price: newPrice };
+    }));
     setEditingQuantity(prev => {
       const next = { ...prev };
       if (next[currentProductId] !== undefined) {

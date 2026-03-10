@@ -1,18 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
 
-// Function to format invoice number as 00056/2025
-function formatInvoiceNumber(invoiceNumber: string, invoiceDate: string): string {
-  const numberMatch = invoiceNumber.match(/(\d+)/);
-  if (!numberMatch) return invoiceNumber;
-  
-  const number = numberMatch[1];
-  const invoiceYear = new Date(invoiceDate).getFullYear();
-  const paddedNumber = number.padStart(5, '0');
-  
-  return `${paddedNumber}/${invoiceYear}`;
-}
-
 // Function to convert number to words
 function convertNumberToWords(num: number): string {
   const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
@@ -120,7 +108,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Invoice ${formatInvoiceNumber(sale.invoice_number, sale.created_at)}</title>
+    <title>Invoice ${sale.invoice_number}</title>
     <style>
         @page { 
             size: A4; 
@@ -408,7 +396,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             </td>
             <td class="bg-accent" style="border-top: 1px solid #c0c0c0; border-bottom: 1px solid #c0c0c0; border-left: none; border-right: none;"></td>
             <td class="bg-accent invoice-label text-right" style="font-size: 12pt; border-right: 2px solid #2d4e52; border-top: 1px solid #c0c0c0; border-bottom: 1px solid #c0c0c0; border-left: none;">
-                <strong>Invoice #:</strong> ${formatInvoiceNumber(sale.invoice_number, sale.created_at)}
+                <strong>Invoice #:</strong> ${sale.invoice_number}
             </td>
         </tr>
         
@@ -549,10 +537,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             items.forEach((item, index) => {
                 const bgClass = rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray';
                 const qty = Number(item.quantity) || 0;
-                const lineTotalFinal = Number(item.total_amount || 0);
-                const lineGst = Number(item.gst_amount || 0);
-                const lineTotalBeforeGst = lineTotalFinal - lineGst;
-                const unitPriceBeforeGst = qty > 0 ? lineTotalBeforeGst / qty : 0;
+                const lineTotalFinal = Number(item.total_amount || 0);      // GST-inclusive line total
+                const unitPriceInclusive = qty > 0 ? lineTotalFinal / qty : 0; // GST-inclusive unit price
                 let itemName = (item.productName ?? item.product_name ?? item.name ?? '').toString().trim();
                 if (!itemName && (String(item.product_id || '') === '55336' || String(item.product_id || '') === '68539')) itemName = 'TOM-Castor Oil - 200ml';
                 if (!itemName) itemName = 'Product';
@@ -565,8 +551,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                         <span style="font-size: 9pt; color: #666;">HSN Code : 15180011</span>
                     </td>
                     <td class="${bgClass} text-center item-qty">${qty.toFixed(2)}</td>
-                    <td class="${bgClass} text-right item-total">₹ ${Number(unitPriceBeforeGst.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td class="${bgClass} text-right item-total">₹ ${Number(lineTotalBeforeGst.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td class="${bgClass} text-right item-total">₹ ${Number(unitPriceInclusive.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td class="${bgClass} text-right item-total">₹ ${Number(lineTotalFinal.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>`;
                 rowIndex++;
             });
@@ -589,31 +575,47 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         })()}
         
         <!-- TOTALS SECTION - Optimized Layout with 4 columns -->
+        ${(() => {
+          // Recompute taxable subtotal from sale_items:
+          // Subtotal = unit_price (GST‑exclusive) * qty
+          let taxableTotal = 0;
+          (items as any[]).forEach((item) => {
+            const qty = Number(item.quantity || 0);
+            const unitBase = Number(item.unit_price || 0);
+            taxableTotal += unitBase * qty;
+          });
+          taxableTotal = Number(taxableTotal.toFixed(2));
+
+          // GST at 5% total, split 2.5% + 2.5%, rounded to whole rupees per side as in legacy format
+          const sgstDisplay = Math.round(taxableTotal * 0.025); // e.g. 3047.60 * 2.5% ≈ 76.19 -> 76
+          const cgstDisplay = Math.round(taxableTotal * 0.025);
+          const grandTotalDisplay = taxableTotal + sgstDisplay + cgstDisplay;
+
+          return `
         <tr style="height: 25px;">
             <td class="bg-accent border-medium" colspan="2"></td>
             <td class="bg-white total-label text-right border-medium" style="font-size: 10pt; padding: 4px;">Subtotal</td>
-            <td class="bg-white total-value text-right border-medium" style="font-size: 10pt; padding: 4px;">₹ ${Number(Number(sale.subtotal || 0).toFixed(1)).toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</td>
+            <td class="bg-white total-value text-right border-medium" style="font-size: 10pt; padding: 4px;">₹ ${taxableTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>
         
         <tr style="height: 25px;">
             <td class="bg-accent border-light" colspan="2"></td>
             <td class="bg-white total-label text-right border-light" style="font-size: 10pt; padding: 4px; line-height: 1.1;">SGST / IGST<br>2.5%</td>
-            <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">₹ ${Math.round(Number(sale.gst_amount || 0) / 2).toLocaleString('en-IN')}</td>
+            <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">₹ ${sgstDisplay.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>
         
         <tr style="height: 25px;">
             <td class="bg-accent border-light" colspan="2"></td>
             <td class="bg-white total-label text-right border-light" style="font-size: 10pt; padding: 4px; line-height: 1.1;">CGST / IGST<br>2.5%</td>
-            <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">₹ ${Math.round(Number(sale.gst_amount || 0) / 2).toLocaleString('en-IN')}</td>
+            <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">₹ ${cgstDisplay.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>
         
         <tr style="height: 32px;">
             <td class="bg-accent border-thick" style="padding: 6px 12px; font-size: 10pt; line-height: 1.2;" colspan="2">
                 <strong>Amount in Words:</strong><br>
                 <em style="font-size: 9pt; color: #666;">${(() => {
-                  const totalVal = Number(Number(sale.subtotal || 0).toFixed(1)) + Math.round(Number(sale.gst_amount || 0) / 2) + Math.round(Number(sale.gst_amount || 0) / 2);
-                  const rupees = Math.floor(totalVal);
-                  const paise = Math.round((totalVal - rupees) * 100);
+                  const rupees = Math.floor(grandTotalDisplay);
+                  const paise = Math.round((grandTotalDisplay - rupees) * 100);
                   const rupeesWords = convertNumberToWords(rupees).replace(' Only', '');
                   if (paise > 0) {
                     return rupeesWords + ' Rupees and ' + convertPaiseToWords(paise) + ' Paise Only';
@@ -622,8 +624,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                 })()}</em>
             </td>
             <td class="bg-dark final-total text-right border-thick" style="color: white; font-size: 11pt; padding: 6px;">Total Invoice Value</td>
-            <td class="bg-dark final-total text-right border-thick" style="color: white; font-size: 13pt; padding: 6px;">₹ ${(Number(Number(sale.subtotal || 0).toFixed(1)) + Math.round(Number(sale.gst_amount || 0) / 2) + Math.round(Number(sale.gst_amount || 0) / 2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        </tr>
+            <td class="bg-dark final-total text-right border-thick" style="color: white; font-size: 13pt; padding: 6px;">₹ ${grandTotalDisplay.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        </tr>`;
+        })()}
         
         <!-- SIGNATURE SECTION - One row: Customer Signature | Checked By + Prepared By (one box) | For Trinity Oil Mills (fits A4) -->
         <tr style="height: 58px;">

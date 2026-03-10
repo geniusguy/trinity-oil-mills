@@ -144,8 +144,17 @@ export async function PUT(
     }
 
     if (hasPoDateColumn && poDate !== undefined) {
+      // Normalize po_date to plain YYYY-MM-DD for DATE column
+      let normalizedPoDate: string | null = null;
+      if (typeof poDate === 'string') {
+        const trimmed = poDate.trim();
+        if (trimmed) {
+          // Handle both "2026-03-06" and "2026-03-06T18:30:00.000Z"
+          normalizedPoDate = trimmed.slice(0, 10);
+        }
+      }
       updateFields.push('po_date = ?');
-      updateValues.push(poDate || null);
+      updateValues.push(normalizedPoDate);
     }
 
     let hasInvoiceDateColumn = false;
