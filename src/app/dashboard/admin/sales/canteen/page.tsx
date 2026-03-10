@@ -16,6 +16,7 @@ interface Sale {
   paymentStatus: string;
   shipmentStatus: string;
   createdAt: string;
+  invoiceDate?: string;
   userName: string;
   customerName?: string;
   canteenName?: string;
@@ -80,6 +81,7 @@ export default function CanteenSalesPage() {
     invoiceNumber: '',
     poNumber: '',
     poDate: '',
+    invoiceDate: '',
     customerName: '',
     canteenAddressId: '',
     paymentMethod: '',
@@ -317,13 +319,22 @@ export default function CanteenSalesPage() {
       customerEmail = sale.modeOfSales.split(':')[1] || '';
     }
     
+    // Normalize dates from API (may be ISO strings with time) to YYYY-MM-DD for <input type="date">
+    const normalizeDate = (d?: string) => {
+      if (!d) return '';
+      const str = String(d).trim();
+      if (!str) return '';
+      return str.slice(0, 10); // '2026-03-06T18:30:00.000Z' -> '2026-03-06'
+    };
+
     setEditForm({
       paymentStatus: sale.paymentStatus,
       shipmentStatus: sale.shipmentStatus || 'pending', // Default to pending for canteen
       notes: '',
       invoiceNumber: sale.invoiceNumber,
       poNumber: sale.poNumber || '',
-      poDate: sale.poDate || '',
+      poDate: normalizeDate(sale.poDate),
+      invoiceDate: normalizeDate(sale.invoiceDate),
       customerName: sale.canteenName || sale.customerName || '',
       canteenAddressId: sale.canteenAddressId || '', // Use the actual canteen address ID from sale
       paymentMethod: sale.saleType === 'canteen' ? 'credit' : sale.paymentMethod, // Auto credit for canteen
@@ -766,7 +777,9 @@ export default function CanteenSalesPage() {
                             sale.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                             'bg-red-100 text-red-800'
                           }`}>
-                            {sale.paymentStatus}
+                            {sale.paymentStatus === 'paid'
+                              ? 'Credited to our account'
+                              : sale.paymentStatus}
                           </span>
                         </div>
                       </div>
@@ -914,6 +927,21 @@ export default function CanteenSalesPage() {
                   <p className="text-xs text-gray-500 mt-1">Purchase Order Date - appears as "Dated: [selected date]" on invoice</p>
                 </div>
 
+                {/* Invoice Date */}
+                <div>
+                  <label htmlFor="invoiceDate" className="block text-sm font-medium text-gray-700 mb-1">
+                    Invoice Date (Optional)
+                  </label>
+                  <input
+                    id="invoiceDate"
+                    type="date"
+                    value={editForm.invoiceDate}
+                    onChange={(e) => setEditForm({ ...editForm, invoiceDate: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Invoice Date used when generating the invoice; defaults to created date if empty.</p>
+                </div>
+
                 {/* Mode of Sales */}
                 <div>
                   <label htmlFor="modeOfSales" className="block text-sm font-medium text-gray-700 mb-1">
@@ -1044,7 +1072,7 @@ export default function CanteenSalesPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   >
                     <option value="pending">Pending</option>
-                    <option value="paid">Paid</option>
+                    <option value="paid">Credited to our account</option>
                     <option value="partial">Partial</option>
                     <option value="refunded">Refunded</option>
                   </select>
