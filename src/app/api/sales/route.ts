@@ -293,7 +293,7 @@ async function generateInvoiceNumber(connection: any, saleType: string, customIn
 // Castor Oil 200ml: POS may send 55336/68539 but inventory can be under castor-200ml or 55336/68539 — check all.
 const CASTOR_200ML_LOOKUP_IDS = ['55336', '68539', 'castor-200ml'];
 const CASTOR_200ML_NEW_ID = '68539';
-const CASTOR_200ML_NEW_PRICE = 76.19; // GST-inclusive price for new code (must match POS)
+const CASTOR_200ML_NEW_BASE_PRICE = 76.19; // GST-EXCLUSIVE price for new code (GST extra)
 
 /**
  * Deduct quantity from inventory.
@@ -418,8 +418,8 @@ export async function POST(request: NextRequest) {
         // Use GST-inclusive price, GST is already inside unit price
         unitPrice = prod ? Number(prod.retailPrice) : Number(i.unitPrice || 0);
         if (isCastorNew) {
-          // Force new Castor 200ml code to 76.19 (must match POS/cart)
-          unitPrice = CASTOR_200ML_NEW_PRICE;
+          // If someone uses GST-included mode, inclusive price should be base + 5% GST
+          unitPrice = Number((CASTOR_200ML_NEW_BASE_PRICE * (1 + productGstRate / 100)).toFixed(2));
         }
         const lineTotalInclusive = unitPrice * quantity;
         lineGstAmount = Number((lineTotalInclusive * productGstRate / (100 + productGstRate)).toFixed(2));
@@ -438,10 +438,8 @@ export async function POST(request: NextRequest) {
         // Use GST-exclusive price, add GST on top
         unitPrice = prod ? Number(prod.basePrice) : Number(i.unitPrice || 0);
         if (isCastorNew) {
-          // Derive GST‑exclusive price from inclusive 76.19 and gst rate
-          const inclusive = CASTOR_200ML_NEW_PRICE;
-          const exclusive = inclusive / (1 + productGstRate / 100);
-          unitPrice = Number(exclusive.toFixed(2));
+          // Force new Castor 200ml code to 76.19 (GST extra)
+          unitPrice = CASTOR_200ML_NEW_BASE_PRICE;
         }
         const lineTotalExclusive = unitPrice * quantity;
         lineGstAmount = Number((lineTotalExclusive * productGstRate / 100).toFixed(2));

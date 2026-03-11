@@ -231,11 +231,40 @@ export default function CanteenSalesPage() {
     // Apply sorting
     filtered.sort((a, b) => {
       let aValue: any, bValue: any;
+
+      const parseInvoiceSequence = (s?: string): number => {
+        if (!s) return -1;
+        const str = String(s).trim();
+        // Prefer patterns like C0001/2026 or R0123/2026
+        const m = str.match(/^[A-Za-z]\s*(\d+)\s*\/\s*\d{4}$/);
+        if (m?.[1]) return Number(m[1]);
+        // Fallback: take first numeric group
+        const g = str.match(/\d+/);
+        return g ? Number(g[0]) : -1;
+      };
+
+      const parsePoSequence = (s?: string): number => {
+        if (!s) return -1;
+        const str = String(s).trim();
+        // Prefer patterns like PO-71 / 25-26
+        const m = str.match(/PO-?\s*(\d+)/i);
+        if (m?.[1]) return Number(m[1]);
+        const g = str.match(/\d+/);
+        return g ? Number(g[0]) : -1;
+      };
       
       switch (sortBy) {
         case 'invoiceNumber':
           aValue = a.invoiceNumber.toLowerCase();
           bValue = b.invoiceNumber.toLowerCase();
+          break;
+        case 'invoiceNumberNumeric':
+          aValue = parseInvoiceSequence(a.invoiceNumber);
+          bValue = parseInvoiceSequence(b.invoiceNumber);
+          break;
+        case 'canteenName':
+          aValue = (a.canteenName || '').toLowerCase();
+          bValue = (b.canteenName || '').toLowerCase();
           break;
         case 'totalAmount':
           aValue = Number(a.totalAmount);
@@ -252,6 +281,30 @@ export default function CanteenSalesPage() {
         case 'shipmentStatus':
           aValue = a.shipmentStatus.toLowerCase();
           bValue = b.shipmentStatus.toLowerCase();
+          break;
+        case 'poNumber':
+          aValue = (a.poNumber || '').toLowerCase();
+          bValue = (b.poNumber || '').toLowerCase();
+          break;
+        case 'poNumberNumeric':
+          aValue = parsePoSequence(a.poNumber);
+          bValue = parsePoSequence(b.poNumber);
+          break;
+        case 'poDate':
+          aValue = (a.poDate ? new Date(a.poDate) : new Date(a.createdAt)).getTime();
+          bValue = (b.poDate ? new Date(b.poDate) : new Date(b.createdAt)).getTime();
+          break;
+        case 'modeOfSales':
+          aValue = (a.modeOfSales || '').toLowerCase();
+          bValue = (b.modeOfSales || '').toLowerCase();
+          break;
+        case 'invoiceDate':
+          aValue = (a.invoiceDate ? new Date(a.invoiceDate) : new Date(a.createdAt)).getTime();
+          bValue = (b.invoiceDate ? new Date(b.invoiceDate) : new Date(b.createdAt)).getTime();
+          break;
+        case 'contact':
+          aValue = ((a.canteenContact ?? a.contactPerson) || '').toLowerCase();
+          bValue = ((b.canteenContact ?? b.contactPerson) || '').toLowerCase();
           break;
         case 'createdAt':
           aValue = (a.poDate ? new Date(a.poDate) : new Date(a.createdAt)).getTime();
@@ -319,12 +372,20 @@ export default function CanteenSalesPage() {
       customerEmail = sale.modeOfSales.split(':')[1] || '';
     }
     
-    // Normalize dates from API (may be ISO strings with time) to YYYY-MM-DD for <input type="date">
+    // Normalize dates from API (can be Date string with timezone) to YYYY-MM-DD for <input type="date">
     const normalizeDate = (d?: string) => {
       if (!d) return '';
       const str = String(d).trim();
       if (!str) return '';
-      return str.slice(0, 10); // '2026-03-06T18:30:00.000Z' -> '2026-03-06'
+      // If it's already YYYY-MM-DD, keep it
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+      const dt = new Date(str);
+      if (Number.isNaN(dt.getTime())) return '';
+      // Format using local timezone to avoid "one day before" issues
+      const yyyy = dt.getFullYear();
+      const mm = String(dt.getMonth() + 1).padStart(2, '0');
+      const dd = String(dt.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
     };
 
     setEditForm({
@@ -659,6 +720,8 @@ export default function CanteenSalesPage() {
                 ))}
               </select>
             </div>
+
+            {/* Sorting is available by clicking the table headers below */}
           </div>
 
           {/* Clear Filters Button */}
@@ -683,43 +746,73 @@ export default function CanteenSalesPage() {
               <thead className="bg-gray-50">
                 <tr>
                   {/* Invoice - Always visible */}
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                    onClick={() => handleSortChange('invoiceNumberNumeric')}
+                    title="Sort by invoice number (numeric)"
+                  >
                     Invoice
+                    {sortBy === 'invoiceNumberNumeric' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
                   
                   {/* Canteen - Always visible */}
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                    onClick={() => handleSortChange('canteenName')}
+                    title="Sort by canteen name"
+                  >
                     Canteen
+                    {sortBy === 'canteenName' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
                   
                   {/* Amount - Always visible */}
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                    onClick={() => handleSortChange('totalAmount')}
+                    title="Sort by total amount"
+                  >
                     Total
+                    {sortBy === 'totalAmount' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
                   
                   {/* Payment Combined - Always visible */}
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                    onClick={() => handleSortChange('paymentStatus')}
+                    title="Sort by payment status"
+                  >
                     Payment
+                    {sortBy === 'paymentStatus' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
-                  
-                  {/* Date - Hidden on mobile, visible on tablet+ */}
-                  <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Date
-                  </th>
-                  
-                  {/* PO Number - Hidden on mobile, visible on tablet+ */}
-                  <th className="hidden md:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    PO Number
+
+                  {/* PO Number & Date - Visible on tablet+ */}
+                  <th
+                    className="hidden md:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                    onClick={() => handleSortChange('poNumberNumeric')}
+                    title="Sort by PO number (numeric)"
+                  >
+                    PO Number &amp; Date
+                    {sortBy === 'poNumberNumeric' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
                   
                   {/* Contact - Hidden on mobile, visible on desktop */}
-                  <th className="hidden lg:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    className="hidden lg:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                    onClick={() => handleSortChange('contact')}
+                    title="Sort by contact name"
+                  >
                     Contact
+                    {sortBy === 'contact' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
                   
                   {/* Shipment - Hidden on mobile, visible on desktop */}
-                  <th className="hidden lg:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    className="hidden lg:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                    onClick={() => handleSortChange('shipmentStatus')}
+                    title="Sort by shipment status"
+                  >
                     Shipment
+                    {sortBy === 'shipmentStatus' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
                   
                   {/* Actions - Always visible */}
@@ -733,7 +826,12 @@ export default function CanteenSalesPage() {
                   <tr key={sale.id} className="hover:bg-gray-50">
                     {/* Invoice */}
                     <td className="px-3 py-4 whitespace-nowrap text-sm">
-                      <div className="font-medium text-indigo-700">{sale.invoiceNumber}</div>
+                      <div className="space-y-1">
+                        <div className="font-medium text-indigo-700">{sale.invoiceNumber}</div>
+                        <div className="text-xs text-gray-500">
+                          {new Date((sale.invoiceDate || sale.createdAt) as any).toLocaleDateString('en-GB')}
+                        </div>
+                      </div>
                     </td>
                     
                     {/* Canteen */}
@@ -784,32 +882,27 @@ export default function CanteenSalesPage() {
                         </div>
                       </div>
                     </td>
-                    
-                    {/* Date - show PO Date (main date) when present, else created date */}
-                    <td className="hidden md:table-cell px-3 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {sale.poDate ? (
-                        <>
-                          <div>{new Date(sale.poDate).toLocaleDateString()}</div>
-                          <div className="text-xs text-gray-500">PO Date</div>
-                        </>
-                      ) : (
-                        <>
-                          <div>{new Date(sale.createdAt).toLocaleDateString()}</div>
-                          <div className="text-xs text-gray-500">{new Date(sale.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
-                        </>
-                      )}
-                    </td>
-                    
-                    {/* PO Number - Hidden on mobile */}
-                    <td className="hidden md:table-cell px-3 py-4 whitespace-nowrap text-sm text-gray-600">
-                      <div className="font-medium">
-                        {sale.poNumber ? (
-                          <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
-                            📋 {sale.poNumber}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400 text-xs">No PO</span>
-                        )}
+
+                    {/* PO Number & Date - Hidden on mobile */}
+                    <td className="hidden md:table-cell px-3 py-4 whitespace-nowrap text-sm text-gray-700">
+                      <div className="space-y-1">
+                        <div className="font-medium">
+                          {sale.poNumber ? (
+                            <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
+                              📋 {sale.poNumber}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 text-xs">No PO</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          <span className="font-semibold">PO Date:</span>{' '}
+                          {sale.poDate ? new Date(sale.poDate).toLocaleDateString('en-GB') : '—'}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          <span className="font-semibold">Invoice Date:</span>{' '}
+                          {new Date((sale.invoiceDate || sale.createdAt) as any).toLocaleDateString('en-GB')}
+                        </div>
                       </div>
                     </td>
                     

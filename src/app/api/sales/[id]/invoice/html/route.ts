@@ -102,6 +102,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const sale = saleRows[0] as any;
     const items = itemRows as any[];
     const isCanteen = sale.sale_type === 'canteen';
+    const CASTOR_200ML_NEW_ID = '68539';
+    const CASTOR_200ML_NEW_BASE_PRICE = 76.19; // GST extra base rate required for 68539
 
     const invoiceHTML = `
 <!DOCTYPE html>
@@ -537,8 +539,28 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             items.forEach((item, index) => {
                 const bgClass = rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray';
                 const qty = Number(item.quantity) || 0;
-                const lineTotalFinal = Number(item.total_amount || 0);      // GST-inclusive line total
-                const unitPriceInclusive = qty > 0 ? lineTotalFinal / qty : 0; // GST-inclusive unit price
+                const lineTotalFinal = Number(item.total_amount || 0); // stored line total (may be inclusive depending on mode)
+                const lineGst = Number(item.gst_amount || 0);
+                const unitPriceStored = Number(item.unit_price || 0);   // stored unit price (inclusive for GST-included mode; exclusive for GST-extra mode)
+
+                // Determine how this line was stored:
+                // - GST-included mode: total_amount ≈ unit_price * qty
+                // - GST-extra mode:    total_amount ≈ (unit_price * qty) + gst_amount
+                const approx = (a, b) => Math.abs(Number(a) - Number(b)) < 0.02;
+                const looksIncluded = approx(unitPriceStored * qty, lineTotalFinal);
+
+                // We always want to PRINT Rate and Amount as GST-EXCLUDING (as per latest requirement/output).
+                // So derive the taxable line amount & rate accordingly.
+                let taxableLineAmount = looksIncluded ? (lineTotalFinal - lineGst) : (unitPriceStored * qty);
+                let taxableUnitRate = qty > 0 ? (taxableLineAmount / qty) : 0;
+
+                // Hard requirement: new Castor 200ml code (68539) must print rate as 76.19 (GST extra)
+                // even if older rows were stored differently.
+                const pid = String(item.product_id || '').trim();
+                if (pid === CASTOR_200ML_NEW_ID) {
+                  taxableUnitRate = CASTOR_200ML_NEW_BASE_PRICE;
+                  taxableLineAmount = CASTOR_200ML_NEW_BASE_PRICE * qty;
+                }
                 let itemName = (item.productName ?? item.product_name ?? item.name ?? '').toString().trim();
                 if (!itemName && (String(item.product_id || '') === '55336' || String(item.product_id || '') === '68539')) itemName = 'TOM-Castor Oil - 200ml';
                 if (!itemName) itemName = 'Product';
@@ -551,8 +573,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                         <span style="font-size: 9pt; color: #666;">HSN Code : 15180011</span>
                     </td>
                     <td class="${bgClass} text-center item-qty">${qty.toFixed(2)}</td>
-                    <td class="${bgClass} text-right item-total">₹ ${Number(unitPriceInclusive.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td class="${bgClass} text-right item-total">₹ ${Number(lineTotalFinal.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td class="${bgClass} text-right item-total">₹ ${Number(taxableUnitRate.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td class="${bgClass} text-right item-total">₹ ${Number(taxableLineAmount.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>`;
                 rowIndex++;
             });
@@ -576,18 +598,27 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         
         <!-- TOTALS SECTION - Optimized Layout with 4 columns -->
         ${(() => {
-          // Recompute taxable subtotal from sale_items:
-          // Subtotal = unit_price (GST‑exclusive) * qty
+          // Recompute taxable subtotal from sale_items robustly for both storage modes
+          // (some older sales stored unit_price as GST-included).
           let taxableTotal = 0;
           (items as any[]).forEach((item) => {
             const qty = Number(item.quantity || 0);
-            const unitBase = Number(item.unit_price || 0);
-            taxableTotal += unitBase * qty;
+            const total = Number(item.total_amount || 0);
+            const gst = Number(item.gst_amount || 0);
+            const unitStored = Number(item.unit_price || 0);
+            const approx = (a, b) => Math.abs(Number(a) - Number(b)) < 0.02;
+            const looksIncluded = approx(unitStored * qty, total);
+            const pid = String(item.product_id || '').trim();
+            if (pid === CASTOR_200ML_NEW_ID) {
+              taxableTotal += CASTOR_200ML_NEW_BASE_PRICE * qty;
+            } else {
+              taxableTotal += looksIncluded ? (total - gst) : (unitStored * qty);
+            }
           });
           taxableTotal = Number(taxableTotal.toFixed(2));
 
-          // GST at 5% total, split 2.5% + 2.5%, rounded to whole rupees per side as in legacy format
-          const sgstDisplay = Math.round(taxableTotal * 0.025); // e.g. 3047.60 * 2.5% ≈ 76.19 -> 76
+          // GST at 5% total, split 2.5% + 2.5%, rounded to whole rupees per side
+          const sgstDisplay = Math.round(taxableTotal * 0.025);
           const cgstDisplay = Math.round(taxableTotal * 0.025);
           const grandTotalDisplay = taxableTotal + sgstDisplay + cgstDisplay;
 
