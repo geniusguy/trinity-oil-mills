@@ -310,7 +310,7 @@ export default function SuppliedDetailsPage() {
                   <td className="px-3 py-3">₹{toNum(r.sgst).toFixed(0)}</td>
                   <td className="px-3 py-3">₹{toNum(r.cgst).toFixed(0)}</td>
                   <td className="px-3 py-3">₹{toNum(r.totalGst).toFixed(0)}</td>
-                  <td className="px-3 py-3">{toNum(r.noOfTins).toFixed(0)}</td>
+                  <td className="px-3 py-3">{toNum(r.noOfTins).toFixed(2)}</td>
                   <td className="px-3 py-3">{r.mailSentHoDate ? fmtDateGB(r.mailSentHoDate) : '—'}</td>
                   <td className="px-3 py-3">{r.courierWeightOrRs || '—'}</td>
                 </tr>

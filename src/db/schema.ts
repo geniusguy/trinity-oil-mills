@@ -118,6 +118,9 @@ export const sales = mysqlTable('sales', {
   keptOnDisplay: boolean('kept_on_display').default(false).notNull(), // only meaningful for canteen orders; default No
   courierWeightOrRs: varchar('courier_weight_or_rs', { length: 50 }), // canteen: courier weight or amount
   mailSentHoDate: date('mail_sent_ho_date'), // canteen: date mailed to HO
+  totalBottles: decimal('total_bottles', { precision: 10, scale: 2 }), // supply report: total number of bottles
+  totalLiters: decimal('total_liters', { precision: 10, scale: 2 }),   // supply report: total liters
+  totalTins: decimal('total_tins', { precision: 10, scale: 2 }),       // supply report: total tins (16L = 1 tin)
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),

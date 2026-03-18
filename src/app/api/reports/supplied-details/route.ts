@@ -69,6 +69,9 @@ export async function GET(request: NextRequest) {
           s.mode_of_sales as modeOfSales,
           s.courier_weight_or_rs as courierWeightOrRs,
           s.mail_sent_ho_date as mailSentHoDate,
+          s.total_bottles as totalBottles,
+          s.total_liters as totalLiters,
+          s.total_tins as totalTins,
           s.canteen_address_id as canteenId,
           ca.canteen_name as canteenName,
           si.id as itemId,
@@ -90,6 +93,10 @@ export async function GET(request: NextRequest) {
         const subtotal = Number(r.subtotal?.toString?.() ?? r.subtotal ?? 0);
         const sgst = Math.round(subtotal * 0.025);
         const cgst = Math.round(subtotal * 0.025);
+        const hasStoredTotals =
+          r.totalBottles !== null && r.totalBottles !== undefined &&
+          r.totalLiters !== null && r.totalLiters !== undefined &&
+          r.totalTins !== null && r.totalTins !== undefined;
         acc[id] = {
           id,
           invoiceNumber: r.invoiceNumber,
@@ -99,25 +106,27 @@ export async function GET(request: NextRequest) {
           canteenName: r.canteenName || 'Unknown',
           poNumber: r.poNumber,
           poDate: r.poDate,
-          noOfBottles: 0,
-          liters: 0,
+          noOfBottles: hasStoredTotals ? Number(r.totalBottles) : 0,
+          liters: hasStoredTotals ? Number(r.totalLiters) : 0,
           billAmount: subtotal,
           keptOnDisplay: !!r.keptOnDisplay,
           sgst,
           cgst,
           totalGst: sgst + cgst,
-          noOfTins: 0,
+          noOfTins: hasStoredTotals ? Number(r.totalTins) : 0,
           mailSentHO: r.mailSentHoDate ? true : false,
           mailSentHoDate: r.mailSentHoDate || null,
           courierWeightOrRs: r.courierWeightOrRs || null,
+          _hasStoredTotals: hasStoredTotals,
         };
       }
 
-      if (r.itemId && r.productName) {
+      // Only recompute from items when stored totals are NOT present
+      if (!acc[id]._hasStoredTotals && r.itemId && r.productName) {
         const qty = Number(r.quantity?.toString?.() ?? r.quantity ?? 0);
         const litersPer = parsePackSizeLiters(String(r.productName));
         if (isBottleSize(litersPer)) acc[id].noOfBottles += qty;
-        if (isTinSize(litersPer)) acc[id].noOfTins += qty;
+        // Tins are derived from liters in your new definition; keep legacy tin pack counting only as a fallback signal.
         if (litersPer !== null) acc[id].liters += qty * litersPer;
       }
       return acc;
@@ -128,7 +137,7 @@ export async function GET(request: NextRequest) {
       // normalize numeric
       noOfBottles: Number(x.noOfBottles || 0),
       liters: Number((x.liters || 0).toFixed(2)),
-      noOfTins: Number(x.noOfTins || 0),
+      noOfTins: Number((x.noOfTins || 0).toFixed(2)),
     }));
 
     return NextResponse.json({ success: true, data });

@@ -415,7 +415,7 @@ export async function POST(request: NextRequest) {
     // Fetch product prices to ensure server-trusted pricing
     const productIds = items.map((i: any) => i.productId);
     const [products] = await connection.query(
-      `SELECT id, name, base_price as basePrice, retail_price as retailPrice, gst_rate as gstRate FROM products WHERE id IN (${productIds.map(() => '?').join(',')})`,
+      `SELECT id, name, unit, base_price as basePrice, retail_price as retailPrice, gst_rate as gstRate FROM products WHERE id IN (${productIds.map(() => '?').join(',')})`,
       productIds
     );
     const idToProduct: Record<string, any> = {};
@@ -428,6 +428,10 @@ export async function POST(request: NextRequest) {
         ? gstMode
         : 'included';
 
+    let supplyTotalLiters = 0;
+    let supplyTotalBottles = 0;
+    let supplyTotalTinsLegacy = 0;
+
     const preparedItems = items.map((i: any) => {
       const prod = idToProduct[i.productId];
       const quantity = Number(i.quantity);
@@ -438,6 +442,36 @@ export async function POST(request: NextRequest) {
       let lineBase: number;
 
       const isCastorNew = String(i.productId).trim() === CASTOR_200ML_NEW_ID;
+
+      // Supply metrics (bottles / liters / tins)
+      // Use BOTH product name and unit (e.g. unit='200ml') so it still works even if name doesn't include size.
+      const productName = prod?.name ? String(prod.name) : '';
+      const productUnit = prod?.unit ? String(prod.unit) : '';
+      const sizeText = `${productName} ${productUnit}`.trim();
+      const packLiters = (() => {
+        const name = sizeText.toLowerCase();
+        // Hard fallback for known Castor 200ml IDs (even if products row is missing/misconfigured)
+        const pid = String(i.productId).trim();
+        if (pid === '55336' || pid === '68539') return 0.2;
+        const mlMatch = name.match(/(\d+)\s*ml/);
+        if (mlMatch) {
+          const ml = Number(mlMatch[1]);
+          if (Number.isFinite(ml) && ml > 0) return ml / 1000;
+        }
+        const lMatch = name.match(/(\d+(?:\.\d+)?)\s*(l|liter|litre)\b/);
+        if (lMatch) {
+          const l = Number(lMatch[1]);
+          if (Number.isFinite(l) && l > 0) return l;
+        }
+        return null;
+      })();
+      const isBottle = packLiters !== null && packLiters > 0 && packLiters < 5;
+      const isTin = packLiters !== null && packLiters >= 5;
+      if (packLiters !== null) {
+        supplyTotalLiters += packLiters * quantity;
+        if (isBottle) supplyTotalBottles += quantity;
+        if (isTin) supplyTotalTinsLegacy += quantity;
+      }
 
       if (effectiveGstMode === 'included') {
         // Use GST-inclusive price, GST is already inside unit price
@@ -483,6 +517,9 @@ export async function POST(request: NextRequest) {
     });
 
     const totalAmount = Number((subtotal + gstAmount).toFixed(2));
+    const totalLitersSupply = Number(supplyTotalLiters.toFixed(2));
+    const totalBottlesSupply = Number(supplyTotalBottles.toFixed(2));
+    const totalTinsSupply = Number((totalLitersSupply / 16).toFixed(2)); // 16L = 1 tin, 8L = 0.5 tin
 
     const saleId = `sale-${Date.now()}`;
     const invoiceNumber = await generateInvoiceNumber(connection, saleType, customInvoiceNumber);
@@ -655,6 +692,25 @@ export async function POST(request: NextRequest) {
     } catch (_) {}
 
     // mail_sent_ho_date (canteen only)
+    // supply totals (canteen only)
+    try {
+      const [sCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "total_bottles"');
+      const [lCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "total_liters"');
+      const [tCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "total_tins"');
+      const hasTotals =
+        Array.isArray(sCols) && sCols.length > 0 &&
+        Array.isArray(lCols) && lCols.length > 0 &&
+        Array.isArray(tCols) && tCols.length > 0;
+      if (hasTotals) {
+        insertFields += ', total_bottles, total_liters, total_tins';
+        if (saleType === 'canteen') {
+          insertValues.push(totalBottlesSupply, totalLitersSupply, totalTinsSupply);
+        } else {
+          insertValues.push(null, null, null);
+        }
+        insertPlaceholders += ', ?, ?, ?';
+      }
+    } catch (_) {}
     try {
       const [mCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "mail_sent_ho_date"');
       const hasMail = Array.isArray(mCols) && mCols.length > 0;

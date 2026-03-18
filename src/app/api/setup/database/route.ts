@@ -58,6 +58,28 @@ export async function POST(request: NextRequest) {
           console.log('mail_sent_ho_date column already exists or error:', error.message);
         }
 
+        // Supply totals: bottles, liters, tins
+        try {
+          await connection.execute('ALTER TABLE sales ADD COLUMN IF NOT EXISTS total_bottles DECIMAL(10,2) NULL');
+          console.log('Added total_bottles column to sales table');
+        } catch (error) {
+          console.log('total_bottles column already exists or error:', error.message);
+        }
+
+        try {
+          await connection.execute('ALTER TABLE sales ADD COLUMN IF NOT EXISTS total_liters DECIMAL(10,2) NULL');
+          console.log('Added total_liters column to sales table');
+        } catch (error) {
+          console.log('total_liters column already exists or error:', error.message);
+        }
+
+        try {
+          await connection.execute('ALTER TABLE sales ADD COLUMN IF NOT EXISTS total_tins DECIMAL(10,2) NULL');
+          console.log('Added total_tins column to sales table');
+        } catch (error) {
+          console.log('total_tins column already exists or error:', error.message);
+        }
+
         // Add billing / delivery contact columns to canteen_addresses if missing
         for (const [colName, def] of [
           ['billing_contact_person', 'VARCHAR(255) NULL'],

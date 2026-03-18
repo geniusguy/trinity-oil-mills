@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
       VALUES (?, ?, ?, ?, ?, ?,
               ?, ?, ?, ?,
               ?, ?, ?,
-              ?, ?, ?, ?, ?,
+              ?, ?, ?, ?,
               ?, NOW(), NOW())
     `,
       [

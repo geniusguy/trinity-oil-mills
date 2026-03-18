@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -44,6 +44,12 @@ export default function AdminCanteenAddressesPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [filters, setFilters] = useState({
+    canteenName: '',
+    billing: '',
+  });
+  const [sortBy, setSortBy] = useState<'canteenName' | 'billing'>('canteenName');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // Form data with enhanced structure
   const [formData, setFormData] = useState({
@@ -105,6 +111,54 @@ export default function AdminCanteenAddressesPage() {
       setError('Network error. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const getBillingSearchText = (a: CanteenAddress) => {
+    return [
+      a.billing_address,
+      a.billing_city,
+      a.billing_state,
+      a.billing_pincode,
+      a.billing_contact_person,
+      a.billing_email,
+      a.billing_mobile,
+      a.gst_number,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+  };
+
+  const filteredSortedAddresses = useMemo(() => {
+    const canteenQ = filters.canteenName.trim().toLowerCase();
+    const billingQ = filters.billing.trim().toLowerCase();
+
+    const filtered = addresses.filter((a) => {
+      if (canteenQ && !String(a.canteen_name || '').toLowerCase().includes(canteenQ)) return false;
+      if (billingQ && !getBillingSearchText(a).includes(billingQ)) return false;
+      return true;
+    });
+
+    const dir = sortOrder === 'asc' ? 1 : -1;
+    const sorted = [...filtered].sort((a, b) => {
+      if (sortBy === 'canteenName') {
+        return String(a.canteen_name || '').localeCompare(String(b.canteen_name || '')) * dir;
+      }
+      const ab = getBillingSearchText(a);
+      const bb = getBillingSearchText(b);
+      return ab.localeCompare(bb) * dir;
+    });
+
+    return sorted;
+  }, [addresses, filters, sortBy, sortOrder]);
+
+  const handleSort = (key: 'canteenName' | 'billing') => {
+    if (sortBy === key) {
+      setSortOrder((p) => (p === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(key);
+      setSortOrder('asc');
     }
   };
 
@@ -579,18 +633,64 @@ export default function AdminCanteenAddressesPage() {
         {/* Addresses Table */}
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-medium text-gray-900">Canteen Addresses ({addresses.length})</h2>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-medium text-gray-900">
+                  Canteen Addresses ({filteredSortedAddresses.length})
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setFilters({ canteenName: '', billing: '' })}
+                  className="text-xs text-gray-600 hover:text-gray-900 underline"
+                >
+                  Clear filters
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Filter: Canteen Name</label>
+                  <input
+                    value={filters.canteenName}
+                    onChange={(e) => setFilters((p) => ({ ...p, canteenName: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    placeholder="Search canteen name…"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Filter: Billing (Address / Person / Email / Mobile / GST)
+                  </label>
+                  <input
+                    value={filters.billing}
+                    onChange={(e) => setFilters((p) => ({ ...p, billing: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                    placeholder="Search billing address/person/email/mobile/GST…"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
           
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                    onClick={() => handleSort('canteenName')}
+                    title="Sort by canteen name"
+                  >
                     Canteen Name
+                    {sortBy === 'canteenName' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                    onClick={() => handleSort('billing')}
+                    title="Sort by billing details"
+                  >
                     Billing (Address, Person, Email, Mobile & GST)
+                    {sortBy === 'billing' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Delivery Address & Receiving Person
@@ -604,7 +704,7 @@ export default function AdminCanteenAddressesPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {addresses.map((address) => (
+                {filteredSortedAddresses.map((address) => (
                   <tr key={address.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div>
