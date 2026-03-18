@@ -192,8 +192,30 @@ export async function GET(request: NextRequest) {
     
     const modeOfSalesField = hasModeOfSalesColumn ? ', s.mode_of_sales as modeOfSales' : ', NULL as modeOfSales';
     
+    // kept_on_display column (new)
+    let keptOnDisplayField = ', 0 as keptOnDisplay';
+    try {
+      const [kCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "kept_on_display"');
+      if (Array.isArray(kCols) && kCols.length > 0) {
+        keptOnDisplayField = ', s.kept_on_display as keptOnDisplay';
+      }
+    } catch (_) {}
+
+    // courier / mail-sent columns (optional)
+    let courierField = ', NULL as courierWeightOrRs';
+    try {
+      const [cCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "courier_weight_or_rs"');
+      if (Array.isArray(cCols) && cCols.length > 0) courierField = ', s.courier_weight_or_rs as courierWeightOrRs';
+    } catch (_) {}
+
+    let mailSentField = ', NULL as mailSentHoDate';
+    try {
+      const [mCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "mail_sent_ho_date"');
+      if (Array.isArray(mCols) && mCols.length > 0) mailSentField = ', s.mail_sent_ho_date as mailSentHoDate';
+    } catch (_) {}
+
     let query = `SELECT s.id, s.invoice_number as invoiceNumber, s.sale_type as saleType, s.subtotal, s.gst_amount as gstAmount, s.total_amount as totalAmount,
-                        s.payment_method as paymentMethod, s.payment_status as paymentStatus, s.shipment_status as shipmentStatus, s.notes${poNumberField}${poDateField}${invoiceDateField}${modeOfSalesField}, s.created_at as createdAt,
+                        s.payment_method as paymentMethod, s.payment_status as paymentStatus, s.shipment_status as shipmentStatus, s.notes${poNumberField}${poDateField}${invoiceDateField}${modeOfSalesField}${keptOnDisplayField}${courierField}${mailSentField}, s.created_at as createdAt,
                         s.canteen_address_id as canteenAddressId, u.name as userName, s.notes as customerName, ca.canteen_name as canteenName, ca.address as canteenAddress,
                         ca.contact_person as canteenContact, ca.mobile_number as canteenMobile
                  FROM sales s
@@ -363,6 +385,9 @@ export async function POST(request: NextRequest) {
       invoiceDate = null,
       modeOfSales = null,
       customerEmail = null,
+      keptOnDisplay = null,
+      courierWeightOrRs = null,
+      mailSentHoDate = null,
       gstMode,
     } = body;
     if (!Array.isArray(items) || items.length === 0) {
@@ -390,7 +415,7 @@ export async function POST(request: NextRequest) {
     // Fetch product prices to ensure server-trusted pricing
     const productIds = items.map((i: any) => i.productId);
     const [products] = await connection.query(
-      `SELECT id, base_price as basePrice, retail_price as retailPrice, gst_rate as gstRate FROM products WHERE id IN (${productIds.map(() => '?').join(',')})`,
+      `SELECT id, name, base_price as basePrice, retail_price as retailPrice, gst_rate as gstRate FROM products WHERE id IN (${productIds.map(() => '?').join(',')})`,
       productIds
     );
     const idToProduct: Record<string, any> = {};
@@ -556,6 +581,91 @@ export async function POST(request: NextRequest) {
       insertValues.push(invoiceDateValue);
       insertPlaceholders += ', ?';
     }
+
+    // kept_on_display (only meaningful for canteen, default 0/false)
+    try {
+      const [kCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "kept_on_display"');
+      const hasKept = Array.isArray(kCols) && kCols.length > 0;
+      if (hasKept) {
+        insertFields += ', kept_on_display';
+        const v = saleType === 'canteen' ? (keptOnDisplay ? 1 : 0) : 0;
+        insertValues.push(v);
+        insertPlaceholders += ', ?';
+      }
+    } catch (_) {}
+
+    // courier_weight_or_rs (canteen only)
+    try {
+      const [cCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "courier_weight_or_rs"');
+      const hasCourier = Array.isArray(cCols) && cCols.length > 0;
+      if (hasCourier) {
+        insertFields += ', courier_weight_or_rs';
+        const raw = courierWeightOrRs && String(courierWeightOrRs).trim() ? String(courierWeightOrRs).trim() : '';
+
+        // If user didn't enter anything, default to the same Gross Weight calc used in invoice HTML.
+        const getWeightPerUnitKg = (name: string) => {
+          const n = (name || '').toLowerCase();
+          const mlMatch = n.match(/\b(\d+)\s*ml/);
+          if (mlMatch) {
+            const ml = parseInt(mlMatch[1], 10);
+            if (ml <= 250) return 0.2;
+            if (ml <= 600) return 0.5;
+            return ml / 1000;
+          }
+          const literMatch = n.match(/\b(16|5|1)\s*l(it(er|re))?/);
+          if (literMatch) {
+            const num = parseInt(literMatch[1], 10);
+            if (num >= 16) return 16;
+            if (num >= 5) return 5;
+            return 1;
+          }
+          if (/\b16\b/.test(n) && (n.includes('l') || n.includes('tin'))) return 16;
+          if (/\b5\s*l|\b5l\b/.test(n)) return 5;
+          if (/\b1\s*l|\b1l\b|\b1\s*liter|\b1\s*litre/.test(n)) return 1;
+          if (n.includes('500') && (n.includes('ml') || n.includes('0.5'))) return 0.5;
+          if (n.includes('200') || n.includes('0.2')) return 0.2;
+          return 0.2;
+        };
+
+        const computeGrossKg = () => {
+          let totalKg = 0;
+          for (const it of preparedItems as any[]) {
+            const qty = Number(it.quantity) || 0;
+            const prod = idToProduct[it.productId];
+            const name = (prod && prod.name) ? String(prod.name) : '';
+            totalKg += qty * getWeightPerUnitKg(name);
+          }
+          return Number(totalKg.toFixed(2));
+        };
+
+        const v =
+          saleType === 'canteen'
+            ? (raw
+                ? raw
+                : (() => {
+                    const kg = computeGrossKg();
+                    // If for some reason we can't compute meaningful weight, fall back to total amount.
+                    if (!Number.isFinite(kg) || kg <= 0) return `₹${Number(totalAmount).toFixed(2)}`;
+                    return `${kg.toFixed(2)} kg`;
+                  })())
+            : null;
+        insertValues.push(v);
+        insertPlaceholders += ', ?';
+      }
+    } catch (_) {}
+
+    // mail_sent_ho_date (canteen only)
+    try {
+      const [mCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "mail_sent_ho_date"');
+      const hasMail = Array.isArray(mCols) && mCols.length > 0;
+      if (hasMail) {
+        insertFields += ', mail_sent_ho_date';
+        const trimmed = typeof mailSentHoDate === 'string' ? mailSentHoDate.trim() : '';
+        const v = saleType === 'canteen' ? (trimmed ? trimmed.slice(0, 10) : null) : null;
+        insertValues.push(v);
+        insertPlaceholders += ', ?';
+      }
+    } catch (_) {}
 
     insertFields += ', created_at, updated_at';
     insertPlaceholders += ', NOW(), NOW()';

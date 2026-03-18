@@ -78,7 +78,10 @@ export async function PUT(
       customerName, 
       paymentMethod,
       canteenAddressId,
-      modeOfSales 
+      modeOfSales,
+      keptOnDisplay,
+      courierWeightOrRs,
+      mailSentHoDate,
     } = requestData;
 
     console.log('Received update data:', requestData); // Debug log
@@ -190,6 +193,38 @@ export async function PUT(
       updateFields.push('mode_of_sales = ?');
       updateValues.push(modeOfSales || null);
     }
+
+    // kept_on_display
+    try {
+      const [kCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "kept_on_display"');
+      const hasKept = Array.isArray(kCols) && kCols.length > 0;
+      if (hasKept && keptOnDisplay !== undefined) {
+        updateFields.push('kept_on_display = ?');
+        updateValues.push(keptOnDisplay ? 1 : 0);
+      }
+    } catch (_) {}
+
+    // courier_weight_or_rs
+    try {
+      const [cCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "courier_weight_or_rs"');
+      const hasCourier = Array.isArray(cCols) && cCols.length > 0;
+      if (hasCourier && courierWeightOrRs !== undefined) {
+        const v = courierWeightOrRs && String(courierWeightOrRs).trim() ? String(courierWeightOrRs).trim() : null;
+        updateFields.push('courier_weight_or_rs = ?');
+        updateValues.push(v);
+      }
+    } catch (_) {}
+
+    // mail_sent_ho_date
+    try {
+      const [mCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "mail_sent_ho_date"');
+      const hasMail = Array.isArray(mCols) && mCols.length > 0;
+      if (hasMail && mailSentHoDate !== undefined) {
+        const trimmed = typeof mailSentHoDate === 'string' ? mailSentHoDate.trim() : '';
+        updateFields.push('mail_sent_ho_date = ?');
+        updateValues.push(trimmed ? trimmed.slice(0, 10) : null);
+      }
+    } catch (_) {}
 
     // Always update timestamp and add sale ID at the end
     updateFields.push('updated_at = NOW()');

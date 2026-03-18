@@ -1,0 +1,70 @@
+#!/usr/bin/env node
+/**
+ * Migration: Add courier_weight_or_rs + mail_sent_ho_date columns to sales.
+ */
+
+const path = require('path');
+const fs = require('fs');
+const mysql = require('mysql2/promise');
+
+function loadEnv() {
+  try {
+    const dotenv = require('dotenv');
+    const projectRoot = path.join(__dirname, '..');
+    const candidates = [path.join(projectRoot, '.env.local'), path.join(projectRoot, '.env')].filter((p) => {
+      try { return fs.existsSync(p); } catch { return false; }
+    });
+    for (const p of candidates) dotenv.config({ path: p, quiet: true });
+  } catch {}
+}
+
+function getConfig() {
+  if (process.env.DATABASE_URL) {
+    const url = new URL(process.env.DATABASE_URL);
+    return {
+      host: url.hostname,
+      port: parseInt(url.port || '3306', 10),
+      user: url.username,
+      password: url.password,
+      database: url.pathname.replace(/^\//, '') || 'trinityoil_oil_shop_db_new',
+    };
+  }
+  return {
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '3306', 10),
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'trinityoil_oil_shop_db_new',
+  };
+}
+
+async function addIfMissing(conn, col, def) {
+  const [cols] = await conn.execute(`SHOW COLUMNS FROM sales LIKE "${col}"`);
+  if (Array.isArray(cols) && cols.length > 0) {
+    console.log(`  ${col}: exists`);
+    return;
+  }
+  await conn.execute(`ALTER TABLE sales ADD COLUMN ${col} ${def}`);
+  console.log(`  ${col}: added`);
+}
+
+async function run() {
+  loadEnv();
+  const config = getConfig();
+  console.log('Migration: add sales courier/mail columns');
+  console.log(`Database: ${config.database} @ ${config.host}:${config.port}`);
+
+  const conn = await mysql.createConnection(config);
+  try {
+    await addIfMissing(conn, 'courier_weight_or_rs', 'VARCHAR(50) NULL');
+    await addIfMissing(conn, 'mail_sent_ho_date', 'DATE NULL');
+  } finally {
+    await conn.end();
+  }
+}
+
+run().catch((e) => {
+  console.error('Migration failed:', e?.message || e);
+  process.exit(1);
+});
+

@@ -29,6 +29,9 @@ interface Sale {
   poDate?: string;
   canteenAddressId?: string;
   modeOfSales?: string;
+  keptOnDisplay?: number | boolean;
+  courierWeightOrRs?: string | null;
+  mailSentHoDate?: string | null;
 }
 
 interface CanteenAddress {
@@ -87,6 +90,10 @@ export default function CanteenSalesPage() {
     paymentMethod: '',
     modeOfSales: '',
     customerEmail: ''
+    ,
+    keptOnDisplay: false,
+    courierWeightOrRs: '',
+    mailSentHoDate: '',
   });
 
   // Redirect if not authenticated or not admin
@@ -400,7 +407,10 @@ export default function CanteenSalesPage() {
       canteenAddressId: sale.canteenAddressId || '', // Use the actual canteen address ID from sale
       paymentMethod: sale.saleType === 'canteen' ? 'credit' : sale.paymentMethod, // Auto credit for canteen
       modeOfSales: modeOfSales,
-      customerEmail: customerEmail
+      customerEmail: customerEmail,
+      keptOnDisplay: Boolean((sale as any).keptOnDisplay),
+      courierWeightOrRs: (sale as any).courierWeightOrRs || '',
+      mailSentHoDate: normalizeDate((sale as any).mailSentHoDate),
     });
     setShowEditModal(true);
     setError('');
@@ -491,10 +501,16 @@ export default function CanteenSalesPage() {
       notes: '',
       invoiceNumber: '',
       poNumber: '',
+      poDate: '',
+      invoiceDate: '',
       customerName: '',
       canteenAddressId: '',
       paymentMethod: '',
-      modeOfSales: ''
+      modeOfSales: '',
+      customerEmail: '',
+      keptOnDisplay: false,
+      courierWeightOrRs: '',
+      mailSentHoDate: '',
     });
   };
 
@@ -785,6 +801,11 @@ export default function CanteenSalesPage() {
                     {sortBy === 'paymentStatus' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
 
+                  {/* Kept on display - Visible on desktop */}
+                  <th className="hidden lg:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Kept on display
+                  </th>
+
                   {/* PO Number & Date - Visible on tablet+ */}
                   <th
                     className="hidden md:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
@@ -883,6 +904,19 @@ export default function CanteenSalesPage() {
                       </div>
                     </td>
 
+                    {/* Kept on display */}
+                    <td className="hidden lg:table-cell px-3 py-4 whitespace-nowrap text-sm">
+                      {Boolean((sale as any).keptOnDisplay) ? (
+                        <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                          Yes
+                        </span>
+                      ) : (
+                        <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">
+                          No
+                        </span>
+                      )}
+                    </td>
+
                     {/* PO Number & Date - Hidden on mobile */}
                     <td className="hidden md:table-cell px-3 py-4 whitespace-nowrap text-sm text-gray-700">
                       <div className="space-y-1">
@@ -902,6 +936,14 @@ export default function CanteenSalesPage() {
                         <div className="text-xs text-gray-500">
                           <span className="font-semibold">Invoice Date:</span>{' '}
                           {new Date((sale.invoiceDate || sale.createdAt) as any).toLocaleDateString('en-GB')}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          <span className="font-semibold">Email sent HO:</span>{' '}
+                          {(sale as any).mailSentHoDate ? 'Yes' : 'No'}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          <span className="font-semibold">HO Date:</span>{' '}
+                          {(sale as any).mailSentHoDate ? new Date((sale as any).mailSentHoDate).toLocaleDateString('en-GB') : '—'}
                         </div>
                       </div>
                     </td>
@@ -1108,6 +1150,59 @@ export default function CanteenSalesPage() {
                     />
                   )}
                 </div>
+
+                {/* Kept on display (Canteen only) */}
+                {selectedSale?.saleType === 'canteen' && (
+                  <div>
+                    <label htmlFor="keptOnDisplay" className="block text-sm font-medium text-gray-700 mb-1">
+                      Kept on display
+                    </label>
+                    <select
+                      id="keptOnDisplay"
+                      value={editForm.keptOnDisplay ? 'yes' : 'no'}
+                      onChange={(e) => setEditForm({ ...editForm, keptOnDisplay: e.target.value === 'yes' })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="no">No</option>
+                      <option value="yes">Yes</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Default is No.</p>
+                  </div>
+                )}
+
+                {/* Mail sent HO date (Canteen only) */}
+                {selectedSale?.saleType === 'canteen' && (
+                  <div>
+                    <label htmlFor="mailSentHoDate" className="block text-sm font-medium text-gray-700 mb-1">
+                      Mail sent HO (Date)
+                    </label>
+                    <input
+                      id="mailSentHoDate"
+                      type="date"
+                      value={(editForm as any).mailSentHoDate}
+                      onChange={(e) => setEditForm({ ...(editForm as any), mailSentHoDate: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                )}
+
+                {/* Courier weig/rs (Canteen only) */}
+                {selectedSale?.saleType === 'canteen' && (
+                  <div>
+                    <label htmlFor="courierWeightOrRs" className="block text-sm font-medium text-gray-700 mb-1">
+                      Courier weig/rs
+                    </label>
+                    <input
+                      id="courierWeightOrRs"
+                      type="text"
+                      value={(editForm as any).courierWeightOrRs}
+                      onChange={(e) => setEditForm({ ...(editForm as any), courierWeightOrRs: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder='e.g. "12kg" or "₹450"'
+                    />
+                    <p className="text-xs text-gray-500 mt-1">You can type weight or amount.</p>
+                  </div>
+                )}
 
                 {/* Payment Method */}
                 <div>

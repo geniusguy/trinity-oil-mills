@@ -84,6 +84,18 @@ const navigationSections: NavSection[] = [
         roles: ['admin', 'accountant', 'retail_staff']
       },
       {
+        name: 'Supplied Details',
+        href: '/dashboard/admin/sales/supplied-details',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2a4 4 0 014-4h6M9 17H7a2 2 0 01-2-2V7a2 2 0 012-2h10a2 2 0 012 2v2" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 11l2-2 2 2m-2-2v8" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff'],
+        badge: 'NEW'
+      },
+      {
         name: 'Canteen Addresses',
         href: '/dashboard/admin/canteen-addresses',
         icon: (

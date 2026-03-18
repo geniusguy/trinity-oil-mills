@@ -191,6 +191,8 @@ export default function POSPage() {
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10)); // Invoice date; default today
   const [modeOfSales, setModeOfSales] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
+  const [mailSentHoDate, setMailSentHoDate] = useState(''); // canteen: date mailed to HO
+  const [courierWeightOrRs, setCourierWeightOrRs] = useState(''); // canteen: weight or amount
   const [customInvoiceNum, setCustomInvoiceNum] = useState(''); // 4-digit number when editing
   const [customInvoiceYear, setCustomInvoiceYear] = useState(() => new Date().getFullYear().toString());
   const [showInvoiceEdit, setShowInvoiceEdit] = useState(false);
@@ -406,6 +408,24 @@ export default function POSPage() {
     };
   };
 
+  // Rough supply calculations for "Courier weig/rs" default
+  const calculateCartLiters = () => {
+    let liters = 0;
+    for (const item of cart) {
+      const name = (item.name || '').toLowerCase();
+      const ml = name.match(/(\d+)\s*ml/);
+      if (ml) {
+        liters += (Number(ml[1]) / 1000) * item.quantity;
+        continue;
+      }
+      const l = name.match(/(\d+(?:\.\d+)?)\s*(l|liter|litre)\b/);
+      if (l) {
+        liters += Number(l[1]) * item.quantity;
+      }
+    }
+    return Number(liters.toFixed(2));
+  };
+
   // Format validation helpers
   const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((email || '').trim());
   const isValidDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test((d || '').trim()) && !Number.isNaN(Date.parse(d));
@@ -509,7 +529,10 @@ export default function POSPage() {
         invoiceDate: invoiceDate.trim() || new Date().toISOString().slice(0, 10), // Invoice date (default today)
         modeOfSales: modeOfSales === 'email' && customerEmail ? `email:${customerEmail}` : modeOfSales || null, // Mode of sales with email if applicable
         customInvoiceNumber: (showInvoiceEdit && customInvoiceNum.trim()) ? `${saleType === 'canteen' ? 'C' : 'R'}${customInvoiceNum.replace(/\D/g, '').padStart(4, '0').slice(0, 4)}/${customInvoiceYear}` : null,
-        customerEmail: customerEmail || null
+        customerEmail: customerEmail || null,
+        // new supplied-details capture (canteen only)
+        courierWeightOrRs: saleType === 'canteen' ? (courierWeightOrRs || null) : null,
+        mailSentHoDate: saleType === 'canteen' ? (mailSentHoDate || null) : null,
       };
 
       const response = await fetch('/api/sales', {
@@ -531,6 +554,8 @@ export default function POSPage() {
         setInvoiceDate(new Date().toISOString().slice(0, 10));
         setModeOfSales('');
         setCustomerEmail('');
+        setMailSentHoDate('');
+        setCourierWeightOrRs('');
         setCustomInvoiceNum('');
         setCustomInvoiceYear(new Date().getFullYear().toString());
         setShowInvoiceEdit(false);
@@ -1073,6 +1098,55 @@ export default function POSPage() {
                       
                       <p className="text-xs text-gray-500 mt-1">
                         <strong>How the order was received</strong> - This will appear in "Mode of Order" column on the invoice
+                      </p>
+                    </div>
+
+                    {/* Mail sent HO Date (Canteen only) */}
+                    <div className="mt-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Mail sent HO (Date)
+                      </label>
+                      <input
+                        type="date"
+                        value={mailSentHoDate}
+                        onChange={(e) => setMailSentHoDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Leave empty if not mailed yet.</p>
+                    </div>
+
+                    {/* Courier weig/rs (Canteen only) */}
+                    <div className="mt-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Courier weig/rs
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={courierWeightOrRs}
+                          onChange={(e) => setCourierWeightOrRs(e.target.value)}
+                          placeholder='e.g. "12kg" or "₹450"'
+                          className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setCourierWeightOrRs(`₹${calculateTotals().total.toFixed(2)}`)}
+                          className="px-3 py-2 border border-gray-300 rounded-md bg-gray-50 hover:bg-gray-100 text-sm font-medium text-gray-700"
+                          title="Auto-fill from current totals"
+                        >
+                          Auto
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCourierWeightOrRs(`${calculateCartLiters().toFixed(2)} L`)}
+                          className="px-3 py-2 border border-gray-300 rounded-md bg-gray-50 hover:bg-gray-100 text-sm font-medium text-gray-700"
+                          title="Auto-fill from cart liters (approx weight)"
+                        >
+                          Lts
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Auto buttons help fill from <strong>calculation</strong> (Total ₹) or from <strong>Lts</strong>.
                       </p>
                     </div>
                   </div>

@@ -115,6 +115,9 @@ export const sales = mysqlTable('sales', {
   poNumber: varchar('po_number', { length: 100 }), // Purchase Order number for canteen sales
   poDate: date('po_date'), // Purchase Order date
   modeOfSales: varchar('mode_of_sales', { length: 100 }), // Mode of sales (email, phone, walk-in, etc.)
+  keptOnDisplay: boolean('kept_on_display').default(false).notNull(), // only meaningful for canteen orders; default No
+  courierWeightOrRs: varchar('courier_weight_or_rs', { length: 50 }), // canteen: courier weight or amount
+  mailSentHoDate: date('mail_sent_ho_date'), // canteen: date mailed to HO
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),

@@ -34,6 +34,30 @@ export async function POST(request: NextRequest) {
           console.log('mode_of_sales column already exists or error:', error.message);
         }
 
+        // Add kept_on_display flag (for canteen orders)
+        try {
+          await connection.execute('ALTER TABLE sales ADD COLUMN IF NOT EXISTS kept_on_display TINYINT(1) NOT NULL DEFAULT 0');
+          console.log('Added kept_on_display column to sales table');
+        } catch (error) {
+          console.log('kept_on_display column already exists or error:', error.message);
+        }
+
+        // Courier weight or amount (for canteen orders)
+        try {
+          await connection.execute('ALTER TABLE sales ADD COLUMN IF NOT EXISTS courier_weight_or_rs VARCHAR(50) NULL');
+          console.log('Added courier_weight_or_rs column to sales table');
+        } catch (error) {
+          console.log('courier_weight_or_rs column already exists or error:', error.message);
+        }
+
+        // Mail sent HO date (for canteen orders)
+        try {
+          await connection.execute('ALTER TABLE sales ADD COLUMN IF NOT EXISTS mail_sent_ho_date DATE NULL');
+          console.log('Added mail_sent_ho_date column to sales table');
+        } catch (error) {
+          console.log('mail_sent_ho_date column already exists or error:', error.message);
+        }
+
         // Add billing / delivery contact columns to canteen_addresses if missing
         for (const [colName, def] of [
           ['billing_contact_person', 'VARCHAR(255) NULL'],
