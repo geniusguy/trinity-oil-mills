@@ -74,11 +74,7 @@ export default function LoginPage() {
       <div className="max-w-md w-full space-y-8">
         <div>
           <div className="text-center mb-4">
-            <img 
-              src="/TOM_logo.png" 
-              alt="Trinity Oil Mills" 
-              className="mx-auto h-16 w-auto object-contain"
-            />
+            <h1 className="text-3xl font-bold text-gray-900">TOM Login</h1>
           </div>
           <p className="mt-6 text-center text-lg text-gray-900 font-semibold">
             Sign in to your account

@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useToast, StatusBadge, LoadingSpinner } from '@/components/ui';
-import { Card, Button } from '@/components/ui';
+import { useToast, LoadingSpinner } from '@/components/ui';
 
 interface Product {
   id: string;
@@ -63,85 +62,6 @@ function isCastor200ml(p: Product): boolean {
   const hasCastorWord = name.includes('castor');
   return hasCastorWord && (name.includes('200') || unit.includes('200ml'));
 }
-
-// Helper function to get product-specific icons
-const getProductIcon = (product: Product): string => {
-  const productName = product.name.toLowerCase();
-  const productType = product.type.toLowerCase();
-
-  // Oil-specific icons based on type and name
-  if (productName.includes('groundnut') || productType.includes('ground')) {
-    return '🥜'; // Peanut for groundnut oil
-  }
-  if (productName.includes('gingelly') || productName.includes('sesame') || productType.includes('gingelly')) {
-    return '🌰'; // Chestnut for gingelly/sesame oil
-  }
-  if (productName.includes('coconut') || productType.includes('coconut')) {
-    return '🥥'; // Coconut for coconut oil
-  }
-  if (productName.includes('deepam') || productType.includes('deepam')) {
-    return '🪔'; // Oil lamp for deepam oil
-  }
-  if (productName.includes('castor') || productType.includes('castor')) {
-    return '🌿'; // Herb for castor oil
-  }
-  
-  // Size-specific bottle icons for oils
-  if (productName.includes('oil')) {
-    if (productName.includes('5l') || productName.includes('5 l')) {
-      return '🍶'; // Large bottle for 5L
-    }
-    if (productName.includes('1l') || productName.includes('1 l')) {
-      return '🫗'; // Pouring liquid for 1L
-    }
-    if (productName.includes('500ml')) {
-      return '🧴'; // Bottle for 500ml
-    }
-    if (productName.includes('200ml')) {
-      return '🧪'; // Small bottle for 200ml
-    }
-    return '🛢️'; // Default oil barrel
-  }
-  
-  // Packaging items
-  if (product.category === 'packaging') {
-    return '📦';
-  }
-  
-  // Default fallback
-  return '🛢️';
-};
-
-// Helper function to get product-specific background gradients
-const getProductBackground = (product: Product): string => {
-  const productName = product.name.toLowerCase();
-  const productType = product.type.toLowerCase();
-
-  // Oil-specific background colors
-  if (productName.includes('groundnut') || productType.includes('ground')) {
-    return 'bg-gradient-to-br from-amber-100 to-amber-200'; // Golden brown for groundnut
-  }
-  if (productName.includes('gingelly') || productName.includes('sesame') || productType.includes('gingelly')) {
-    return 'bg-gradient-to-br from-yellow-100 to-yellow-200'; // Light golden for sesame
-  }
-  if (productName.includes('coconut') || productType.includes('coconut')) {
-    return 'bg-gradient-to-br from-blue-100 to-blue-200'; // Light blue for coconut
-  }
-  if (productName.includes('deepam') || productType.includes('deepam')) {
-    return 'bg-gradient-to-br from-orange-100 to-orange-200'; // Orange for deepam
-  }
-  if (productName.includes('castor') || productType.includes('castor')) {
-    return 'bg-gradient-to-br from-purple-100 to-purple-200'; // Purple for castor
-  }
-  
-  // Packaging items
-  if (product.category === 'packaging') {
-    return 'bg-gradient-to-br from-gray-100 to-gray-200';
-  }
-  
-  // Default green gradient
-  return 'bg-gradient-to-br from-green-100 to-green-200';
-};
 
 // Current financial year for PO (e.g. "24-25" for Apr 2024–Mar 2025)
 function getCurrentFY(): string {
@@ -610,7 +530,7 @@ export default function POSPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between h-auto md:h-16 py-4 md:py-0">
             <div className="flex items-center flex-wrap gap-4">
-              <h1 className="text-2xl font-bold text-gray-900">🛒 Point of Sale</h1>
+              <h1 className="text-2xl font-bold text-gray-900">Point of Sale</h1>
               <div className="flex bg-gray-100 rounded-lg p-1">
                 <button
                   onClick={() => setSaleType('retail')}
@@ -620,7 +540,7 @@ export default function POSPage() {
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
-                  🏪 Retail
+                  Retail
                 </button>
                 <button
                   onClick={() => setSaleType('canteen')}
@@ -630,7 +550,7 @@ export default function POSPage() {
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
-                  🏢 Canteen
+                  Canteen
                 </button>
               </div>
             </div>
@@ -671,31 +591,31 @@ export default function POSPage() {
       )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 xl:gap-6">
           
           {/* Products Section */}
           <div className="lg:col-span-2 space-y-6">
             {/* Search and Filters */}
-            <div className="bg-white rounded-lg shadow-sm p-4">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1">
                   <input
                     type="text"
-                    placeholder="🔍 Search products..."
+                    placeholder="Search products..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-lg"
+                    className="w-full h-11 px-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
                   />
                 </div>
                 <div className="sm:w-48">
                   <select
                     value={selectedCategory}
                     onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-lg"
+                    className="w-full h-11 px-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
                   >
                     {categories.map(cat => (
                       <option key={cat} value={cat}>
-                        {cat === 'all' ? '📦 All Products' : `🛢️ ${cat.charAt(0).toUpperCase() + cat.slice(1)}`}
+                        {cat === 'all' ? 'All Products' : `${cat.charAt(0).toUpperCase() + cat.slice(1)}`}
                       </option>
                     ))}
                   </select>
@@ -704,7 +624,7 @@ export default function POSPage() {
             </div>
 
             {/* Product Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {displayProducts.map((product) => {
                 const price = saleType === 'retail' ? parseFloat(product.retailPrice) : parseFloat(product.basePrice);
                 const isCastor = isCastor200ml(product);
@@ -715,21 +635,14 @@ export default function POSPage() {
                 return (
                   <div
                     key={product.id}
-                    className="bg-white rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-all duration-200 overflow-hidden"
+                    className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-shadow"
                   >
-                    {/* Product Image with Oil-Specific Icons */}
-                    <div className={`h-32 flex items-center justify-center ${getProductBackground(product)}`}>
-                      <div className="text-5xl">
-                        {getProductIcon(product)}
-                      </div>
-                    </div>
-                    
                     {/* Product Details */}
-                    <div className="p-4">
-                      <h3 className="font-semibold text-gray-900 mb-1">
+                    <div className="p-4 space-y-2.5">
+                      <h3 className="font-semibold text-gray-900 leading-snug line-clamp-2 min-h-[2.6rem]">
                         {isCastor ? CASTOR_200ML_DISPLAY_NAME : product.name}
                       </h3>
-                      <p className="text-sm text-gray-600 mb-2">
+                      <p className="text-xs text-gray-500">
                         {isCastor ? `200ml • Code ${castor200mlBillingCode}` : `${product.type.replace('_', ' ').toUpperCase()} • ${product.unit}`}
                       </p>
 
@@ -750,45 +663,42 @@ export default function POSPage() {
                         </div>
                       )}
                       
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center justify-between pt-1">
                         <div>
-                          <span className="text-2xl font-bold text-green-600">₹{price}</span>
-                          <span className="text-sm text-gray-500">/{product.unit}</span>
+                          <span className="text-xl font-bold text-gray-900">₹{price}</span>
+                          <span className="text-xs text-gray-500">/{product.unit}</span>
                         </div>
-                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                        <span className="text-[11px] bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
                           GST {product.gstRate}%
                         </span>
                       </div>
 
-                      {/* Add to Cart Button - Enhanced for Mobile */}
+                      {/* Add to Cart controls */}
                       {inCart ? (
-                        <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
+                        <div className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg p-2.5">
                           <button
                             onClick={() => updateQuantity(cartProductId, Math.max(0, Math.round(inCart.quantity) - 1))}
-                            className="w-10 h-10 flex items-center justify-center bg-white border border-green-300 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-110 active:scale-95 touch-manipulation"
+                            className="w-9 h-9 flex items-center justify-center bg-white border border-gray-300 rounded-md hover:bg-gray-100 transition-colors touch-manipulation"
                           >
-                            <span className="text-green-600 font-bold text-lg">−</span>
+                            <span className="text-gray-700 font-bold text-lg">−</span>
                           </button>
                           <div className="text-center">
-                            <div className="font-bold text-green-800 text-lg">{Math.round(inCart.quantity)}</div>
-                            <div className="text-xs text-green-600">in cart</div>
+                            <div className="font-semibold text-gray-900 text-base">{Math.round(inCart.quantity)}</div>
+                            <div className="text-[11px] text-gray-500 uppercase tracking-wide">in cart</div>
                           </div>
                           <button
                             onClick={() => updateQuantity(cartProductId, Math.round(inCart.quantity) + 1)}
-                            className="w-10 h-10 flex items-center justify-center bg-white border border-green-300 rounded-lg hover:bg-gray-50 transition-all duration-200 transform hover:scale-110 active:scale-95 touch-manipulation"
+                            className="w-9 h-9 flex items-center justify-center bg-white border border-gray-300 rounded-md hover:bg-gray-100 transition-colors touch-manipulation"
                           >
-                            <span className="text-green-600 font-bold text-lg">+</span>
+                            <span className="text-gray-700 font-bold text-lg">+</span>
                           </button>
                         </div>
                       ) : (
                         <button
                           onClick={() => addToCart(product)}
-                          className="w-full bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-lg font-semibold transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-md hover:shadow-lg min-h-[48px] touch-manipulation"
+                          className="w-full border border-gray-300 bg-white hover:bg-gray-100 text-gray-800 py-2.5 px-4 rounded-lg font-medium transition-colors min-h-[44px] touch-manipulation"
                         >
-                          <div className="flex items-center justify-center space-x-2">
-                            <span>🛒</span>
-                            <span>Add to Cart</span>
-                          </div>
+                          Add to Cart
                         </button>
                       )}
                     </div>
@@ -799,7 +709,6 @@ export default function POSPage() {
 
             {displayProducts.length === 0 && (
               <div className="text-center py-12">
-                <div className="text-6xl mb-4">🔍</div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No products found</h3>
                 <p className="text-gray-600">Try adjusting your search or category filter</p>
               </div>
@@ -807,15 +716,15 @@ export default function POSPage() {
           </div>
 
           {/* Cart Section */}
-          <div className="space-y-6">
+          <div className="space-y-5 lg:sticky lg:top-6 self-start">
             {/* Cart Header */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold text-gray-900">🛒 Cart ({cart.length})</h2>
+                <h2 className="text-xl font-bold text-gray-900">Cart ({cart.length})</h2>
                 {cart.length > 0 && (
                   <button
                     onClick={clearCart}
-                    className="text-red-600 hover:text-red-700 text-sm font-medium"
+                    className="text-red-600 hover:text-red-700 text-xs font-medium uppercase tracking-wide"
                   >
                     Clear All
                   </button>
@@ -825,7 +734,6 @@ export default function POSPage() {
               {/* Cart Items */}
               {cart.length === 0 ? (
                 <div className="text-center py-8">
-                  <div className="text-4xl mb-2">🛒</div>
                   <p className="text-gray-500">Your cart is empty</p>
                   <p className="text-sm text-gray-400">Add products to get started</p>
                 </div>
@@ -854,10 +762,10 @@ export default function POSPage() {
                           )}
                           <p className="text-sm text-gray-600 mt-0.5">₹{item.price} × {item.quantity}</p>
                         </div>
-                        <div className="flex items-center space-x-1 shrink-0">
+                        <div className="flex items-center space-x-1.5 shrink-0">
                         <button
                           onClick={() => updateQuantity(item.productId, Math.max(0, Math.round(item.quantity) - 1))}
-                          className="w-6 h-6 flex items-center justify-center bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
+                          className="w-7 h-7 flex items-center justify-center bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-100"
                         >
                           −
                         </button>
@@ -886,11 +794,11 @@ export default function POSPage() {
                           }}
                           min="1"
                           step="1"
-                          className="w-16 text-center font-medium border border-gray-300 rounded px-1 py-1 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          className="w-16 h-7 text-center font-medium border border-gray-300 rounded px-1 py-1 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
                         />
                         <button
                           onClick={() => updateQuantity(item.productId, Math.round(item.quantity) + 1)}
-                          className="w-6 h-6 flex items-center justify-center bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
+                          className="w-7 h-7 flex items-center justify-center bg-white border border-gray-300 rounded text-gray-600 hover:bg-gray-100"
                         >
                           +
                         </button>
@@ -907,8 +815,8 @@ export default function POSPage() {
             </div>
 
             {/* Customer Details - always show so cart doesn't "close" when empty */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">👤 Customer Details</h3>
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Customer Details</h3>
                 
                 {saleType === 'canteen' ? (
                   <div className="space-y-3">
@@ -1042,11 +950,11 @@ export default function POSPage() {
                         }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                       >
-                        <option value="email">📧 Email Order (Default)</option>
-                        <option value="phone">📞 Phone Order</option>
-                        <option value="whatsapp">📱 WhatsApp Order</option>
-                        <option value="walk_in">🚶 Walk-in Order</option>
-                        <option value="online">💻 Online Order</option>
+                        <option value="email">Email Order (Default)</option>
+                        <option value="phone">Phone Order</option>
+                        <option value="whatsapp">WhatsApp Order</option>
+                        <option value="walk_in">Walk-in Order</option>
+                        <option value="online">Online Order</option>
                       </select>
                       
                       {/* Receiving Person Email ID - required for canteen email orders */}
@@ -1243,11 +1151,11 @@ export default function POSPage() {
                         }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                       >
-                        <option value="walk_in">🚶 Walk-in Order (Default)</option>
-                        <option value="email">📧 Email Order</option>
-                        <option value="phone">📞 Phone Order</option>
-                        <option value="whatsapp">📱 WhatsApp Order</option>
-                        <option value="online">💻 Online Order</option>
+                        <option value="walk_in">Walk-in Order (Default)</option>
+                        <option value="email">Email Order</option>
+                        <option value="phone">Phone Order</option>
+                        <option value="whatsapp">WhatsApp Order</option>
+                        <option value="online">Online Order</option>
                       </select>
                       
                       {/* Email Input - Shows only when Email Order is selected */}
@@ -1284,9 +1192,6 @@ export default function POSPage() {
                     </label>
                     <div className="bg-orange-50 border border-orange-200 rounded-md p-3">
                       <div className="flex items-center">
-                        <svg className="w-5 h-5 text-orange-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                        </svg>
                         <span className="text-orange-800 font-medium">Auto Credit Payment</span>
                       </div>
                       <p className="text-sm text-orange-600 mt-1">
@@ -1299,20 +1204,17 @@ export default function POSPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Payment Method
                     </label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       {['cash', 'card', 'upi'].map((method) => (
                         <button
                           key={method}
                           onClick={() => setPaymentMethod(method)}
                           className={`py-2 px-3 rounded-md text-sm font-medium transition-colors ${
                             paymentMethod === method
-                              ? 'bg-green-600 text-white'
+                              ? 'bg-gray-900 text-white'
                               : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                           }`}
                         >
-                          {method === 'cash' && '💵'} 
-                          {method === 'card' && '💳'} 
-                          {method === 'upi' && '📱'} 
                           {method.toUpperCase()}
                         </button>
                       ))}
@@ -1368,9 +1270,6 @@ export default function POSPage() {
                   ) : (
                     <div className="bg-green-50 border border-green-200 rounded-md p-3">
                       <div className="flex items-center">
-                        <svg className="w-5 h-5 text-green-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
                         <span className="text-green-800 font-medium">Auto-Generated Invoice Number</span>
                       </div>
                       <p className="text-sm text-green-600 mt-1">
@@ -1383,8 +1282,8 @@ export default function POSPage() {
 
             {/* Bill Summary */}
             {cart.length > 0 && (
-              <div className="bg-white rounded-lg shadow-sm p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">📄 Bill Summary</h3>
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Bill Summary</h3>
                 
                 {/* GST Mode Toggle */}
                 <div className="mb-4">
@@ -1397,7 +1296,7 @@ export default function POSPage() {
                       onClick={() => setGstMode('included')}
                       className={`flex-1 px-3 py-2 rounded-md text-sm font-medium border ${
                         gstMode === 'included'
-                          ? 'bg-green-600 text-white border-green-600'
+                          ? 'bg-gray-900 text-white border-gray-900'
                           : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
                       }`}
                     >
@@ -1408,7 +1307,7 @@ export default function POSPage() {
                       onClick={() => setGstMode('excluded')}
                       className={`flex-1 px-3 py-2 rounded-md text-sm font-medium border ${
                         gstMode === 'excluded'
-                          ? 'bg-blue-600 text-white border-blue-600'
+                          ? 'bg-gray-900 text-white border-gray-900'
                           : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
                       }`}
                     >
@@ -1435,7 +1334,7 @@ export default function POSPage() {
                   <div className="border-t pt-2 mt-2">
                     <div className="flex justify-between items-center">
                       <span className="text-lg font-semibold text-gray-900">Total:</span>
-                      <span className="text-2xl font-bold text-green-600">₹{total.toFixed(2)}</span>
+                      <span className="text-2xl font-bold text-gray-900">₹{total.toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
@@ -1443,7 +1342,7 @@ export default function POSPage() {
                 <button
                   onClick={processSale}
                   disabled={isSaving || cart.length === 0}
-                  className="w-full mt-6 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white py-5 px-6 rounded-xl font-bold text-lg transition-all duration-200 transform hover:scale-105 active:scale-95 disabled:transform-none shadow-lg hover:shadow-xl min-h-[60px] touch-manipulation"
+                  className="w-full mt-5 bg-gray-900 hover:bg-black disabled:bg-gray-400 text-white py-4 px-6 rounded-lg font-semibold text-base transition-colors min-h-[52px] touch-manipulation"
                 >
                   {isSaving ? (
                     <div className="flex items-center justify-center">
@@ -1452,7 +1351,6 @@ export default function POSPage() {
                     </div>
                   ) : (
                     <div className="flex items-center justify-center space-x-2">
-                      <span className="text-xl">💳</span>
                       <span>Process Sale</span>
                       <span className="text-xl font-bold">₹{total.toFixed(2)}</span>
                     </div>
@@ -1463,12 +1361,11 @@ export default function POSPage() {
 
             {/* Empty Cart Message */}
             {cart.length === 0 && (
-              <div className="bg-white rounded-lg shadow-sm p-8 text-center">
-                <div className="text-6xl mb-4">🛒</div>
+              <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 text-center">
                 <h3 className="text-lg font-medium text-gray-900 mb-2">Ready to make a sale?</h3>
                 <p className="text-gray-600 mb-4">Select products from the catalog to add them to your cart</p>
                 <div className="flex justify-center space-x-2 text-sm text-gray-500">
-                  <span>💡 Tip:</span>
+                  <span>Tip:</span>
                   <span>Use search or categories to find products quickly</span>
                 </div>
               </div>
