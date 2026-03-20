@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db/db';
 import { sales, saleItems, products } from '@/db/schema';
 import { desc, gte, lte, and, eq } from 'drizzle-orm';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf/dist/jspdf.es.min.js';
 
 export async function GET(request: NextRequest) {
   try {

@@ -3,7 +3,7 @@ import { db } from '@/db/db';
 import { sales, expenses, production } from '@/db/schema';
 import { gte, lte, and, sum, count, eq } from 'drizzle-orm';
 import { HistoricalPNLCalculator } from '@/lib/priceHistory';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf/dist/jspdf.es.min.js';
 
 export async function GET(request: NextRequest) {
   try {

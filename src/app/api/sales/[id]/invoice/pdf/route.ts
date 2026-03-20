@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
-import jsPDF from 'jspdf';
+// NOTE: Force ESM/browser bundle to avoid `jspdf.node` -> `fflate/lib/node.cjs`
+// dynamic Worker resolution that breaks with Next 16.2 Turbopack on server builds.
+import { jsPDF } from 'jspdf/dist/jspdf.es.min.js';
 
 // Function to convert number to words
 function convertNumberToWords(num: number): string {
