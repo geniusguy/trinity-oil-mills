@@ -60,7 +60,8 @@ function isCastor200ml(p: Product): boolean {
   if (isCastor200mlById(p)) return true;
   const name = (p.name || '').toLowerCase();
   const unit = (p.unit || '').toLowerCase();
-  return name.includes('castor') && (name.includes('200') || unit.includes('200ml'));
+  const hasCastorWord = name.includes('castor');
+  return hasCastorWord && (name.includes('200') || unit.includes('200ml'));
 }
 
 // Helper function to get product-specific icons

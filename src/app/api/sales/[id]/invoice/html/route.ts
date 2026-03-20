@@ -424,7 +424,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                             ${isCanteen && (sale.billing_contact_person || sale.billing_email) ? (
                               (sale.billing_contact_person ? (sale.billing_contact_person + (sale.billing_email ? ' | ' + sale.billing_email : '')) : (sale.billing_email || ''))
                             ) : ''}
-                            ${isCanteen && (sale.billing_contact_person || sale.billing_email) ? '<br>' : ''}GSTIN: ${isCanteen ? (sale.gst_number || 'N/A') : 'N/A'}
+                            ${isCanteen && (sale.billing_contact_person || sale.billing_email) ? '<br>' : ''}${isCanteen && sale.billing_mobile ? ('Phone: ' + sale.billing_mobile + '<br>') : ''}GSTIN: ${isCanteen ? (sale.gst_number || 'N/A') : 'N/A'}
                         </div>
                     </div>
                     <!-- Delivery Address - Right Half -->
@@ -486,7 +486,30 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
                 }
                 return mode;
             })()}</td>
-            <td class="bg-white text-center order-col-3">${isCanteen ? '1' : '0'}</td>
+            <td class="bg-white text-center order-col-3">${(() => {
+                if (!isCanteen) return '0';
+
+                const extractMl = (text: string) => {
+                  const m = (text || '').toLowerCase().match(/(\d+(?:\.\d+)?)\D*ml\b/);
+                  if (!m) return null;
+                  const ml = Number(m[1]);
+                  return Number.isFinite(ml) ? ml : null;
+                };
+
+                const totalNos200ml = (items as any[]).reduce((acc, item) => {
+                  const qty = Number(item.quantity) || 0;
+                  const name = (item.productName || item.product_name || item.name || '') as string;
+                  const unit = (item.unit || item.product_unit || '') as string;
+                  const combined = `${name} ${unit}`.trim();
+                  const ml = extractMl(combined);
+                  return ml === 200 ? acc + qty : acc;
+                }, 0);
+
+                const nosPerBox = 40;
+                const boxes = Math.ceil(totalNos200ml / nosPerBox);
+
+                return `${boxes}`;
+            })()}</td>
             <td class="bg-white text-center order-col-4">${(() => {
                 // Gross weight in kg: parse volume from product name (e.g. 200ml, 1L), then qty * weight per unit.
                 function getWeightPerUnitKg(name) {

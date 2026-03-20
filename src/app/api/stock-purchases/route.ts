@@ -99,12 +99,36 @@ export async function POST(request: NextRequest) {
 
       const purchaseId = `sp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
+      // Merge Castor Oil (200ml) variants into canonical inventory product id
+      // so stock is not split across product_id values.
+      let normalizedProductId = String(productId).trim();
+      const pid = String(productId).trim();
+      const isCastor200mlById = pid === '55336' || pid === '68539' || pid === 'castor-200ml';
+
+      if (!isCastor200mlById) {
+        const [prodRows]: any = await connection.query(
+          'SELECT name, unit FROM products WHERE id = ? LIMIT 1',
+          [productId]
+        );
+        const prod = prodRows?.[0];
+        const prodName = String(prod?.name ?? '').toLowerCase();
+        const prodUnit = String(prod?.unit ?? '').toLowerCase();
+        const combined = `${prodName} ${prodUnit}`;
+        const hasCastorWord = combined.includes('castor');
+        const mlMatch = combined.match(/(\d+(?:\.\d+)?)\D*ml\b/);
+        const ml = mlMatch ? Number(mlMatch[1]) : null;
+        const isCastor200mlByContent = hasCastorWord && ml === 200;
+        if (isCastor200mlByContent) normalizedProductId = 'castor-200ml';
+      } else {
+        normalizedProductId = 'castor-200ml';
+      }
+
       await connection.execute(
         `INSERT INTO stock_purchases (id, product_id, quantity, supplier_name, purchase_date, unit_price, total_amount, invoice_number, notes, created_by, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
         [
           purchaseId,
-          productId,
+          normalizedProductId,
           qty,
           String(supplierName).trim(),
           purchaseDate,
@@ -119,20 +143,20 @@ export async function POST(request: NextRequest) {
       // Ensure inventory row exists for this product, then add quantity
       const [invRows]: any = await connection.query(
         'SELECT id, quantity FROM inventory WHERE product_id = ? LIMIT 1',
-        [productId]
+        [normalizedProductId]
       );
 
       if (invRows && invRows.length > 0) {
         await connection.execute(
           'UPDATE inventory SET quantity = quantity + ?, updated_at = NOW() WHERE product_id = ?',
-          [qty, productId]
+          [qty, normalizedProductId]
         );
       } else {
-        const invId = `inv-${productId}-${Date.now()}`;
+        const invId = `inv-${normalizedProductId}-${Date.now()}`;
         await connection.execute(
           `INSERT INTO inventory (id, product_id, quantity, min_stock, max_stock, location, created_at, updated_at)
            VALUES (?, ?, ?, 10, 1000, 'main_store', NOW(), NOW())`,
-          [invId, productId, qty]
+          [invId, normalizedProductId, qty]
         );
       }
 

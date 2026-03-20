@@ -33,7 +33,40 @@ export async function GET(request: NextRequest) {
     );
 
     await connection.end();
-    return NextResponse.json({ inventory: rows }, { status: 200 });
+
+    // Aggregate Castor Oil 200ml variants so the UI doesn't show the same stock multiple times.
+    // This is display-only; it doesn't change DB rows.
+    const CASTOR_200ML_VARIANT_IDS = new Set(['55336', '68539', 'castor-200ml']);
+    const CASTOR_200ML_DISPLAY_NAME = 'TOM - Castor Oil - 200 ML';
+
+    const isCastor200mlRow = (r: any) => CASTOR_200ML_VARIANT_IDS.has(String(r.productId ?? '').trim());
+
+    const castorKey = (r: any) => `castor-200ml|${String(r.location ?? '').trim()}`;
+
+    const byKey = new Map<string, any>();
+    for (const r of rows as any[]) {
+      if (!isCastor200mlRow(r)) {
+        byKey.set(String(r.id), r);
+        continue;
+      }
+
+      const k = castorKey(r);
+      const existing = byKey.get(k);
+      if (!existing) {
+        byKey.set(k, {
+          ...r,
+          id: r.id,
+          productId: 'castor-200ml',
+          productName: CASTOR_200ML_DISPLAY_NAME,
+          quantity: Number(r.quantity ?? 0),
+        });
+      } else {
+        existing.quantity = Number(existing.quantity ?? 0) + Number(r.quantity ?? 0);
+        // Keep min/max from first row (they should be consistent for this product)
+      }
+    }
+
+    return NextResponse.json({ inventory: Array.from(byKey.values()) }, { status: 200 });
   } catch (error) {
     console.error('Inventory GET error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

@@ -50,7 +50,7 @@ async function deductPackagingMaterials(connection: any, productId: string, quan
           { type: 'caps_500ml', quantity: quantity, description: 'Bottle Caps (500ml)' },
           { type: `labels_${oilType}_500ml`, quantity: quantity, description: `${oilType.charAt(0).toUpperCase() + oilType.slice(1)} Oil Labels (500ml)` }
         );
-      } else if (productName.includes('200ml') || productName.includes('200 ml')) {
+      } else if (/\b200\D*ml\b/.test(productName)) {
         // 200ml oil needs: 200ml bottle + 200ml cap + 200ml label
         packagingRequirements.push(
           { type: 'pet_200ml', quantity: quantity, description: 'PET Bottle 200ml' },
@@ -317,15 +317,36 @@ const CASTOR_200ML_LOOKUP_IDS = ['55336', '68539', 'castor-200ml'];
 const CASTOR_200ML_NEW_ID = '68539';
 const CASTOR_200ML_NEW_BASE_PRICE = 76.19; // GST-EXCLUSIVE price for new code (GST extra)
 
+function isCastor200mlProduct(prod: { name?: string | null; unit?: string | null }, pid: string): boolean {
+  const p = String(pid ?? '').trim();
+  if (CASTOR_200ML_LOOKUP_IDS.includes(p) || p === CASTOR_200ML_NEW_ID || p === '55336') return true;
+
+  const combined = `${prod?.name ?? ''} ${prod?.unit ?? ''}`.toLowerCase();
+  const hasCastorWords = combined.includes('castor');
+  if (!hasCastorWords) return false;
+
+  // Match "200ml", "200 ml", and "(200)ml"
+  const mlMatch = combined.match(/(\d+(?:\.\d+)?)\D*ml\b/);
+  if (!mlMatch) return false;
+  const ml = Number(mlMatch[1]);
+  return Number.isFinite(ml) && ml === 200;
+}
+
 /**
  * Deduct quantity from inventory.
  * 1) Find row by product_id. For Castor (55336/68539), also look for product_id 'castor-200ml' and pick row with most stock.
  * 2) If found: UPDATE by id. If not: INSERT row then UPDATE by id.
  */
-async function deductInventory(connection: any, productId: string, quantity: number): Promise<void> {
+async function deductInventory(
+  connection: any,
+  productId: string,
+  quantity: number,
+  productName?: string | null,
+  productUnit?: string | null
+): Promise<void> {
   const pid = String(productId).trim();
-  const isCastor = ['55336', '68539'].includes(pid);
-  const lookupIds = isCastor ? CASTOR_200ML_LOOKUP_IDS : [pid];
+  const isCastor = isCastor200mlProduct({ name: productName ?? '', unit: productUnit ?? '' }, pid);
+  const lookupIds = isCastor ? Array.from(new Set([...CASTOR_200ML_LOOKUP_IDS, pid])) : [pid];
 
   // 1) Find inventory row. For Castor, try every possible product_id and pick the row with highest quantity.
   let invId: string | null = null;
@@ -450,15 +471,17 @@ export async function POST(request: NextRequest) {
       const sizeText = `${productName} ${productUnit}`.trim();
       const packLiters = (() => {
         const name = sizeText.toLowerCase();
-        // Hard fallback for known Castor 200ml IDs (even if products row is missing/misconfigured)
         const pid = String(i.productId).trim();
-        if (pid === '55336' || pid === '68539') return 0.2;
-        const mlMatch = name.match(/(\d+)\s*ml/);
+
+        // Merge Castor 200ml variants (new code, old code, "Castor Oil (200)ml", etc.)
+        if (isCastor200mlProduct({ name: productName, unit: productUnit }, pid)) return 0.2;
+
+        const mlMatch = name.match(/(\d+(?:\.\d+)?)\D*ml\b/);
         if (mlMatch) {
           const ml = Number(mlMatch[1]);
           if (Number.isFinite(ml) && ml > 0) return ml / 1000;
         }
-        const lMatch = name.match(/(\d+(?:\.\d+)?)\s*(l|liter|litre)\b/);
+        const lMatch = name.match(/(\d+(?:\.\d+)?)\D*(l|liter|litre)\b/);
         if (lMatch) {
           const l = Number(lMatch[1]);
           if (Number.isFinite(l) && l > 0) return l;
@@ -492,6 +515,8 @@ export async function POST(request: NextRequest) {
           lineTotal: lineTotalInclusive,
           gstAmount: lineGstAmount,
           gstRate: productGstRate,
+          inventoryProductName: productName,
+          inventoryProductUnit: productUnit,
         };
       } else {
         // Use GST-exclusive price, add GST on top
@@ -512,6 +537,8 @@ export async function POST(request: NextRequest) {
           lineTotal: lineTotalExclusive + lineGstAmount,
           gstAmount: lineGstAmount,
           gstRate: productGstRate,
+          inventoryProductName: productName,
+          inventoryProductUnit: productUnit,
         };
       }
     });
@@ -748,7 +775,7 @@ export async function POST(request: NextRequest) {
         ]
       );
 
-      await deductInventory(connection, it.productId, it.quantity);
+      await deductInventory(connection, it.productId, it.quantity, it.inventoryProductName, it.inventoryProductUnit);
 
       try {
         await deductPackagingMaterials(connection, it.productId, it.quantity, saleType);
