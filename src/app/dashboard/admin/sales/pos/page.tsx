@@ -5,6 +5,11 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useToast, LoadingSpinner } from '@/components/ui';
+import {
+  formatFinancialYearLabel,
+  getCurrentFinancialYearLabelCompact,
+  getFinancialYearLabelForDate,
+} from '@/lib/financialYear';
 
 interface Product {
   id: string;
@@ -63,17 +68,8 @@ function isCastor200ml(p: Product): boolean {
   return hasCastorWord && (name.includes('200') || unit.includes('200ml'));
 }
 
-// Current financial year for PO (e.g. "24-25" for Apr 2024–Mar 2025)
-function getCurrentFY(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = d.getMonth();
-  if (m >= 3) return `${String(y).slice(-2)}-${String(y + 1).slice(-2)}`;
-  return `${String(y - 1).slice(-2)}-${String(y).slice(-2)}`;
-}
-
 function getPoYearOptions(): string[] {
-  const current = getCurrentFY();
+  const current = getCurrentFinancialYearLabelCompact();
   const [a] = current.split('-').map(Number);
   const list: string[] = [];
   const start = Math.max(0, a - 5); // past 5 years
@@ -84,6 +80,8 @@ function getPoYearOptions(): string[] {
   }
   return list;
 }
+
+const INVOICE_FY_OPTIONS = Array.from({ length: 22 }, (_, i) => formatFinancialYearLabel(2014 + i));
 
 const PO_YEAR_OPTIONS = getPoYearOptions();
 
@@ -107,7 +105,7 @@ export default function POSPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [poNumberValue, setPoNumberValue] = useState(''); // User types just the number
-  const [poYear, setPoYear] = useState(getCurrentFY); // lazy init e.g. "24-25"
+  const [poYear, setPoYear] = useState(getCurrentFinancialYearLabelCompact); // lazy init e.g. "24-25"
   const [poDate, setPoDate] = useState(() => new Date().toISOString().slice(0, 10)); // Required; default today
   const [invoiceDate, setInvoiceDate] = useState(() => new Date().toISOString().slice(0, 10)); // Invoice date; default today
   const [modeOfSales, setModeOfSales] = useState('');
@@ -115,19 +113,26 @@ export default function POSPage() {
   const [mailSentHoDate, setMailSentHoDate] = useState(''); // canteen: date mailed to HO
   const [courierWeightOrRs, setCourierWeightOrRs] = useState(''); // canteen: weight or amount
   const [customInvoiceNum, setCustomInvoiceNum] = useState(''); // 4-digit number when editing
-  const [customInvoiceYear, setCustomInvoiceYear] = useState(() => new Date().getFullYear().toString());
+  const [customInvoiceYear, setCustomInvoiceYear] = useState(() =>
+    getFinancialYearLabelForDate(new Date())
+  );
   const [showInvoiceEdit, setShowInvoiceEdit] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [currentYear, setCurrentYear] = useState('2025');
+  const [currentYear, setCurrentYear] = useState(() => getFinancialYearLabelForDate(new Date()));
   const [editingQuantity, setEditingQuantity] = useState<Record<string, string>>({});
   const [castor200mlBillingCode, setCastor200mlBillingCode] = useState<string>(CASTOR_200ML_NEW_CODE); // default new code
   const { addToast, ToastContainer } = useToast();
 
-  // Set mounted and current year
+  // Set mounted and FY label for invoice hint (matches invoice date)
   useEffect(() => {
     setMounted(true);
-    setCurrentYear(new Date().getFullYear().toString());
+    setCurrentYear(getFinancialYearLabelForDate(new Date()));
   }, []);
+
+  useEffect(() => {
+    const fy = getFinancialYearLabelForDate(new Date(`${invoiceDate}T12:00:00`));
+    setCurrentYear(fy);
+  }, [invoiceDate]);
 
   // Prevent Backspace from triggering browser back (better UX: don't close/navigate away from cart)
   useEffect(() => {
@@ -470,7 +475,7 @@ export default function POSPage() {
         setCustomerName('');
         setSelectedCanteen('');
         setPoNumberValue('');
-        setPoYear(getCurrentFY());
+        setPoYear(getCurrentFinancialYearLabelCompact());
         setPoDate(new Date().toISOString().slice(0, 10));
         setInvoiceDate(new Date().toISOString().slice(0, 10));
         setModeOfSales('');
@@ -478,7 +483,7 @@ export default function POSPage() {
         setMailSentHoDate('');
         setCourierWeightOrRs('');
         setCustomInvoiceNum('');
-        setCustomInvoiceYear(new Date().getFullYear().toString());
+        setCustomInvoiceYear(getFinancialYearLabelForDate(new Date()));
         setShowInvoiceEdit(false);
         setTimeout(() => {
           router.push('/dashboard/admin/sales');
@@ -1230,7 +1235,15 @@ export default function POSPage() {
                     </label>
                     <button
                       type="button"
-                      onClick={() => setShowInvoiceEdit(!showInvoiceEdit)}
+                      onClick={() => {
+                        const next = !showInvoiceEdit;
+                        if (next) {
+                          setCustomInvoiceYear(
+                            getFinancialYearLabelForDate(new Date(`${invoiceDate}T12:00:00`))
+                          );
+                        }
+                        setShowInvoiceEdit(next);
+                      }}
                       className="text-xs text-blue-600 hover:text-blue-800 underline"
                     >
                       {showInvoiceEdit ? 'Use Auto-Generated' : 'Edit Invoice Number'}
@@ -1258,8 +1271,8 @@ export default function POSPage() {
                           onChange={(e) => setCustomInvoiceYear(e.target.value)}
                           className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
                         >
-                          {Array.from({ length: 11 }, (_, i) => 2020 + i).map((y) => (
-                            <option key={y} value={y}>{y}</option>
+                          {INVOICE_FY_OPTIONS.map((fy) => (
+                            <option key={fy} value={fy}>{fy}</option>
                           ))}
                         </select>
                       </div>

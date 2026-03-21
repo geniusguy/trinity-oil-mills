@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, LoadingSpinner } from '@/components/ui';
 import { RevenueChart, ProductSalesChart, SalesDistributionChart } from '@/components/charts';
+import { getCurrentFinancialYearBounds } from '@/lib/financialYear';
 
 interface ReportData {
   sales: any[];
@@ -18,9 +19,12 @@ const ReportsPage: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dateRange, setDateRange] = useState({
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0]
+  const [dateRange, setDateRange] = useState(() => {
+    const fy = getCurrentFinancialYearBounds();
+    return {
+      startDate: fy.start.toISOString().split('T')[0],
+      endDate: new Date().toISOString().split('T')[0],
+    };
   });
 
   useEffect(() => {

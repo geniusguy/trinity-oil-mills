@@ -227,25 +227,6 @@ export default function PriceManagementPage() {
     }
   };
 
-  const testDatabase = async () => {
-    try {
-      const response = await fetch('/api/price-history/test');
-      const data = await response.json();
-      console.log('Database test result:', data);
-      if (data.success) {
-        alert(`Database Test Results:
-- Products: ${data.data.productsCount}
-- Price History Records: ${data.data.priceHistoryCount}
-- Active Price History: ${data.data.activePriceHistoryCount}`);
-      } else {
-        alert('Database test failed: ' + data.error);
-      }
-    } catch (error) {
-      console.error('Error testing database:', error);
-      alert('Error testing database');
-    }
-  };
-
   const handleBulkUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!bulkForm.percentageIncrease && !bulkForm.fixedAmountIncrease) {
@@ -384,9 +365,6 @@ export default function PriceManagementPage() {
                 </Button>
                 <Button onClick={initializePriceHistory} size="sm" className="bg-blue-600 hover:bg-blue-700">
                   Initialize Price History
-                </Button>
-                <Button onClick={testDatabase} size="sm" variant="outline">
-                  Test Database
                 </Button>
               </div>
             </div>

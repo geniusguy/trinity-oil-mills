@@ -3,6 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Badge, LoadingSpinner } from '@/components/ui';
 import { FinancialAnalyticsChart } from '@/components/charts';
+import {
+  getCurrentFinancialYearBounds,
+  getCurrentFinancialYearQuarterBounds,
+  getPreviousFinancialYearBounds,
+} from '@/lib/financialYear';
 
 interface GSTCollectionData {
   saleType: string;
@@ -56,9 +61,12 @@ export default function RetailGSTCollectionPage() {
   const [error, setError] = useState('');
   
   // Form state
-  const [dateRange, setDateRange] = useState({
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0]
+  const [dateRange, setDateRange] = useState(() => {
+    const fy = getCurrentFinancialYearBounds();
+    return {
+      startDate: fy.start.toISOString().split('T')[0],
+      endDate: new Date().toISOString().split('T')[0],
+    };
   });
   const [groupBy, setGroupBy] = useState('day');
 
@@ -100,37 +108,50 @@ export default function RetailGSTCollectionPage() {
   };
 
   const handleQuickPeriod = (period: string) => {
-    const today = new Date();
-    let startDate, endDate;
+    const now = new Date();
+    let startDate: Date;
+    let endDate: Date;
 
     switch (period) {
       case 'today':
-        startDate = endDate = today;
+        startDate = endDate = new Date(now);
         break;
       case 'yesterday':
-        startDate = endDate = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+        startDate = endDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         break;
-      case 'this-week':
-        startDate = new Date(today.setDate(today.getDate() - today.getDay()));
-        endDate = new Date();
+      case 'this-week': {
+        const t = new Date(now);
+        startDate = new Date(t);
+        startDate.setDate(t.getDate() - t.getDay());
+        endDate = new Date(now);
         break;
+      }
       case 'this-month':
-        startDate = new Date(today.getFullYear(), today.getMonth(), 1);
-        endDate = new Date();
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now);
         break;
       case 'last-month':
-        startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        endDate = new Date(today.getFullYear(), today.getMonth(), 0);
+        startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        endDate = new Date(now.getFullYear(), now.getMonth(), 0);
         break;
-      case 'this-quarter':
-        const quarter = Math.floor(today.getMonth() / 3);
-        startDate = new Date(today.getFullYear(), quarter * 3, 1);
-        endDate = new Date();
+      case 'this-quarter': {
+        const q = getCurrentFinancialYearQuarterBounds(now);
+        startDate = q.start;
+        endDate = new Date(now);
         break;
-      case 'this-year':
-        startDate = new Date(today.getFullYear(), 0, 1);
-        endDate = new Date();
+      }
+      case 'this-year': {
+        const fy = getCurrentFinancialYearBounds(now);
+        startDate = fy.start;
+        endDate = new Date(now);
         break;
+      }
+      case 'last-fy': {
+        const prev = getPreviousFinancialYearBounds(now);
+        startDate = prev.start;
+        endDate = prev.end;
+        break;
+      }
       default:
         return;
     }
@@ -229,8 +250,9 @@ export default function RetailGSTCollectionPage() {
                   { key: 'this-week', label: 'This Week' },
                   { key: 'this-month', label: 'This Month' },
                   { key: 'last-month', label: 'Last Month' },
-                  { key: 'this-quarter', label: 'This Quarter' },
-                  { key: 'this-year', label: 'This Year' }
+                  { key: 'this-quarter', label: 'This FY quarter' },
+                  { key: 'this-year', label: 'This FY (Apr–Mar)' },
+                  { key: 'last-fy', label: 'Last FY (full)' },
                 ].map(period => (
                   <Button
                     key={period.key}

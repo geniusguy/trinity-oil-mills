@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Badge, LoadingSpinner } from '@/components/ui';
 import { FinancialAnalyticsChart } from '@/components/charts';
+import { getCurrentFinancialYearBounds } from '@/lib/financialYear';
 
 interface GSTCollectionData {
   saleType: string;
@@ -66,9 +67,12 @@ export default function CombinedGSTCollectionPage() {
   const [activeTab, setActiveTab] = useState<'retail' | 'canteen' | 'combined'>('combined');
   
   // Form state
-  const [dateRange, setDateRange] = useState({
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0]
+  const [dateRange, setDateRange] = useState(() => {
+    const fy = getCurrentFinancialYearBounds();
+    return {
+      startDate: fy.start.toISOString().split('T')[0],
+      endDate: new Date().toISOString().split('T')[0],
+    };
   });
   const [groupBy, setGroupBy] = useState('day');
 
@@ -523,7 +527,7 @@ export default function CombinedGSTCollectionPage() {
               <option value="day">Daily</option>
               <option value="month">Monthly</option>
               <option value="quarter">Quarterly</option>
-              <option value="year">Yearly</option>
+              <option value="year">Financial year (Apr–Mar)</option>
             </select>
           </div>
 

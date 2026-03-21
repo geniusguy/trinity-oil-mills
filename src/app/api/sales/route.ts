@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
+import {
+  isCastor200mlProduct,
+  packLitersPerUnit,
+  CASTOR_200ML_LOOKUP_IDS,
+  CASTOR_200ML_NEW_ID,
+  CANTEEN_LITERS_PER_TIN,
+} from '@/lib/canteenSupply';
 import { auth } from '@/lib/auth';
+import { getInvoiceFinancialYearSuffix, INVOICE_NUMBER_FULL_REGEX } from '@/lib/financialYear';
 
 // Function to deduct packaging materials for both retail and canteen sales
 async function deductPackagingMaterials(connection: any, productId: string, quantity: number, saleType: string) {
@@ -16,8 +24,15 @@ async function deductPackagingMaterials(connection: any, productId: string, quan
     const product = productResult[0];
     const productName = product.name.toLowerCase();
     
-    // Define packaging requirements based on product
-    const packagingRequirements = [];
+    // Define packaging requirements based on product.
+    // We keep both product-id oriented matching (preferred) and fallback name matching.
+    const packagingRequirements: Array<{
+      quantity: number;
+      description: string;
+      inventoryIdHints?: string[];
+      inventoryNameHints?: string[];
+      rawMaterialNameHints?: string[];
+    }> = [];
     
     // For oil products, determine bottle size and packaging needs
     if (productName.includes('oil')) {
@@ -29,42 +44,78 @@ async function deductPackagingMaterials(connection: any, productId: string, quan
       else if (productName.includes('deepam')) oilType = 'deepam';
       else if (productName.includes('castor')) oilType = 'castor';
 
+      const addBottlePackaging = (sizeKey: '5l' | '1l' | '500ml' | '200ml') => {
+        const sizeLabel = sizeKey === '5l' ? '5L' : sizeKey === '1l' ? '1L' : sizeKey === '500ml' ? '500ml' : '200ml';
+        const bottleId = `pack_pet_bottle_${sizeKey}`;
+        const innerCapId = `pack_inner_cap_${sizeKey}`;
+        const flipTopIds = [
+          `pack_flip_top_cap_${sizeKey}_green`,
+          `pack_flip_top_cap_${sizeKey}_yellow`,
+          `pack_flip_top_cap_${sizeKey}_white`,
+          `pack_flip_top_cap_${sizeKey}_red`,
+        ];
+        const frontLabelId = `pack_front_label_${sizeKey}`;
+        const backLabelId = `pack_back_label_${sizeKey}`;
+
+        packagingRequirements.push(
+          {
+            quantity,
+            description: `PET Bottle ${sizeLabel}`,
+            inventoryIdHints: [bottleId],
+            inventoryNameHints: [`pet bottle ${sizeLabel.toLowerCase()}`, `pet bottle ${sizeKey}`, `bottle ${sizeLabel.toLowerCase()}`],
+            rawMaterialNameHints: [`pet bottle ${sizeKey}`, `bottle ${sizeLabel.toLowerCase()}`],
+          },
+          {
+            quantity,
+            description: `Inner Cap (${sizeLabel})`,
+            inventoryIdHints: [innerCapId],
+            inventoryNameHints: [`inner cap ${sizeKey}`, `inner cap ${sizeLabel.toLowerCase()}`, `innercap ${sizeKey}`],
+            rawMaterialNameHints: [`inner cap ${sizeKey}`, `inner cap ${sizeLabel.toLowerCase()}`],
+          },
+          {
+            quantity,
+            description: `Flip Top Cap (${sizeLabel})`,
+            inventoryIdHints: flipTopIds,
+            inventoryNameHints: [`flip top cap ${sizeKey}`, `flip cap ${sizeKey}`, `bottle cap flip top ${sizeKey}`],
+            rawMaterialNameHints: [`flip top cap ${sizeKey}`, `flip cap ${sizeKey}`],
+          },
+          {
+            quantity,
+            description: `${oilType.charAt(0).toUpperCase() + oilType.slice(1)} Front Label (${sizeLabel})`,
+            inventoryIdHints: [frontLabelId],
+            inventoryNameHints: [`${oilType} front label ${sizeKey}`, `front label ${sizeKey}`, `${oilType} label front ${sizeKey}`],
+            rawMaterialNameHints: [`${oilType} front label ${sizeKey}`, `front label ${sizeKey}`],
+          },
+          {
+            quantity,
+            description: `${oilType.charAt(0).toUpperCase() + oilType.slice(1)} Back Label (${sizeLabel})`,
+            inventoryIdHints: [backLabelId],
+            inventoryNameHints: [`${oilType} back label ${sizeKey}`, `back label ${sizeKey}`, `${oilType} label back ${sizeKey}`],
+            rawMaterialNameHints: [`${oilType} back label ${sizeKey}`, `back label ${sizeKey}`],
+          },
+        );
+      };
+
       if (productName.includes('5l') || productName.includes('5 l') || productName.includes('5 liter')) {
-        // 5 Liter oil needs: 5L bottle + 5L cap + 5L label
-        packagingRequirements.push(
-          { type: 'pet_5l', quantity: quantity, description: 'PET Bottle 5 Liter' },
-          { type: 'caps_5l', quantity: quantity, description: 'Bottle Caps (5L)' },
-          { type: `labels_${oilType}_5l`, quantity: quantity, description: `${oilType.charAt(0).toUpperCase() + oilType.slice(1)} Oil Labels (5L)` }
-        );
+        addBottlePackaging('5l');
       } else if (productName.includes('1l') || productName.includes('1 l') || productName.includes('1 liter')) {
-        // 1 Liter oil needs: 1L bottle + 1L cap + 1L label
-        packagingRequirements.push(
-          { type: 'pet_1l', quantity: quantity, description: 'PET Bottle 1 Liter' },
-          { type: 'caps_1l', quantity: quantity, description: 'Bottle Caps (1L)' },
-          { type: `labels_${oilType}_1l`, quantity: quantity, description: `${oilType.charAt(0).toUpperCase() + oilType.slice(1)} Oil Labels (1L)` }
-        );
+        addBottlePackaging('1l');
       } else if (productName.includes('500ml') || productName.includes('500 ml')) {
-        // 500ml oil needs: 500ml bottle + 500ml cap + 500ml label
-        packagingRequirements.push(
-          { type: 'pet_500ml', quantity: quantity, description: 'PET Bottle 500ml' },
-          { type: 'caps_500ml', quantity: quantity, description: 'Bottle Caps (500ml)' },
-          { type: `labels_${oilType}_500ml`, quantity: quantity, description: `${oilType.charAt(0).toUpperCase() + oilType.slice(1)} Oil Labels (500ml)` }
-        );
+        addBottlePackaging('500ml');
       } else if (/\b200\D*ml\b/.test(productName)) {
-        // 200ml oil needs: 200ml bottle + 200ml cap + 200ml label
-        packagingRequirements.push(
-          { type: 'pet_200ml', quantity: quantity, description: 'PET Bottle 200ml' },
-          { type: 'caps_200ml', quantity: quantity, description: 'Bottle Caps (200ml)' },
-          { type: `labels_${oilType}_200ml`, quantity: quantity, description: `${oilType.charAt(0).toUpperCase() + oilType.slice(1)} Oil Labels (200ml)` }
-        );
+        addBottlePackaging('200ml');
       }
       
       // Additional packaging for canteen delivery only
       if (saleType === 'canteen') {
         // Canteen orders need cardboard box (1 per order)
-        packagingRequirements.push(
-          { type: 'cardboard', quantity: 1, description: 'Cardboard Boxes' }
-        );
+        packagingRequirements.push({
+          quantity: 1,
+          description: 'Cardboard Boxes',
+          inventoryIdHints: ['pack_carton_box'],
+          inventoryNameHints: ['cardboard box', 'carton box'],
+          rawMaterialNameHints: ['cardboard box', 'carton box'],
+        });
         
         // For packing tape: Check how many canteen orders exist and deduct tape every 4 orders
         try {
@@ -75,9 +126,13 @@ async function deductPackagingMaterials(connection: any, productId: string, quan
           
           // Check if this order completes a group of 4 (every 4th order needs 1 tape)
           if (totalCanteenOrders % 4 === 0) {
-            packagingRequirements.push(
-              { type: 'packing_tape', quantity: 1, description: 'Packing Tape' }
-            );
+            packagingRequirements.push({
+              quantity: 1,
+              description: 'Packing Tape',
+              inventoryIdHints: ['pack_packing_tape'],
+              inventoryNameHints: ['packaging tape', 'packing tape'],
+              rawMaterialNameHints: ['packaging tape', 'packing tape'],
+            });
           }
         } catch (error) {
           console.log('Could not check canteen order count for tape calculation:', error instanceof Error ? error.message : error);
@@ -85,31 +140,87 @@ async function deductPackagingMaterials(connection: any, productId: string, quan
       }
     }
     
-    // Deduct packaging materials from inventory
+    const buildLike = (hints?: string[]) => (hints || []).map((h) => `%${String(h).toLowerCase()}%`);
+
+    // Deduct packaging materials from inventory / raw materials
     for (const pkg of packagingRequirements) {
-      // First, try to deduct from products table (legacy packaging products)
-      await connection.execute(
-        `UPDATE inventory SET quantity = GREATEST(0, quantity - ?) 
-         WHERE product_id IN (
-           SELECT id FROM products 
-           WHERE name LIKE ? AND category = 'packaging'
-         )`,
-        [pkg.quantity, `%${pkg.type}%`]
-      );
-      
-      // Also try to deduct from raw materials if the table exists
-      try {
-        await connection.execute(
-          `UPDATE rawMaterials SET current_stock = GREATEST(0, current_stock - ?) 
-           WHERE name LIKE ? AND category = 'packaging'`,
-          [pkg.quantity, `%${pkg.description}%`]
-        );
-      } catch (error) {
-        // Raw materials table might not exist yet, ignore error
-        console.log('Raw materials table not available, skipping:', error instanceof Error ? error.message : error);
+      let updatedAny = false;
+
+      // 1) Prefer exact id hints where available.
+      if (pkg.inventoryIdHints && pkg.inventoryIdHints.length > 0) {
+        if (pkg.inventoryIdHints.length === 1) {
+          const [r] = await connection.execute(
+            `UPDATE inventory
+             SET quantity = GREATEST(0, quantity - ?), updated_at = NOW()
+             WHERE product_id = ?`,
+            [pkg.quantity, pkg.inventoryIdHints[0]],
+          );
+          const affected = Number((r as any)?.affectedRows ?? 0);
+          if (affected > 0) updatedAny = true;
+        } else {
+          // Multiple candidate IDs (e.g. colored flip-top caps): deduct from the row with the highest available stock.
+          const idPlaceholders = pkg.inventoryIdHints.map(() => '?').join(',');
+          const [candidates]: any = await connection.execute(
+            `SELECT id, quantity
+             FROM inventory
+             WHERE product_id IN (${idPlaceholders})
+             ORDER BY quantity DESC
+             LIMIT 1`,
+            [...pkg.inventoryIdHints],
+          );
+          if (Array.isArray(candidates) && candidates.length > 0) {
+            const targetInvId = candidates[0].id;
+            const [r] = await connection.execute(
+              `UPDATE inventory
+               SET quantity = GREATEST(0, quantity - ?), updated_at = NOW()
+               WHERE id = ?`,
+              [pkg.quantity, targetInvId],
+            );
+            const affected = Number((r as any)?.affectedRows ?? 0);
+            if (affected > 0) updatedAny = true;
+          }
+        }
       }
-      
-      console.log(`Deducted ${pkg.quantity} ${pkg.description} for product ${productId}`);
+
+      // 2) Fallback by packaging product names (lowercase contains hints).
+      if (!updatedAny) {
+        const likeHints = buildLike(pkg.inventoryNameHints);
+        if (likeHints.length > 0) {
+          const ors = likeHints.map(() => 'LOWER(p.name) LIKE ?').join(' OR ');
+          const [r] = await connection.execute(
+            `UPDATE inventory i
+             JOIN products p ON p.id = i.product_id
+             SET i.quantity = GREATEST(0, i.quantity - ?), i.updated_at = NOW()
+             WHERE (${ors})`,
+            [pkg.quantity, ...likeHints],
+          );
+          const affected = Number((r as any)?.affectedRows ?? 0);
+          if (affected > 0) updatedAny = true;
+        }
+      }
+
+      // 3) Also attempt raw_materials (if used in this DB).
+      try {
+        const likeHints = buildLike(pkg.rawMaterialNameHints);
+        if (likeHints.length > 0) {
+          const ors = likeHints.map(() => 'LOWER(name) LIKE ?').join(' OR ');
+          const [r] = await connection.execute(
+            `UPDATE raw_materials
+             SET current_stock = GREATEST(0, current_stock - ?), updated_at = NOW()
+             WHERE category = 'packaging' AND (${ors})`,
+            [pkg.quantity, ...likeHints],
+          );
+          const affected = Number((r as any)?.affectedRows ?? 0);
+          if (affected > 0) updatedAny = true;
+        }
+      } catch (error) {
+        // raw_materials may not exist on some installs
+        console.log('[sales] raw_materials update skipped:', error instanceof Error ? error.message : error);
+      }
+
+      if (!updatedAny) {
+        console.warn(`[sales] Packaging stock not matched for "${pkg.description}" (product ${productId}).`);
+      }
     }
     
   } catch (error) {
@@ -250,24 +361,29 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Function to generate auto invoice number with 4 digits and year (e.g. C0001/2026)
-async function generateInvoiceNumber(connection: any, saleType: string, customInvoiceNumber?: string) {
+// Function to generate auto invoice number with 4 digits and financial year (e.g. C0001/2024-25)
+async function generateInvoiceNumber(
+  connection: any,
+  saleType: string,
+  customInvoiceNumber: string | undefined,
+  referenceDate: Date
+) {
+  const fySuffix = getInvoiceFinancialYearSuffix(referenceDate);
+
   if (customInvoiceNumber && customInvoiceNumber.trim() !== '') {
     let formattedNumber = customInvoiceNumber.trim();
     
     // If user just entered a number like "56", format it properly with sale type prefix (4 digits)
     if (/^\d+$/.test(formattedNumber)) {
-      const currentYear = new Date().getFullYear();
       const paddedNumber = formattedNumber.padStart(4, '0');
       const prefix = saleType === 'canteen' ? 'C' : 'R';
-      formattedNumber = `${prefix}${paddedNumber}/${currentYear}`;
+      formattedNumber = `${prefix}${paddedNumber}/${fySuffix}`;
     }
     
-    // Validate the final format: C0001/2026 or R0001/2026 (4 digits)
-    const formatRegex = /^[CR]\d{4}\/\d{4}$/;
-    if (!formatRegex.test(formattedNumber)) {
+    // Validate: C0001/2024-25 or legacy C0001/2026
+    if (!INVOICE_NUMBER_FULL_REGEX.test(formattedNumber)) {
       const expectedPrefix = saleType === 'canteen' ? 'C' : 'R';
-      throw new Error(`Invoice number must be in format: ${expectedPrefix}0001/2026 or just enter: 1`);
+      throw new Error(`Invoice number must be in format: ${expectedPrefix}0001/${fySuffix} or just enter: 1`);
     }
     
     // Check if the prefix matches the sale type
@@ -290,14 +406,13 @@ async function generateInvoiceNumber(connection: any, saleType: string, customIn
     return formattedNumber;
   }
   
-  // Auto-generate invoice number with separate sequences (4 digits)
-  const currentYear = new Date().getFullYear();
+  // Auto-generate invoice number with separate sequences per financial year (4 digits)
   const prefix = saleType === 'canteen' ? 'C' : 'R';
   
-  // Get the highest invoice number for current year and sale type
+  // Get the highest invoice number for this FY and sale type
   const [rows] = await connection.query(
     'SELECT invoice_number FROM sales WHERE invoice_number LIKE ? ORDER BY invoice_number DESC LIMIT 1',
-    [`${prefix}%/${currentYear}`]
+    [`${prefix}%/${fySuffix}`]
   );
   
   let nextNumber = 1;
@@ -307,30 +422,12 @@ async function generateInvoiceNumber(connection: any, saleType: string, customIn
     nextNumber = parseInt(numberPart, 10) + 1;
   }
   
-  // Format as 4 digits with leading zeros (e.g. C0001/2026)
+  // Format as 4 digits with leading zeros (e.g. C0001/2024-25)
   const paddedNumber = nextNumber.toString().padStart(4, '0');
-  return `${prefix}${paddedNumber}/${currentYear}`;
+  return `${prefix}${paddedNumber}/${fySuffix}`;
 }
 
-// Castor Oil 200ml: POS may send 55336/68539 but inventory can be under castor-200ml or 55336/68539 — check all.
-const CASTOR_200ML_LOOKUP_IDS = ['55336', '68539', 'castor-200ml'];
-const CASTOR_200ML_NEW_ID = '68539';
 const CASTOR_200ML_NEW_BASE_PRICE = 76.19; // GST-EXCLUSIVE price for new code (GST extra)
-
-function isCastor200mlProduct(prod: { name?: string | null; unit?: string | null }, pid: string): boolean {
-  const p = String(pid ?? '').trim();
-  if (CASTOR_200ML_LOOKUP_IDS.includes(p) || p === CASTOR_200ML_NEW_ID || p === '55336') return true;
-
-  const combined = `${prod?.name ?? ''} ${prod?.unit ?? ''}`.toLowerCase();
-  const hasCastorWords = combined.includes('castor');
-  if (!hasCastorWords) return false;
-
-  // Match "200ml", "200 ml", and "(200)ml"
-  const mlMatch = combined.match(/(\d+(?:\.\d+)?)\D*ml\b/);
-  if (!mlMatch) return false;
-  const ml = Number(mlMatch[1]);
-  return Number.isFinite(ml) && ml === 200;
-}
 
 /**
  * Deduct quantity from inventory.
@@ -468,26 +565,7 @@ export async function POST(request: NextRequest) {
       // Use BOTH product name and unit (e.g. unit='200ml') so it still works even if name doesn't include size.
       const productName = prod?.name ? String(prod.name) : '';
       const productUnit = prod?.unit ? String(prod.unit) : '';
-      const sizeText = `${productName} ${productUnit}`.trim();
-      const packLiters = (() => {
-        const name = sizeText.toLowerCase();
-        const pid = String(i.productId).trim();
-
-        // Merge Castor 200ml variants (new code, old code, "Castor Oil (200)ml", etc.)
-        if (isCastor200mlProduct({ name: productName, unit: productUnit }, pid)) return 0.2;
-
-        const mlMatch = name.match(/(\d+(?:\.\d+)?)\D*ml\b/);
-        if (mlMatch) {
-          const ml = Number(mlMatch[1]);
-          if (Number.isFinite(ml) && ml > 0) return ml / 1000;
-        }
-        const lMatch = name.match(/(\d+(?:\.\d+)?)\D*(l|liter|litre)\b/);
-        if (lMatch) {
-          const l = Number(lMatch[1]);
-          if (Number.isFinite(l) && l > 0) return l;
-        }
-        return null;
-      })();
+      const packLiters = packLitersPerUnit(productName, productUnit, String(i.productId));
       const isBottle = packLiters !== null && packLiters > 0 && packLiters < 5;
       const isTin = packLiters !== null && packLiters >= 5;
       if (packLiters !== null) {
@@ -546,10 +624,17 @@ export async function POST(request: NextRequest) {
     const totalAmount = Number((subtotal + gstAmount).toFixed(2));
     const totalLitersSupply = Number(supplyTotalLiters.toFixed(2));
     const totalBottlesSupply = Number(supplyTotalBottles.toFixed(2));
-    const totalTinsSupply = Number((totalLitersSupply / 16).toFixed(2)); // 16L = 1 tin, 8L = 0.5 tin
+    const totalTinsSupply = Number((totalLitersSupply / CANTEEN_LITERS_PER_TIN).toFixed(2)); // 15.2 L usable = 1 tin (0.8 L wastage vs 16 L nominal)
+
+    // Invoice date drives financial year on the invoice (e.g. Feb 2025 → FY 2024-25)
+    let invoiceDateValue: string | null = typeof invoiceDate === 'string' && invoiceDate.trim() ? invoiceDate.trim() : null;
+    if (!invoiceDateValue) {
+      invoiceDateValue = new Date().toISOString().slice(0, 10);
+    }
+    const referenceDateForInvoice = new Date(`${invoiceDateValue}T12:00:00`);
 
     const saleId = `sale-${Date.now()}`;
-    const invoiceNumber = await generateInvoiceNumber(connection, saleType, customInvoiceNumber);
+    const invoiceNumber = await generateInvoiceNumber(connection, saleType, customInvoiceNumber, referenceDateForInvoice);
 
     // Normalize modeOfSales to include email if applicable
     let finalModeOfSales = modeOfSales;
@@ -594,10 +679,6 @@ export async function POST(request: NextRequest) {
 
     // Check if invoice_date column exists
     let hasInvoiceDateColumn = false;
-    let invoiceDateValue: string | null = typeof invoiceDate === 'string' && invoiceDate.trim() ? invoiceDate.trim() : null;
-    if (!invoiceDateValue) {
-      invoiceDateValue = new Date().toISOString().slice(0, 10);
-    }
     try {
       const [invDateCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "invoice_date"');
       hasInvoiceDateColumn = Array.isArray(invDateCols) && invDateCols.length > 0;

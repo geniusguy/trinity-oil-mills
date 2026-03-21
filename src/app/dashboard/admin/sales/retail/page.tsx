@@ -4,6 +4,11 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import {
+  getFinancialYearLabelForDate,
+  isDateInFinancialYear,
+  parseFinancialYearLabelToStartYear,
+} from '@/lib/financialYear';
 
 interface Sale {
   id: string;
@@ -114,11 +119,10 @@ export default function RetailSalesPage() {
     const years = new Set<string>();
     
     salesData.forEach(sale => {
-      const date = new Date(sale.createdAt);
-      const year = date.getFullYear().toString();
-      const month = `${year}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      
-      years.add(year);
+      const date = new Date(sale.invoiceDate || sale.createdAt);
+      const calYear = date.getFullYear().toString();
+      const month = `${calYear}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      years.add(getFinancialYearLabelForDate(date));
       months.add(month);
     });
     
@@ -186,9 +190,10 @@ export default function RetailSalesPage() {
       });
     }
     if (filters.year) {
+      const fyStart = parseFinancialYearLabelToStartYear(filters.year);
       filtered = filtered.filter(s => {
-        const saleDate = new Date(s.createdAt);
-        return saleDate.getFullYear() === parseInt(filters.year);
+        const saleDate = new Date(s.invoiceDate || s.createdAt);
+        return fyStart !== null && isDateInFinancialYear(saleDate, fyStart);
       });
     }
 
@@ -548,15 +553,15 @@ export default function RetailSalesPage() {
               </select>
             </div>
 
-            {/* Year Filter */}
+            {/* Financial year (India Apr–Mar) */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Financial year (Apr–Mar)</label>
               <select
                 value={filters.year}
                 onChange={(e) => handleFilterChange('year', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="">All Years</option>
+                <option value="">All FY</option>
                 {availableYears.map(year => (
                   <option key={year} value={year}>
                     {year}
@@ -745,7 +750,7 @@ export default function RetailSalesPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     placeholder="e.g., R0000056/2025"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Format: C0001/2026 for canteen, R0001/2026 for retail</p>
+                  <p className="text-xs text-gray-500 mt-1">Format: C0001/2024-25 (FY) for canteen, R0001/2024-25 for retail. Legacy /2026 still accepted.</p>
                 </div>
 
                 {/* PO Number */}

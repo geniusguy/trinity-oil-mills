@@ -24,7 +24,9 @@ export async function GET(request: NextRequest) {
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const [rows] = await connection.query(
-      `SELECT i.id, i.product_id as productId, p.name as productName, p.unit as unit, i.quantity, i.min_stock as minStock, i.max_stock as maxStock, i.location, i.cost_price as costPrice, i.batch_number as batchNumber, i.expiry_date as expiryDate, i.created_at as createdAt, i.updated_at as updatedAt
+      `SELECT i.id, i.product_id as productId, p.name as productName, p.unit as unit,
+              p.category as category, p.type as type,
+              i.quantity, i.min_stock as minStock, i.max_stock as maxStock, i.location, i.cost_price as costPrice, i.batch_number as batchNumber, i.expiry_date as expiryDate, i.created_at as createdAt, i.updated_at as updatedAt
        FROM inventory i
        JOIN products p ON p.id = i.product_id
        ${whereSql}

@@ -14,6 +14,15 @@ pnpm dev
 bun dev
 ```
 
+`npm run dev` uses **webpack** for local development (more stable on Windows with PostCSS). To try Turbopack instead: `npm run dev:turbo`.
+
+If dev crashes with errors writing to `.next`, clear the cache and retry:
+
+```bash
+npm run clean
+npm run dev
+```
+
 Open [https://api.trinityoil.in](https://api.trinityoil.in) with your browser to see the result.
 
 For local development, open [http://localhost:3001](http://localhost:3001) with your browser.

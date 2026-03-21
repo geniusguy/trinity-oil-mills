@@ -3,6 +3,10 @@ import { auth } from '@/lib/auth';
 import { db } from '@/db/db';
 import { sales, saleItems, products } from '@/db/schema';
 import { eq, and, gte, lte, desc, sql, sum, count, avg } from 'drizzle-orm';
+import {
+  getFinancialYearPeriodKey,
+  getFinancialYearQuarterPeriodKey,
+} from '@/lib/financialYear';
 
 // GET /api/reports/gst-collection - GST Collection Reports (FIXED VERSION)
 export async function GET(request: NextRequest) {
@@ -120,11 +124,10 @@ export async function GET(request: NextRequest) {
           periodKey = `${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`;
           break;
         case 'quarter':
-          const quarter = Math.floor(saleDate.getMonth() / 3) + 1;
-          periodKey = `${saleDate.getFullYear()}-Q${quarter}`;
+          periodKey = getFinancialYearQuarterPeriodKey(saleDate);
           break;
         case 'year':
-          periodKey = saleDate.getFullYear().toString();
+          periodKey = getFinancialYearPeriodKey(saleDate);
           break;
         default:
           periodKey = saleDate.toISOString().split('T')[0];

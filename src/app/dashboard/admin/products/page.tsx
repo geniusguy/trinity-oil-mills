@@ -41,6 +41,8 @@ export default function AdminProductsPage() {
   });
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const availableTypes = Array.from(new Set(products.map((p) => p.type).filter(Boolean))).sort();
+  const availableUnits = Array.from(new Set(products.map((p) => p.unit).filter(Boolean))).sort();
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -302,11 +304,11 @@ export default function AdminProductsPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                 >
                   <option value="">All Types</option>
-                  <option value="Groundnut">Groundnut</option>
-                  <option value="Gingelly">Gingelly</option>
-                  <option value="Coconut">Coconut</option>
-                  <option value="Deepam">Deepam</option>
-                  <option value="Castor">Castor</option>
+                  {availableTypes.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -319,12 +321,11 @@ export default function AdminProductsPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                 >
                   <option value="">All Units</option>
-                  <option value="5L">5L</option>
-                  <option value="1L">1L</option>
-                  <option value="500ml">500ml</option>
-                  <option value="100ml">100ml</option>
-                  <option value="200ml">200ml</option>
-                  <option value="retail">Retail</option>
+                  {availableUnits.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
                 </select>
               </div>
 

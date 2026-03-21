@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Badge, LoadingSpinner } from '@/components/ui';
+import { CANTEEN_LITERS_PER_TIN } from '@/lib/canteenSupply';
 
 interface RawMaterial {
   id: string;
@@ -1104,7 +1105,7 @@ export default function RawMaterialsPage() {
         return;
       }
 
-      const availableLiters = selectedOilTin.currentStock * 16;
+      const availableLiters = selectedOilTin.currentStock * CANTEEN_LITERS_PER_TIN;
       
       if (totalLitersUsed > availableLiters) {
         alert(`Not enough oil in this tin! Available: ${availableLiters.toFixed(1)}L, Required: ${totalLitersUsed.toFixed(1)}L`);
@@ -1114,7 +1115,7 @@ export default function RawMaterialsPage() {
       // Update oil tin stock (pour from 1 tin at a time)
       setRawMaterials(rawMaterials.map(m => {
         if (m.id === bottlePouringForm.oilTinId) {
-          return { ...m, currentStock: m.currentStock - (totalLitersUsed / 16) };
+          return { ...m, currentStock: m.currentStock - (totalLitersUsed / CANTEEN_LITERS_PER_TIN) };
         }
         return m;
       }));

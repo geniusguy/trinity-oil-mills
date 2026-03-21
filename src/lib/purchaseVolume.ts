@@ -1,0 +1,85 @@
+/**
+ * Liters from purchase rows — same rules as admin purchases (tin = 15200 ml = 15.2 L, ml/L from name/unit).
+ * Canteen/sales tin-*equivalent* uses `CANTEEN_LITERS_PER_TIN` (15.2 L) in `canteenSupply.ts`; 15200 ml matches that volume.
+ * Used by stock-purchases volume summary API.
+ */
+
+const TIN_ML = 15200;
+
+export function parseMlPerPackFromText(text: string): number | null {
+  const t = (text || '').toLowerCase();
+  const mlMatch = t.match(/(\d+(?:\.\d+)?)\D*ml\b/);
+  if (mlMatch) {
+    const ml = Number(mlMatch[1]);
+    if (Number.isFinite(ml) && ml > 0) return ml;
+  }
+  const lMatch = t.match(/(\d+(?:\.\d+)?)\D*(l|liter|litre)\b/);
+  if (lMatch) {
+    const l = Number(lMatch[1]);
+    if (Number.isFinite(l) && l > 0) return l * 1000;
+  }
+  if (t.includes('tin')) return TIN_ML;
+  return null;
+}
+
+/** True if product should count toward “oil” volume totals (exclude packaging / raw material). */
+export function isOilVolumeProduct(category: string): boolean {
+  const c = (category || '').toLowerCase().trim();
+  return c !== 'packaging' && c !== 'raw_material';
+}
+
+export function litersForPurchaseRow(
+  quantity: number,
+  productName: string,
+  unit: string,
+  category: string,
+): number | null {
+  if (!isOilVolumeProduct(category)) return null;
+  const mlPerPack = parseMlPerPackFromText(productName) ?? parseMlPerPackFromText(unit);
+  if (!mlPerPack || !Number.isFinite(quantity) || quantity <= 0) return null;
+  return (quantity * mlPerPack) / 1000;
+}
+
+/** PET bottle lines: no tin conversion (same as purchases page). */
+export function isPetBottleProduct(productName: string, unit: string): boolean {
+  const combined = `${productName ?? ''} ${unit ?? ''}`.toLowerCase();
+  return combined.includes('pet') && combined.includes('bottle');
+}
+
+/**
+ * Whole tins: floor((quantity × ml per pack) / 15200). Null if PET bottle or unparseable.
+ */
+export function tinsForPurchaseRow(
+  quantity: number,
+  productName: string,
+  unit: string,
+  category: string,
+): number | null {
+  if (!isOilVolumeProduct(category)) return null;
+  if (isPetBottleProduct(productName, unit)) return null;
+  const mlPerPack = parseMlPerPackFromText(productName) ?? parseMlPerPackFromText(unit);
+  if (!mlPerPack || !Number.isFinite(quantity) || quantity <= 0) return null;
+  return Math.floor((quantity * mlPerPack) / TIN_ML);
+}
+
+const CASTOR_200ML_IDS = new Set(['55336', '68539', 'castor-200ml']);
+
+/** Merge Castor 200ml variant rows under one key (matches admin purchases display). */
+export function canonicalOilGroupKey(productId: string, productName: string, unit: string): string {
+  const pid = String(productId ?? '').trim();
+  if (CASTOR_200ML_IDS.has(pid)) return 'castor-200ml';
+  const n = (productName || '').toLowerCase();
+  if (n.includes('castor')) {
+    const ml =
+      parseMlPerPackFromText(productName) ?? parseMlPerPackFromText(unit);
+    if (ml === 200) return 'castor-200ml';
+  }
+  return pid;
+}
+
+export const CASTOR_200ML_DISPLAY_NAME = 'TOM - Castor Oil - 200 ML';
+
+export function displayNameForOilGroup(key: string, productName: string): string {
+  if (key === 'castor-200ml') return CASTOR_200ML_DISPLAY_NAME;
+  return productName || key;
+}

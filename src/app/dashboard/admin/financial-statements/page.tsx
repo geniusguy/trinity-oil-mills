@@ -1,6 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import {
+  getCurrentFinancialYearBounds,
+  getCurrentFinancialYearQuarterBounds,
+  getPreviousFinancialYearBounds,
+} from '@/lib/financialYear';
 import { useSession } from 'next-auth/react';
 import { Card, Button, Badge, LoadingSpinner } from '@/components/ui';
 import { RevenueChart, ProductSalesChart, SalesDistributionChart, FinancialAnalyticsChart } from '@/components/charts';
@@ -141,10 +146,14 @@ const FinancialStatementsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'pl' | 'balance' | 'cashflow'>('pl');
-  const [dateRange, setDateRange] = useState({
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-    endDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0],
-    asOfDate: new Date().toISOString().split('T')[0]
+  const [dateRange, setDateRange] = useState(() => {
+    const fy = getCurrentFinancialYearBounds();
+    const today = new Date().toISOString().split('T')[0];
+    return {
+      startDate: fy.start.toISOString().split('T')[0],
+      endDate: today,
+      asOfDate: today,
+    };
   });
 
   useEffect(() => {
@@ -360,15 +369,24 @@ const FinancialStatementsPage: React.FC = () => {
                       startDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
                       endDate = new Date(today.getFullYear(), today.getMonth(), 0);
                       break;
-                    case 'this-quarter':
-                      const quarter = Math.floor(today.getMonth() / 3);
-                      startDate = new Date(today.getFullYear(), quarter * 3, 1);
+                    case 'this-quarter': {
+                      const q = getCurrentFinancialYearQuarterBounds(today);
+                      startDate = q.start;
                       endDate = today;
                       break;
-                    case 'this-year':
-                      startDate = new Date(today.getFullYear(), 0, 1);
+                    }
+                    case 'this-year': {
+                      const fy = getCurrentFinancialYearBounds(today);
+                      startDate = fy.start;
                       endDate = today;
                       break;
+                    }
+                    case 'last-fy': {
+                      const prev = getPreviousFinancialYearBounds(today);
+                      startDate = prev.start;
+                      endDate = prev.end;
+                      break;
+                    }
                     default:
                       return;
                   }
@@ -383,8 +401,9 @@ const FinancialStatementsPage: React.FC = () => {
                 <option value="">Quick Select...</option>
                 <option value="this-month">This Month</option>
                 <option value="last-month">Last Month</option>
-                <option value="this-quarter">This Quarter</option>
-                <option value="this-year">This Year</option>
+                <option value="this-quarter">This FY quarter (Apr–Mar basis)</option>
+                <option value="this-year">This financial year (Apr–Mar)</option>
+                <option value="last-fy">Last financial year (full)</option>
               </select>
             </div>
 

@@ -91,8 +91,8 @@ ls -la .env*
 # 2. Check PM2 logs for environment loading
 pm2 logs api.trinityoil.in --lines 50 | grep -E "(Loading|DATABASE_URL|NODE_ENV)"
 
-# 3. Test database connection (if you have a test endpoint)
-curl https://api.trinityoil.in/api/test-db-connection
+# 3. Test DB from the server (MySQL client or app health)
+# Debug /test-db and /api/test-db-connection were removed for production security.
 ```
 
 ## Files Updated

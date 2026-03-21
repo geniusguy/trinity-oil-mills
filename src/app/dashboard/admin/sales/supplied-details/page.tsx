@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 
@@ -25,6 +25,23 @@ type SuppliedRow = {
   mailSentHoDate?: string | null;
   courierWeightOrRs: string | null;
 };
+
+type TinsSupplied = {
+  tinsOilKey: string | null;
+  totalTins: number | null;
+  byYear: { year: number; fyLabel?: string; totalTins: number }[];
+  byMonth: { year: number; month: number; monthLabel: string; totalTins: number }[];
+  byOil: { key: string; productName: string; totalTins: number | null }[];
+  /** 15.2 = same as canteen invoice (total_tins = total_liters / 15.2 L usable per tin) */
+  litersPerTin?: number;
+  /** @deprecated use litersPerTin — old API */
+  tinCapacityMl?: number;
+  skippedLines: number;
+};
+
+function fmtTinEquiv(n: number) {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+}
 
 function normalizeDateInput(d?: string | null) {
   if (!d) return '';
@@ -79,6 +96,8 @@ export default function SuppliedDetailsPage() {
   const router = useRouter();
 
   const [rows, setRows] = useState<SuppliedRow[]>([]);
+  const [tinsSupplied, setTinsSupplied] = useState<TinsSupplied | null>(null);
+  const [tinsOilKey, setTinsOilKey] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -105,29 +124,30 @@ export default function SuppliedDetailsPage() {
     }
   }, [session, status, router]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setIsLoading(true);
       setError('');
       const qs = new URLSearchParams();
       if (filters.dateFrom) qs.set('startDate', filters.dateFrom);
       if (filters.dateTo) qs.set('endDate', filters.dateTo);
+      if (tinsOilKey) qs.set('tinsOilKey', tinsOilKey);
       const res = await fetch(`/api/reports/supplied-details?${qs.toString()}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || 'Failed to fetch');
       const data = Array.isArray(json?.data) ? json.data : [];
       setRows(data);
+      setTinsSupplied(json?.tinsSupplied ?? null);
     } catch (e: any) {
       setError(e?.message || 'Failed to load');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [filters.dateFrom, filters.dateTo, tinsOilKey]);
 
   useEffect(() => {
     if (session?.user) fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  }, [session, fetchData]);
 
   const canteenOptions = useMemo(() => {
     const unique = new Map<string, string>();
@@ -264,6 +284,149 @@ export default function SuppliedDetailsPage() {
         </div>
         {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
       </div>
+
+      {tinsSupplied && (
+        <div className="bg-white shadow rounded-lg p-6 space-y-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-lg font-medium text-gray-900">Tins supplied (tin-equivalent)</h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Matches canteen invoice math: liters from each line (pack size from product name + unit, same as when the sale
+                was saved) ÷ {tinsSupplied.litersPerTin ?? 15.2} L per tin. Example: 1.5 L supplied →{' '}
+                {(1.5 / (tinsSupplied.litersPerTin ?? 15.2)).toLocaleString(undefined, { maximumFractionDigits: 4 })} tins, not 1
+                whole tin. Date buckets use invoice date when set, otherwise created date.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1 min-w-[220px]">
+              <label className="text-xs font-medium text-gray-600">Filter totals by oil (year / month / headline)</label>
+              <select
+                value={tinsOilKey}
+                onChange={(e) => setTinsOilKey(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+              >
+                <option value="">All oils</option>
+                {tinsSupplied.byOil
+                  .filter((o) => o.key && (o.totalTins ?? 0) > 0)
+                  .map((o) => (
+                    <option key={o.key} value={o.key}>
+                      {o.productName}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="rounded-lg border border-indigo-100 bg-indigo-50/80 p-4">
+              <div className="text-xs font-medium text-indigo-800 uppercase tracking-wide">Total tins</div>
+              <div className="text-3xl font-bold text-indigo-900 mt-1">
+                {tinsSupplied.totalTins != null ? fmtTinEquiv(tinsSupplied.totalTins) : '—'}
+              </div>
+              {tinsOilKey ? (
+                <p className="text-xs text-indigo-700 mt-2">Filtered to selected oil only</p>
+              ) : (
+                <p className="text-xs text-indigo-700 mt-2">All oils in range</p>
+              )}
+            </div>
+            <div className="rounded-lg border border-gray-200 p-4 sm:col-span-2">
+              <div className="text-xs font-medium text-gray-600">Oil lines without tin count (e.g. PET)</div>
+              <div className="text-2xl font-semibold text-gray-900 mt-1">{tinsSupplied.skippedLines}</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-2">Financial year–wise (Apr–Mar)</h3>
+              <div className="overflow-x-auto border border-gray-200 rounded-md max-h-64 overflow-y-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2 text-left">FY</th>
+                      <th className="px-3 py-2 text-right">Tins</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {tinsSupplied.byYear.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-3 text-gray-500" colSpan={2}>
+                          No data in range
+                        </td>
+                      </tr>
+                    ) : (
+                      tinsSupplied.byYear.map((y) => (
+                        <tr key={y.year}>
+                          <td className="px-3 py-2">{y.fyLabel ?? y.year}</td>
+                          <td className="px-3 py-2 text-right font-medium">{fmtTinEquiv(y.totalTins)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-2">Month-wise</h3>
+              <div className="overflow-x-auto border border-gray-200 rounded-md max-h-64 overflow-y-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Month</th>
+                      <th className="px-3 py-2 text-right">Tins</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {tinsSupplied.byMonth.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-3 text-gray-500" colSpan={2}>
+                          No data in range
+                        </td>
+                      </tr>
+                    ) : (
+                      tinsSupplied.byMonth.map((m) => (
+                        <tr key={`${m.year}-${m.month}`}>
+                          <td className="px-3 py-2">{m.monthLabel}</td>
+                          <td className="px-3 py-2 text-right font-medium">{fmtTinEquiv(m.totalTins)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="lg:col-span-1">
+              <h3 className="text-sm font-semibold text-gray-900 mb-2">Oil-wise</h3>
+              <div className="overflow-x-auto border border-gray-200 rounded-md max-h-64 overflow-y-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Product / oil</th>
+                      <th className="px-3 py-2 text-right">Tins</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {tinsSupplied.byOil.filter((o) => (o.totalTins ?? 0) > 0).length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-3 text-gray-500" colSpan={2}>
+                          No tin-equivalent lines in range
+                        </td>
+                      </tr>
+                    ) : (
+                      tinsSupplied.byOil
+                        .filter((o) => (o.totalTins ?? 0) > 0)
+                        .map((o) => (
+                          <tr key={o.key}>
+                            <td className="px-3 py-2">{o.productName}</td>
+                            <td className="px-3 py-2 text-right font-medium">{fmtTinEquiv(o.totalTins ?? 0)}</td>
+                          </tr>
+                        ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white shadow rounded-lg">
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">

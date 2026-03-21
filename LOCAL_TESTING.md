@@ -52,20 +52,14 @@ The server will start on `http://localhost:3001`
 
 ### 5. Test API Endpoints
 
-**Test environment variables:**
-```
-http://localhost:3001/api/test-env
-```
+Use authenticated browser sessions or tools like curl with cookies — debug-only endpoints were removed for production security.
 
-**Test database connection:**
-```
-http://localhost:3001/api/test-db-connection
-```
-
-**Test sales API:**
+**Example (after login):**
 ```
 http://localhost:3001/api/sales
 ```
+
+**Database:** use `node test-db-connection-simple.js` (step 3) or the MySQL client directly.
 
 ### 6. Test Pages
 
@@ -87,7 +81,7 @@ http://localhost:3001/api/sales
 1. Check browser console (F12) for errors
 2. Check terminal where `npm run dev` is running
 3. Look for `[DB]` logs in the terminal
-4. Test `/api/test-env` endpoint to see what Next.js sees
+4. Confirm `.env` is in the app root and restart `npm run dev`
 
 ### If authentication fails:
 1. Check `NEXTAUTH_SECRET` is set in `.env`

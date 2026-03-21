@@ -137,6 +137,23 @@ export async function POST(request: NextRequest) {
     `;
     await connection.execute(stockPurchasesSQL);
 
+    // Daily notes / task reminders (calls, follow-ups, reminders)
+    const dailyTaskRemindersSQL = `
+      CREATE TABLE IF NOT EXISTS daily_task_reminders (
+        id VARCHAR(255) PRIMARY KEY,
+        title VARCHAR(500) NOT NULL,
+        reminder_on DATETIME NULL,
+        remarks TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        user_id VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_daily_task_reminders_status (status),
+        INDEX idx_daily_task_reminders_reminder_on (reminder_on)
+      )
+    `;
+    await connection.execute(dailyTaskRemindersSQL);
+
     // Create indexes for better performance
     const indexes = [
       'CREATE INDEX IF NOT EXISTS idx_savings_investments_user_id ON savings_investments(user_id)',

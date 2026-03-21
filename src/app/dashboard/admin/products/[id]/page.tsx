@@ -30,6 +30,8 @@ export default function AdminProductEditPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const typeSuggestions = ['Groundnut', 'Gingelly', 'Coconut', 'Deepam', 'Castor', 'Packaging', 'Cap', 'Bottle', 'Inner Cap', 'Label'];
+  const unitSuggestions = ['5L', '1L', '500ml', '200ml', 'pcs', 'box', 'pack', 'kg', 'liters', 'retail'];
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -190,13 +192,19 @@ export default function AdminProductEditPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-              <select name="type" value={form.type} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md">
-                <option value="Groundnut">Groundnut</option>
-                <option value="Gingelly">Gingelly</option>
-                <option value="Coconut">Coconut</option>
-                <option value="Deepam">Deepam</option>
-                <option value="Castor">Castor</option>
-              </select>
+              <input
+                name="type"
+                value={form.type}
+                onChange={handleChange}
+                list="product-type-suggestions"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                required
+              />
+              <datalist id="product-type-suggestions">
+                {typeSuggestions.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
             </div>
           </div>
 
@@ -248,13 +256,19 @@ export default function AdminProductEditPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Unit</label>
-              <select name="unit" value={form.unit} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md">
-                <option value="5L">5 Ltrs</option>
-                <option value="1L">1 Ltr</option>
-                <option value="500ml">1/2 Ltr (500 ml)</option>
-                <option value="200ml">200 ml</option>
-                <option value="retail">Retail (custom)</option>
-              </select>
+              <input
+                name="unit"
+                value={form.unit}
+                onChange={handleChange}
+                list="product-unit-suggestions"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                required
+              />
+              <datalist id="product-unit-suggestions">
+                {unitSuggestions.map((u) => (
+                  <option key={u} value={u} />
+                ))}
+              </datalist>
             </div>
           </div>
 

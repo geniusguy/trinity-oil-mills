@@ -120,7 +120,7 @@ export const sales = mysqlTable('sales', {
   mailSentHoDate: date('mail_sent_ho_date'), // canteen: date mailed to HO
   totalBottles: decimal('total_bottles', { precision: 10, scale: 2 }), // supply report: total number of bottles
   totalLiters: decimal('total_liters', { precision: 10, scale: 2 }),   // supply report: total liters
-  totalTins: decimal('total_tins', { precision: 10, scale: 2 }),       // supply report: total tins (16L = 1 tin)
+  totalTins: decimal('total_tins', { precision: 10, scale: 2 }),       // supply report: tin-equivalent (15.2 L usable = 1 tin)
   notes: text('notes'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
@@ -240,6 +240,18 @@ export const qualityControl = mysqlTable('quality_control', {
   checkedBy: varchar('checked_by', { length: 255 }),
   checkedAt: datetime('checked_at'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Daily notes / task reminders (calls, follow-ups, etc.)
+export const dailyTaskReminders = mysqlTable('daily_task_reminders', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  title: varchar('title', { length: 500 }).notNull(),
+  reminderOn: datetime('reminder_on'), // when to remind (optional)
+  remarks: text('remarks'),
+  status: varchar('status', { length: 20 }).notNull().default('pending'), // pending | done
+  userId: varchar('user_id', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
 });
 
 // Expenses table

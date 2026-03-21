@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { createConnection } from '@/lib/database';
+import { INVOICE_NUMBER_FULL_REGEX } from '@/lib/financialYear';
 
 // GET - Fetch single sale details
 export async function GET(
@@ -107,12 +108,11 @@ export async function PUT(
       console.log('Could not check for po_date column:', error);
     }
 
-    // Validate invoice number format if provided (4 digits: C0001/2026)
+    // Validate invoice number: C0001/2024-25 (FY) or legacy C0001/2026
     if (invoiceNumber && invoiceNumber.trim() !== '') {
-      const formatRegex = /^[CR]\d{4}\/\d{4}$/;
-      if (!formatRegex.test(invoiceNumber.trim())) {
+      if (!INVOICE_NUMBER_FULL_REGEX.test(invoiceNumber.trim())) {
         await connection.end();
-        return NextResponse.json({ error: 'Invalid invoice number format. Use C0001/2026 or R0001/2026' }, { status: 400 });
+        return NextResponse.json({ error: 'Invalid invoice number format. Use C0001/2024-25 or R0001/2024-25 (or legacy /2026)' }, { status: 400 });
       }
 
       // Check for duplicate invoice numbers (excluding current sale)

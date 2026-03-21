@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Badge, LoadingSpinner } from '@/components/ui';
 import { FinancialAnalyticsChart } from '@/components/charts';
+import { getPreviousFinancialYearBounds } from '@/lib/financialYear';
 
 interface AnalyticsData {
   salesForecast: {
@@ -86,15 +87,18 @@ export default function AnalyticsPage() {
         case 'last-90-days':
           startDate.setDate(startDate.getDate() - 90);
           break;
-        case 'last-year':
-          startDate.setFullYear(startDate.getFullYear() - 1);
+        case 'last-year': {
+          const { start, end } = getPreviousFinancialYearBounds(new Date());
+          startDate.setTime(start.getTime());
+          endDate.setTime(end.getTime());
           break;
+        }
       }
 
       // Fetch analytics data from multiple endpoints
       const [salesRes, expensesRes, productsRes, inventoryRes] = await Promise.all([
         fetch(`/api/reports/sales?startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}`),
-        fetch('/api/expenses'),
+        fetch(`/api/expenses?startDate=${startDate.toISOString().split('T')[0]}&endDate=${endDate.toISOString().split('T')[0]}&page=1&limit=5000`),
         fetch('/api/products'),
         fetch('/api/reports/inventory')
       ]);
@@ -105,7 +109,7 @@ export default function AnalyticsPage() {
       const inventoryData = await inventoryRes.json();
 
       // Process and analyze data
-      const processedAnalytics = processAnalyticsData(salesData, expensesData, productsData, inventoryData);
+      const processedAnalytics = processAnalyticsData(salesData, expensesData, productsData, inventoryData, startDate, endDate);
       setAnalyticsData(processedAnalytics);
 
     } catch (err) {
@@ -116,39 +120,93 @@ export default function AnalyticsPage() {
     }
   };
 
-  const processAnalyticsData = (salesData: any, expensesData: any, productsData: any, inventoryData: any): AnalyticsData => {
+  const processAnalyticsData = (
+    salesData: any,
+    expensesData: any,
+    productsData: any,
+    inventoryData: any,
+    startDate: Date,
+    endDate: Date
+  ): AnalyticsData => {
     const sales = salesData.success ? salesData.data.sales : [];
     const expenses = expensesData.success ? expensesData.data : [];
     const products = productsData.products || [];
     const inventory = inventoryData.success ? inventoryData.data.inventory : [];
 
-    // Sales forecasting (simplified algorithm)
     const totalRevenue = sales.reduce((sum: number, sale: any) => sum + parseFloat(sale.totalAmount || 0), 0);
-    const avgDailyRevenue = totalRevenue / 30; // Assuming 30-day period
-    const forecastedNextMonth = avgDailyRevenue * 30 * 1.1; // 10% growth assumption
+    const totalExpenses = expenses.reduce((sum: number, expense: any) => sum + parseFloat(expense.amount || 0), 0);
+    const periodDays = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
+    const avgDailyRevenue = totalRevenue / periodDays;
+    const forecastedNextMonth = avgDailyRevenue * 30;
 
-    // Customer segmentation (mock data based on sales patterns)
+    const sortedSales = [...sales].sort(
+      (a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+    const midpoint = Math.floor(sortedSales.length / 2) || 1;
+    const firstHalfRevenue = sortedSales.slice(0, midpoint).reduce((sum: number, sale: any) => sum + parseFloat(sale.totalAmount || 0), 0);
+    const secondHalfRevenue = sortedSales.slice(midpoint).reduce((sum: number, sale: any) => sum + parseFloat(sale.totalAmount || 0), 0);
+
+    const trend: 'up' | 'down' | 'stable' =
+      secondHalfRevenue > firstHalfRevenue * 1.05 ? 'up' :
+      secondHalfRevenue < firstHalfRevenue * 0.95 ? 'down' : 'stable';
+
+    const confidence = Math.min(95, Math.max(35, Math.round((sales.length / periodDays) * 100)));
+
+    const canteenSales = sales.filter((sale: any) => sale.saleType === 'canteen');
+    const retailSales = sales.filter((sale: any) => sale.saleType === 'retail');
+    const otherSales = sales.filter((sale: any) => !['canteen', 'retail'].includes(sale.saleType));
     const customerSegmentation = {
-      highValue: { count: 15, revenue: totalRevenue * 0.6, avgOrder: 2500 },
-      regular: { count: 45, revenue: totalRevenue * 0.3, avgOrder: 800 },
-      occasional: { count: 120, revenue: totalRevenue * 0.1, avgOrder: 300 }
+      highValue: {
+        count: canteenSales.length,
+        revenue: canteenSales.reduce((sum: number, sale: any) => sum + parseFloat(sale.totalAmount || 0), 0),
+        avgOrder: canteenSales.length
+          ? canteenSales.reduce((sum: number, sale: any) => sum + parseFloat(sale.totalAmount || 0), 0) / canteenSales.length
+          : 0
+      },
+      regular: {
+        count: retailSales.length,
+        revenue: retailSales.reduce((sum: number, sale: any) => sum + parseFloat(sale.totalAmount || 0), 0),
+        avgOrder: retailSales.length
+          ? retailSales.reduce((sum: number, sale: any) => sum + parseFloat(sale.totalAmount || 0), 0) / retailSales.length
+          : 0
+      },
+      occasional: {
+        count: otherSales.length,
+        revenue: otherSales.reduce((sum: number, sale: any) => sum + parseFloat(sale.totalAmount || 0), 0),
+        avgOrder: otherSales.length
+          ? otherSales.reduce((sum: number, sale: any) => sum + parseFloat(sale.totalAmount || 0), 0) / otherSales.length
+          : 0
+      }
     };
 
-    // Product performance analysis
+    const productPriceMap = products.reduce((acc: Record<string, any>, product: any) => {
+      acc[product.id] = product;
+      return acc;
+    }, {});
+
     const productSales = sales.reduce((acc: any, sale: any) => {
       if (sale.items) {
         sale.items.forEach((item: any) => {
           if (!acc[item.productId]) {
+            const productMeta = productPriceMap[item.productId] || {};
             acc[item.productId] = {
               id: item.productId,
               name: item.productName || 'Unknown Product',
               revenue: 0,
               quantity: 0,
-              profitMargin: 20 + Math.random() * 20 // Simplified calculation
+              cost: 0,
+              unitPriceSum: 0,
+              lineCount: 0,
+              basePrice: parseFloat(productMeta.basePrice || 0),
+              retailPrice: parseFloat(productMeta.retailPrice || 0),
+              profitMargin: 0
             };
           }
           acc[item.productId].revenue += parseFloat(item.totalAmount || 0);
           acc[item.productId].quantity += parseFloat(item.quantity || 0);
+          acc[item.productId].cost += parseFloat(item.quantity || 0) * (acc[item.productId].basePrice || 0);
+          acc[item.productId].unitPriceSum += parseFloat(item.unitPrice || 0);
+          acc[item.productId].lineCount += 1;
         });
       }
       return acc;
@@ -156,30 +214,54 @@ export default function AnalyticsPage() {
 
     const productArray = Object.values(productSales) as any[];
     productArray.forEach((product: any) => {
-      product.score = (product.revenue * 0.6) + (product.quantity * 0.3) + (product.profitMargin * 0.1);
+      product.profitMargin = product.revenue > 0
+        ? ((product.revenue - product.cost) / product.revenue) * 100
+        : 0;
+      product.avgSellingPrice = product.lineCount > 0 ? product.unitPriceSum / product.lineCount : 0;
+      product.score = (product.revenue * 0.65) + (product.quantity * 0.3) + (product.profitMargin * 0.05);
     });
 
-    const topPerformers = productArray.sort((a, b) => b.score - a.score).slice(0, 3);
-    const underperformers = productArray.sort((a, b) => a.score - b.score).slice(0, 2);
+    const sortedByScore = [...productArray].sort((a, b) => b.score - a.score);
+    const topPerformers = sortedByScore.slice(0, 3);
+    const underperformers = [...sortedByScore].reverse().slice(0, 2);
 
-    // Market intelligence (mock data)
+    const priceComparison = topPerformers.map((product: any) => {
+      const ourPrice = product.retailPrice || product.avgSellingPrice || 0;
+      const marketPrice = product.avgSellingPrice || ourPrice;
+      const variance = marketPrice > 0 ? ((ourPrice - marketPrice) / marketPrice) * 100 : 0;
+      return {
+        product: product.name,
+        ourPrice,
+        marketPrice,
+        variance
+      };
+    });
+
+    const totalQuantity = productArray.reduce((sum: number, product: any) => sum + product.quantity, 0);
+    const avgDailyQuantity = totalQuantity / periodDays;
+    const firstHalfQty = sortedSales.slice(0, midpoint).reduce((sum: number, sale: any) => {
+      const qty = (sale.items || []).reduce((itemSum: number, item: any) => itemSum + parseFloat(item.quantity || 0), 0);
+      return sum + qty;
+    }, 0);
+    const secondHalfQty = sortedSales.slice(midpoint).reduce((sum: number, sale: any) => {
+      const qty = (sale.items || []).reduce((itemSum: number, item: any) => itemSum + parseFloat(item.quantity || 0), 0);
+      return sum + qty;
+    }, 0);
+    const seasonalFactor = firstHalfQty > 0 ? Math.min(1.5, Math.max(0.5, secondHalfQty / firstHalfQty)) : 1;
+
     const marketIntelligence = {
-      priceComparison: [
-        { product: 'Groundnut Oil', ourPrice: 189, marketPrice: 195, variance: -3.1 },
-        { product: 'Gingelly Oil', ourPrice: 231, marketPrice: 225, variance: 2.7 },
-        { product: 'Coconut Oil', ourPrice: 168, marketPrice: 172, variance: -2.3 }
-      ],
+      priceComparison,
       marketTrends: {
-        oilPricesUp: true,
-        demandTrend: 'increasing' as const,
-        seasonalFactor: 1.15
+        oilPricesUp: priceComparison.some((p: any) => p.variance > 0),
+        demandTrend: trend === 'up' ? 'increasing' as const : trend === 'down' ? 'decreasing' as const : 'stable' as const,
+        seasonalFactor
       }
     };
 
     // Business alerts
-    const alerts = [];
+    const alerts: AnalyticsData['businessAlerts'] = [];
     
-    if (totalRevenue < 10000) {
+    if (totalRevenue < 10000 && sales.length > 0) {
       alerts.push({
         type: 'warning' as const,
         title: 'Low Revenue Alert',
@@ -199,11 +281,22 @@ export default function AnalyticsPage() {
       });
     }
 
-    if (forecastedNextMonth > totalRevenue * 1.2) {
+    const operatingProfit = totalRevenue - totalExpenses;
+    if (operatingProfit < 0) {
+      alerts.push({
+        type: 'error' as const,
+        title: 'Negative Operating Margin',
+        message: `Expenses exceeded revenue by ₹${Math.abs(operatingProfit).toLocaleString('en-IN')}`,
+        priority: 'high' as const,
+        actionRequired: true
+      });
+    }
+
+    if (trend === 'up') {
       alerts.push({
         type: 'success' as const,
         title: 'Growth Opportunity',
-        message: 'Forecasted growth indicates potential for expansion',
+        message: 'Recent sales trend is improving based on live period data',
         priority: 'low' as const,
         actionRequired: false
       });
@@ -213,8 +306,8 @@ export default function AnalyticsPage() {
       salesForecast: {
         nextMonth: forecastedNextMonth,
         nextQuarter: forecastedNextMonth * 3,
-        confidence: 78, // Confidence percentage
-        trend: totalRevenue > 50000 ? 'up' : totalRevenue > 30000 ? 'stable' : 'down'
+        confidence,
+        trend
       },
       customerSegmentation,
       productPerformance: {
@@ -261,7 +354,7 @@ export default function AnalyticsPage() {
               <option value="last-7-days">Last 7 Days</option>
               <option value="last-30-days">Last 30 Days</option>
               <option value="last-90-days">Last 90 Days</option>
-              <option value="last-year">Last Year</option>
+              <option value="last-year">Last financial year (Apr–Mar)</option>
             </select>
             <Button onClick={fetchAnalyticsData} className="bg-green-600 hover:bg-green-700">
               🔄 Refresh Analytics
@@ -514,24 +607,32 @@ export default function AnalyticsPage() {
 
                 <Card>
                   <div className="p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">💡 AI Recommendations</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">💡 Data-driven Recommendations</h3>
                     <div className="space-y-3">
                       <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
                         <h4 className="font-medium text-purple-800">Inventory</h4>
                         <p className="text-sm text-purple-600 mt-1">
-                          Increase groundnut oil stock by 20% for next month
+                          {analyticsData.businessAlerts.some((alert) => alert.title.includes('Low Stock'))
+                            ? 'Prioritize replenishment for low-stock items flagged in alerts.'
+                            : 'Inventory levels are stable for the selected period.'}
                         </p>
                       </div>
                       <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
                         <h4 className="font-medium text-indigo-800">Pricing</h4>
                         <p className="text-sm text-indigo-600 mt-1">
-                          Consider 3% price increase for gingelly oil
+                          {analyticsData.productPerformance.topPerformers[0]
+                            ? `Review pricing opportunity on ${analyticsData.productPerformance.topPerformers[0].name} (top revenue contributor).`
+                            : 'Insufficient sales rows to generate pricing recommendation.'}
                         </p>
                       </div>
                       <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
                         <h4 className="font-medium text-emerald-800">Marketing</h4>
                         <p className="text-sm text-emerald-600 mt-1">
-                          Focus marketing on canteen segment for 25% growth
+                          {analyticsData.salesForecast.trend === 'up'
+                            ? 'Maintain current campaigns; revenue trend is improving.'
+                            : analyticsData.salesForecast.trend === 'down'
+                            ? 'Run focused offers on underperforming products to recover demand.'
+                            : 'Demand is stable; test a small targeted campaign and measure conversion.'}
                         </p>
                       </div>
                     </div>
@@ -556,7 +657,11 @@ export default function AnalyticsPage() {
                         </div>
                         <div className="text-right">
                           <div className="font-semibold text-green-700">₹{analyticsData.customerSegmentation.highValue.revenue.toLocaleString()}</div>
-                          <div className="text-xs text-green-600">60% of revenue</div>
+                          <div className="text-xs text-green-600">
+                            {(((analyticsData.customerSegmentation.highValue.revenue + analyticsData.customerSegmentation.regular.revenue + analyticsData.customerSegmentation.occasional.revenue) > 0)
+                              ? ((analyticsData.customerSegmentation.highValue.revenue / (analyticsData.customerSegmentation.highValue.revenue + analyticsData.customerSegmentation.regular.revenue + analyticsData.customerSegmentation.occasional.revenue)) * 100).toFixed(1)
+                              : '0.0')}% of revenue
+                          </div>
                         </div>
                       </div>
 
@@ -567,7 +672,11 @@ export default function AnalyticsPage() {
                         </div>
                         <div className="text-right">
                           <div className="font-semibold text-blue-700">₹{analyticsData.customerSegmentation.regular.revenue.toLocaleString()}</div>
-                          <div className="text-xs text-blue-600">30% of revenue</div>
+                          <div className="text-xs text-blue-600">
+                            {(((analyticsData.customerSegmentation.highValue.revenue + analyticsData.customerSegmentation.regular.revenue + analyticsData.customerSegmentation.occasional.revenue) > 0)
+                              ? ((analyticsData.customerSegmentation.regular.revenue / (analyticsData.customerSegmentation.highValue.revenue + analyticsData.customerSegmentation.regular.revenue + analyticsData.customerSegmentation.occasional.revenue)) * 100).toFixed(1)
+                              : '0.0')}% of revenue
+                          </div>
                         </div>
                       </div>
 
@@ -578,7 +687,11 @@ export default function AnalyticsPage() {
                         </div>
                         <div className="text-right">
                           <div className="font-semibold text-gray-700">₹{analyticsData.customerSegmentation.occasional.revenue.toLocaleString()}</div>
-                          <div className="text-xs text-gray-600">10% of revenue</div>
+                          <div className="text-xs text-gray-600">
+                            {(((analyticsData.customerSegmentation.highValue.revenue + analyticsData.customerSegmentation.regular.revenue + analyticsData.customerSegmentation.occasional.revenue) > 0)
+                              ? ((analyticsData.customerSegmentation.occasional.revenue / (analyticsData.customerSegmentation.highValue.revenue + analyticsData.customerSegmentation.regular.revenue + analyticsData.customerSegmentation.occasional.revenue)) * 100).toFixed(1)
+                              : '0.0')}% of revenue
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -687,7 +800,7 @@ export default function AnalyticsPage() {
             <div className="space-y-6">
               <Card>
                 <div className="p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">🌐 Market Price Comparison</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">🌐 Price vs Realized Sales Price</h3>
                   <div className="overflow-x-auto">
                     <table className="min-w-full">
                       <thead>

@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getQueueCount } from '@/lib/offlineQueue';
+import { tinEquivalentForCanteenLine, CANTEEN_LITERS_PER_TIN } from '@/lib/canteenSupply';
 
 interface InventoryRow {
   id: string;
@@ -18,6 +19,15 @@ interface InventoryRow {
   category?: string;
   type?: string;
   status?: string;
+}
+
+function fmtTinEquiv(n: number) {
+  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
+}
+
+/** Tin-equivalent on hand (qty × pack liters ÷ 15.2 L), same as canteen invoices. */
+function tinsEquivForRow(i: InventoryRow): number | null {
+  return tinEquivalentForCanteenLine(Number(i.quantity), i.productName, i.unit, i.productId);
 }
 
 export default function AdminInventoryPage() {
@@ -63,6 +73,15 @@ export default function AdminInventoryPage() {
   useEffect(() => {
     applyFiltersAndSort();
   }, [items, filters, sortBy, sortOrder]);
+
+  const totalTinEquivFiltered = useMemo(() => {
+    let s = 0;
+    for (const i of filteredItems) {
+      const t = tinsEquivForRow(i);
+      if (t != null && Number.isFinite(t)) s += t;
+    }
+    return s;
+  }, [filteredItems]);
 
   const fetchItems = async () => {
     try {
@@ -139,6 +158,13 @@ export default function AdminInventoryPage() {
           aValue = Number(a.quantity);
           bValue = Number(b.quantity);
           break;
+        case 'tinsEquiv': {
+          const ta = tinsEquivForRow(a);
+          const tb = tinsEquivForRow(b);
+          aValue = ta ?? -1;
+          bValue = tb ?? -1;
+          break;
+        }
         case 'minStock':
           aValue = Number(a.minStock);
           bValue = Number(b.minStock);
@@ -239,10 +265,16 @@ export default function AdminInventoryPage() {
 
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="text-lg font-medium text-gray-900">Inventory Overview</h2>
-              <div className="text-sm text-gray-500">
-                Showing {filteredItems.length} of {items.length} items
+              <div className="text-sm text-gray-500 flex flex-col sm:items-end gap-1">
+                <span>
+                  Showing {filteredItems.length} of {items.length} items
+                </span>
+                <span className="text-indigo-700 font-medium">
+                  Total tin equivalent (filtered): {fmtTinEquiv(totalTinEquivFiltered)} tins
+                  <span className="text-gray-500 font-normal"> ({CANTEEN_LITERS_PER_TIN} L = 1 tin)</span>
+                </span>
               </div>
             </div>
           </div>
@@ -392,6 +424,21 @@ export default function AdminInventoryPage() {
                       )}
                     </div>
                   </th>
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSortChange('tinsEquiv')}
+                    title="Pack size from product name + unit; liters ÷ 15.2 L per tin (same as canteen invoice totals)"
+                  >
+                    <div className="flex flex-col gap-0.5 items-start">
+                      <span className="flex items-center gap-1">
+                        No. of Tins (equiv.)
+                        {sortBy === 'tinsEquiv' && (
+                          <span className="text-indigo-600">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                        )}
+                      </span>
+                      <span className="text-[10px] font-normal text-gray-400 normal-case">15.2 L = 1 tin</span>
+                    </div>
+                  </th>
                   <th 
                     className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                     onClick={() => handleSortChange('minStock')}
@@ -439,6 +486,7 @@ export default function AdminInventoryPage() {
                   const quantity = Number(i.quantity);
                   const minStock = Number(i.minStock);
                   const maxStock = Number(i.maxStock);
+                  const tinsEq = tinsEquivForRow(i);
                   
                   // Determine stock level and styling
                   let stockLevel = 'normal';
@@ -478,6 +526,9 @@ export default function AdminInventoryPage() {
                             </span>
                           )}
                         </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 tabular-nums">
+                        {tinsEq != null ? fmtTinEquiv(tinsEq) : '—'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{minStock}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{maxStock}</td>

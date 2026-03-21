@@ -26,6 +26,19 @@ interface Purchase {
   createdAt: string;
 }
 
+interface PurchaseDraftLine {
+  id: string;
+  productId: string;
+  productLabel: string;
+  quantity: number;
+  supplierName: string;
+  purchaseDate: string;
+  unitPrice: number | null;
+  totalAmount: number | null;
+  invoiceNumber: string | null;
+  notes: string | null;
+}
+
 export default function StockPurchasesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -48,6 +61,7 @@ export default function StockPurchasesPage() {
     notes: '',
   });
   const [saving, setSaving] = useState(false);
+  const [draftLines, setDraftLines] = useState<PurchaseDraftLine[]>([]);
 
   const [filters, setFilters] = useState({
     productId: '',
@@ -134,10 +148,24 @@ export default function StockPurchasesPage() {
     return combined.includes('pet') && combined.includes('bottle');
   };
 
+  const isPackagingComponentText = (name: string, unit: string) => {
+    const combined = `${name ?? ''} ${unit ?? ''}`.toLowerCase();
+    const keys = ['cap', 'inner cap', 'flip top', 'label', 'bottle', 'carton', 'tape', 'packaging'];
+    return keys.some((k) => combined.includes(k));
+  };
+
   const isPetBottleForProductId = (productId: string) => {
     const prod = products.find((p) => p.id === productId);
     if (!prod) return false;
     return isPetBottleText(prod.name, prod.unit);
+  };
+
+  const isTinConversionEligibleForProductId = (productId: string) => {
+    const prod = products.find((p) => p.id === productId);
+    if (!prod) return false;
+    if (isPackagingComponentText(prod.name, prod.unit)) return false;
+    const mlPerPack = parseMlPerPackFromText(prod.name) ?? parseMlPerPackFromText(prod.unit);
+    return Number.isFinite(Number(mlPerPack)) && Number(mlPerPack) > 0;
   };
 
   const calcTinsFromQuantity = (quantityNum: number, mlPerPack: number) =>
@@ -200,6 +228,7 @@ export default function StockPurchasesPage() {
   };
 
   const tinCountForPurchase = (p: Purchase) => {
+    if (isPackagingComponentText(p.productName, p.unit)) return 0;
     const mlPerPack = parseMlPerPackFromText(p.productName) ?? parseMlPerPackFromText(p.unit);
     if (!mlPerPack) return 0;
     const tins = (Number(p.quantity) * Number(mlPerPack)) / TIN_ML;
@@ -302,6 +331,10 @@ export default function StockPurchasesPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    addCurrentFormToDraft();
+  };
+
+  const addCurrentFormToDraft = () => {
     setError('');
     setSuccess('');
     const qty = Number(form.quantity);
@@ -310,39 +343,72 @@ export default function StockPurchasesPage() {
       return;
     }
 
+    const prod = productsDropdown.find((p) => p.id === form.productId);
+    if (!prod) {
+      setError('Please select a valid product.');
+      return;
+    }
+
+    const line: PurchaseDraftLine = {
+      id: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      productId: canonicalizeCastor200mlProductIdForForm(form.productId),
+      productLabel: getProductOptionLabel(prod),
+      quantity: qty,
+      supplierName: form.supplierName.trim(),
+      purchaseDate: form.purchaseDate,
+      unitPrice: form.unitPrice ? Number(form.unitPrice) : null,
+      totalAmount: form.totalAmount ? Number(form.totalAmount) : null,
+      invoiceNumber: form.invoiceNumber.trim() || null,
+      notes: form.notes.trim() || null,
+    };
+
+    setDraftLines((prev) => [...prev, line]);
+    setSuccess('Line added. You can add more products, then click "Save All Lines".');
+    setForm({
+      productId: '',
+      quantity: '',
+      tins: '',
+      supplierName: form.supplierName,
+      purchaseDate: form.purchaseDate,
+      unitPrice: '',
+      totalAmount: '',
+      invoiceNumber: form.invoiceNumber,
+      notes: '',
+    });
+  };
+
+  const submitAllDraftLines = async () => {
+    setError('');
+    setSuccess('');
+    if (draftLines.length === 0) {
+      setError('Add at least one line first.');
+      return;
+    }
     setSaving(true);
     try {
-      const res = await fetch('/api/stock-purchases', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          productId: canonicalizeCastor200mlProductIdForForm(form.productId),
-          quantity: qty,
-          supplierName: form.supplierName.trim(),
-          purchaseDate: form.purchaseDate,
-          unitPrice: form.unitPrice ? Number(form.unitPrice) : null,
-          totalAmount: form.totalAmount ? Number(form.totalAmount) : null,
-          invoiceNumber: form.invoiceNumber.trim() || null,
-          notes: form.notes.trim() || null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Failed to add stock');
-        return;
+      for (const line of draftLines) {
+        const res = await fetch('/api/stock-purchases', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productId: line.productId,
+            quantity: line.quantity,
+            supplierName: line.supplierName,
+            purchaseDate: line.purchaseDate,
+            unitPrice: line.unitPrice,
+            totalAmount: line.totalAmount,
+            invoiceNumber: line.invoiceNumber,
+            notes: line.notes,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || `Failed to add stock for ${line.productLabel}`);
+          return;
+        }
       }
-      setSuccess('Stock added and purchase recorded.');
-      setForm({
-        productId: '',
-        quantity: '',
-        tins: '',
-        supplierName: 'Yuvaraj',
-        purchaseDate: new Date().toISOString().slice(0, 10),
-        unitPrice: '',
-        totalAmount: '',
-        invoiceNumber: '',
-        notes: '',
-      });
+      setSuccess(`Saved ${draftLines.length} purchase lines successfully.`);
+      setDraftLines([]);
       fetchPurchases();
     } catch (e) {
       setError('Network error. Please try again.');
@@ -397,8 +463,9 @@ export default function StockPurchasesPage() {
 
   const mlPerPackForForm = getMlPerPackForProductId(form.productId);
   const isPetBottleSelected = isPetBottleForProductId(form.productId);
+  const isTinCalcEligible = isTinConversionEligibleForProductId(form.productId);
   const totalLtrsDisplay =
-    isPetBottleSelected
+    !isTinCalcEligible
       ? ''
       : mlPerPackForForm && form.quantity && Number.isFinite(Number(form.quantity)) && Number(form.quantity) > 0
         ? ((Number(form.quantity) * mlPerPackForForm) / 1000).toFixed(2)
@@ -430,6 +497,12 @@ export default function StockPurchasesPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <Link
+              href="/dashboard/admin/oil-purchase-volume"
+              className="w-full sm:w-auto text-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+            >
+              Oil volume (L &amp; tins)
+            </Link>
             <Link
               href="/dashboard/admin/inventory"
               className="w-full sm:w-auto text-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
@@ -490,14 +563,15 @@ export default function StockPurchasesPage() {
                   onChange={(e) => {
                     const nextProductId = e.target.value;
                     const nextIsPetBottle = isPetBottleForProductId(nextProductId);
+                    const nextTinEligible = isTinConversionEligibleForProductId(nextProductId);
                     const mlPerPack = getMlPerPackForProductId(nextProductId);
                     setForm((f) => {
                       const tinsNum = Number(f.tins);
                       const qtyNum = Number(f.quantity);
                       const next: typeof f = { ...f, productId: nextProductId };
 
-                      if (nextIsPetBottle) {
-                        // PET bottle items should not use tins/ltr calculations.
+                      if (nextIsPetBottle || !nextTinEligible) {
+                        // Packaging / non-oil items should not use tins/ltr calculations.
                         next.tins = '';
                         return next;
                       }
@@ -555,7 +629,7 @@ export default function StockPurchasesPage() {
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   placeholder="e.g. 1"
-                  disabled={isPetBottleSelected}
+                  disabled={!isTinCalcEligible}
                 />
               </div>
 
@@ -573,7 +647,7 @@ export default function StockPurchasesPage() {
                     const mlPerPack = getMlPerPackForProductId(form.productId);
                     setForm((f) => {
                       const next: typeof f = { ...f, quantity: nextQtyRaw };
-                      if (isPetBottleSelected) return next;
+                      if (!isTinCalcEligible) return next;
                       if (!mlPerPack || !Number.isFinite(qtyNum) || qtyNum <= 0) return next;
                       next.tins = String(calcTinsFromQuantity(qtyNum, mlPerPack));
                       return next;
@@ -592,7 +666,7 @@ export default function StockPurchasesPage() {
                   value={totalLtrsDisplay}
                   placeholder="Auto"
                   className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 focus:outline-none"
-                  disabled={isPetBottleSelected}
+                  disabled={!isTinCalcEligible}
                 />
               </div>
               <div>
@@ -652,15 +726,85 @@ export default function StockPurchasesPage() {
               </div>
             </div>
             <div className="mt-4">
-              <button
-                type="submit"
-                disabled={saving || isLoadingProducts}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm font-medium disabled:opacity-50"
-              >
-                {saving ? 'Adding...' : 'Add Stock & Record Purchase'}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="submit"
+                  disabled={saving || isLoadingProducts}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm font-medium disabled:opacity-50"
+                >
+                  Add Line
+                </button>
+                <button
+                  type="button"
+                  onClick={submitAllDraftLines}
+                  disabled={saving || draftLines.length === 0}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-sm font-medium disabled:opacity-50"
+                >
+                  {saving ? 'Saving...' : `Save All Lines (${draftLines.length})`}
+                </button>
+              </div>
             </div>
           </form>
+          {draftLines.length > 0 && (
+            <div className="px-6 pb-6">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2">Pending Lines</h3>
+              <div className="border rounded-md overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Product</th>
+                      <th className="px-3 py-2 text-right">Qty</th>
+                      <th className="px-3 py-2 text-left">Supplier</th>
+                      <th className="px-3 py-2 text-left">Date</th>
+                      <th className="px-3 py-2 text-right">Total</th>
+                      <th className="px-3 py-2 text-left">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {draftLines.map((line) => (
+                      <tr key={line.id} className="border-t">
+                        <td className="px-3 py-2">{line.productLabel}</td>
+                        <td className="px-3 py-2 text-right">{line.quantity}</td>
+                        <td className="px-3 py-2">{line.supplierName}</td>
+                        <td className="px-3 py-2">{line.purchaseDate}</td>
+                        <td className="px-3 py-2 text-right">{line.totalAmount == null ? '—' : line.totalAmount}</td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            className="text-blue-600 hover:text-blue-900 mr-3"
+                            onClick={() => {
+                              setForm({
+                                productId: line.productId,
+                                quantity: String(line.quantity),
+                                tins: '',
+                                supplierName: line.supplierName,
+                                purchaseDate: line.purchaseDate,
+                                unitPrice: line.unitPrice == null ? '' : String(line.unitPrice),
+                                totalAmount: line.totalAmount == null ? '' : String(line.totalAmount),
+                                invoiceNumber: line.invoiceNumber || '',
+                                notes: line.notes || '',
+                              });
+                              setDraftLines((prev) => prev.filter((x) => x.id !== line.id));
+                              setSuccess('Line loaded into form for editing.');
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="text-red-600 hover:text-red-900"
+                            onClick={() => setDraftLines((prev) => prev.filter((x) => x.id !== line.id))}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="bg-white shadow rounded-lg">

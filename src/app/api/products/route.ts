@@ -2,6 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
 import { auth } from '@/lib/auth';
 
+const CASTOR_200ML_VARIANT_IDS = new Set(['55336', '68539', 'castor-200ml']);
+
+function isCastor200mlVariant(row: any): boolean {
+  const id = String(row?.id ?? '').trim();
+  if (CASTOR_200ML_VARIANT_IDS.has(id)) return true;
+
+  const name = String(row?.name ?? '').toLowerCase();
+  const unit = String(row?.unit ?? '').toLowerCase();
+  return name.includes('castor') && (name.includes('200') || unit.includes('200ml'));
+}
+
+function castorPriority(row: any): number {
+  const id = String(row?.id ?? '').trim();
+  if (id === 'castor-200ml') return 3;
+  if (id === '68539') return 2;
+  if (id === '55336') return 1;
+  return 0;
+}
+
 // GET /api/products
 // Optional query params: category, type, isActive
 export async function GET(request: NextRequest) {
@@ -50,7 +69,26 @@ export async function GET(request: NextRequest) {
 
     await connection.end();
 
-    return NextResponse.json({ products: rows }, { status: 200 });
+    // Merge known Castor 200ml variants into one row for product management UI.
+    // This avoids duplicate display of 55336 / 68539 / castor-200ml.
+    let castorRow: any = null;
+    const merged: any[] = [];
+    for (const row of rows as any[]) {
+      if (!isCastor200mlVariant(row)) {
+        merged.push(row);
+        continue;
+      }
+      if (!castorRow) {
+        castorRow = row;
+        continue;
+      }
+      if (castorPriority(row) > castorPriority(castorRow)) {
+        castorRow = row;
+      }
+    }
+    if (castorRow) merged.push(castorRow);
+
+    return NextResponse.json({ products: merged }, { status: 200 });
   } catch (error) {
     console.error('Products GET error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -79,6 +117,26 @@ export async function POST(request: NextRequest) {
     }
 
     const connection = await createConnection();
+
+    // Prevent accidental duplicate product rows for Castor 200ml variants.
+    const castorByPayload =
+      String(type || '').toLowerCase().includes('castor') &&
+      String(unit || '').toLowerCase().includes('200ml');
+    if (castorByPayload) {
+      const [existingCastor] = await connection.query(
+        `SELECT id FROM products
+         WHERE (id IN ('55336','68539','castor-200ml'))
+            OR (LOWER(name) LIKE '%castor%' AND LOWER(unit) LIKE '%200ml%')
+         LIMIT 1`,
+      );
+      if (Array.isArray(existingCastor) && existingCastor.length > 0) {
+        await connection.end();
+        return NextResponse.json(
+          { error: 'Castor 200ml already exists. Please edit the existing product instead of creating a duplicate.' },
+          { status: 400 },
+        );
+      }
+    }
 
     const productId = id || `prod-${Date.now()}`;
 

@@ -94,12 +94,12 @@ async function run() {
         if (litersPer !== null) {
           totalLiters += qty * litersPer;
           if (isBottleSize(litersPer)) totalBottles += qty;
-          if (isTinSize(litersPer)) totalTins += qty; // legacy per-pack tins (not used strongly; main is liters/16)
+          if (isTinSize(litersPer)) totalTins += qty; // legacy per-pack count; final total_tins uses liters/15.2 below
         }
       }
 
-      // Re-derive tins from liters: 16L = 1 tin
-      const tinsFromLiters = totalLiters / 16;
+      // Re-derive tins from liters: 15.2 L usable = 1 tin (same as CANTEEN_LITERS_PER_TIN)
+      const tinsFromLiters = totalLiters / 15.2;
 
       await conn.query(
         `UPDATE sales
