@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
 import { auth } from '@/lib/auth';
+import { textIndicates200ml, isPosPackagingComponent, isTruthyActive } from '@/lib/posCatalog';
+
+/** Avoid stale product lists behind reverse proxies / CDN */
+export const dynamic = 'force-dynamic';
 
 const CASTOR_200ML_VARIANT_IDS = new Set(['55336', '68539', 'castor-200ml']);
 
@@ -10,7 +14,10 @@ function isCastor200mlVariant(row: any): boolean {
 
   const name = String(row?.name ?? '').toLowerCase();
   const unit = String(row?.unit ?? '').toLowerCase();
-  return name.includes('castor') && (name.includes('200') || unit.includes('200ml'));
+  return (
+    name.includes('castor') &&
+    (name.includes('200') || textIndicates200ml(name) || textIndicates200ml(unit))
+  );
 }
 
 function castorPriority(row: any): number {
@@ -19,6 +26,15 @@ function castorPriority(row: any): number {
   if (id === '68539') return 2;
   if (id === '55336') return 1;
   return 0;
+}
+
+/** Prefer active billing rows over inactive legacy `castor-200ml`, then id priority. */
+function shouldReplaceCastorMerge(current: any, candidate: any): boolean {
+  const cAct = isTruthyActive(current?.isActive);
+  const nAct = isTruthyActive(candidate?.isActive);
+  if (nAct && !cAct) return true;
+  if (cAct && !nAct) return false;
+  return castorPriority(candidate) > castorPriority(current);
 }
 
 // GET /api/products
@@ -35,6 +51,9 @@ export async function GET(request: NextRequest) {
     const category = searchParams.get('category');
     const type = searchParams.get('type');
     const isActive = searchParams.get('isActive');
+    const forPos =
+      searchParams.get('forPos') === '1' ||
+      searchParams.get('forPos') === 'true';
 
     const connection = await createConnection();
 
@@ -60,16 +79,13 @@ export async function GET(request: NextRequest) {
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
-    const [rows] = await connection.query(
-      `SELECT id, name, category, type, description, base_price as basePrice, retail_price as retailPrice, gst_rate as gstRate, gst_included as gstIncluded, unit, barcode, is_active as isActive, created_at as createdAt, updated_at as updatedAt
+    const selectSql = `SELECT id, name, category, type, description, base_price as basePrice, retail_price as retailPrice, gst_rate as gstRate, gst_included as gstIncluded, unit, barcode, is_active as isActive, created_at as createdAt, updated_at as updatedAt
        FROM products ${whereSql}
-       ORDER BY name ASC`,
-      params,
-    );
+       ORDER BY name ASC`;
 
-    await connection.end();
+    const [rows] = await connection.query(selectSql, params);
 
-    // Merge known Castor 200ml variants into one row for product management UI.
+    // Merge known Castor 200ml variants into one row for UI / POS.
     // This avoids duplicate display of 55336 / 68539 / castor-200ml.
     let castorRow: any = null;
     const merged: any[] = [];
@@ -82,13 +98,45 @@ export async function GET(request: NextRequest) {
         castorRow = row;
         continue;
       }
-      if (castorPriority(row) > castorPriority(castorRow)) {
+      if (shouldReplaceCastorMerge(castorRow, row)) {
         castorRow = row;
       }
     }
     if (castorRow) merged.push(castorRow);
 
-    return NextResponse.json({ products: merged }, { status: 200 });
+    const mergedHasCastor = merged.some((r) => isCastor200mlVariant(r));
+    if (!mergedHasCastor) {
+      const [castorExtra] = await connection.query(
+        `SELECT id, name, category, type, description, base_price as basePrice, retail_price as retailPrice, gst_rate as gstRate, gst_included as gstIncluded, unit, barcode, is_active as isActive, created_at as createdAt, updated_at as updatedAt
+         FROM products WHERE id IN (?, ?, ?) AND LOWER(category) <> ?`,
+        ['55336', '68539', 'castor-200ml', 'raw_material'],
+      );
+      let extraCastor: any = null;
+      for (const row of castorExtra as any[]) {
+        if (!isCastor200mlVariant(row)) continue;
+        if (!extraCastor || shouldReplaceCastorMerge(extraCastor, row)) {
+          extraCastor = row;
+        }
+      }
+      if (extraCastor) merged.push(extraCastor);
+    }
+
+    await connection.end();
+
+    let out = merged;
+    if (forPos) {
+      out = merged.filter((p) => !isPosPackagingComponent(p));
+    }
+
+    return NextResponse.json(
+      { products: out },
+      {
+        status: 200,
+        headers: {
+          'Cache-Control': 'private, no-store, no-cache, must-revalidate',
+        },
+      },
+    );
   } catch (error) {
     console.error('Products GET error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

@@ -10,6 +10,15 @@ import {
   getCurrentFinancialYearLabelCompact,
   getFinancialYearLabelForDate,
 } from '@/lib/financialYear';
+import {
+  CASTOR_200ML_DISPLAY_NAME,
+  CASTOR_200ML_NEW_CODE,
+  CASTOR_200ML_OLD_CODE,
+  isCastor200mlByNameAndUnit,
+  isCastor200mlProductId,
+  isPosPackagingComponent,
+  isTruthyActive,
+} from '@/lib/posCatalog';
 
 interface Product {
   id: string;
@@ -48,24 +57,16 @@ interface CanteenAddress {
    deliveryEmail?: string | null;
 }
 
-// Castor Oil 200ml: two billing codes, same product — one card, code selector (new default), full name everywhere
-const CASTOR_200ML_OLD_CODE = '55336';
-const CASTOR_200ML_NEW_CODE = '68539';
-const CASTOR_200ML_DISPLAY_NAME = 'TOM-Castor Oil - 200ml';
 const CASTOR_200ML_NEW_PRICE = 76.19; // GST-inclusive unit price for new code (68539)
 const CASTOR_200ML_OLD_PRICE = 80;    // Keep old code at 80
 
 function isCastor200mlById(p: Product): boolean {
-  const id = String(p.id).trim();
-  return id === CASTOR_200ML_OLD_CODE || id === CASTOR_200ML_NEW_CODE;
+  return isCastor200mlProductId(p.id);
 }
 
 function isCastor200ml(p: Product): boolean {
   if (isCastor200mlById(p)) return true;
-  const name = (p.name || '').toLowerCase();
-  const unit = (p.unit || '').toLowerCase();
-  const hasCastorWord = name.includes('castor');
-  return hasCastorWord && (name.includes('200') || unit.includes('200ml'));
+  return isCastor200mlByNameAndUnit(p.name, p.unit);
 }
 
 function getPoYearOptions(): string[] {
@@ -206,10 +207,25 @@ export default function POSPage() {
 
   const fetchProducts = async () => {
     try {
-      const response = await fetch('/api/products');
+      const response = await fetch('/api/products?forPos=1', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
       const data = await response.json();
-      // Filter out raw materials - only show products for sale (produced and purchased oils)
-      setProducts(data.products?.filter((p: Product) => p.isActive && p.category !== 'raw_material') || []);
+      if (!response.ok) {
+        setError(data.error || 'Failed to load products');
+        setProducts([]);
+        return;
+      }
+      // Finished goods + Castor 200ml SKUs even if inactive; hide packaging PET/caps/labels
+      setProducts(
+        data.products?.filter(
+          (p: Product) =>
+            String(p.category).toLowerCase() !== 'raw_material' &&
+            (isTruthyActive(p.isActive) || isCastor200mlProductId(p.id)) &&
+            !isPosPackagingComponent(p),
+        ) || [],
+      );
     } catch (error) {
       console.error('Error fetching products:', error);
       setError('Failed to load products');
@@ -511,9 +527,18 @@ export default function POSPage() {
 
   // One card for Castor Oil 200ml: show new code (68539) only, hide old (55336) when both exist
   const hasCastorNew = filteredProducts.some(p => String(p.id).trim() === CASTOR_200ML_NEW_CODE);
-  const displayProducts = hasCastorNew
+  const displayProductsBase = hasCastorNew
     ? filteredProducts.filter(p => String(p.id).trim() !== CASTOR_200ML_OLD_CODE)
     : filteredProducts;
+
+  // Canteen POS: show TOM-Castor Oil - 200ml first (main canteen line item)
+  const displayProducts =
+    saleType === 'canteen'
+      ? [
+          ...displayProductsBase.filter((p) => isCastor200ml(p)),
+          ...displayProductsBase.filter((p) => !isCastor200ml(p)),
+        ]
+      : displayProductsBase;
 
   const { subtotal, gstAmount, total } = calculateTotals();
 
