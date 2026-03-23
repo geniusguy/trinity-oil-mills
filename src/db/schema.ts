@@ -268,6 +268,23 @@ export const expenses = mysqlTable('expenses', {
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
 });
 
+/** Courier / shipment costs to canteens (separate from generic expenses + sales courier note). */
+export const courierExpenses = mysqlTable('courier_expenses', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  courierDate: date('courier_date', { mode: 'string' }).notNull(),
+  quantity: decimal('quantity', { precision: 12, scale: 2 }).notNull().default('0'),
+  cost: decimal('cost', { precision: 12, scale: 2 }).notNull(),
+  canteenAddressId: varchar('canteen_address_id', { length: 255 }),
+  /** Free-text destination when not using canteen master */
+  destinationNote: text('destination_note'),
+  notes: text('notes'),
+  paymentMethod: varchar('payment_method', { length: 50 }).notNull().default('cash'),
+  referenceNo: varchar('reference_no', { length: 100 }),
+  userId: varchar('user_id', { length: 255 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
 // Savings and Investments table
 export const savingsInvestments = mysqlTable('savings_investments', {
   id: varchar('id', { length: 255 }).primaryKey(),

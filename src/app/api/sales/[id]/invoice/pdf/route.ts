@@ -462,6 +462,13 @@ function renderRetailInvoice(doc: jsPDF, sale: any, items: any[]) {
 }
 
 function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
+  const s = (v: unknown) => (v == null ? '' : String(v));
+  const splitLines = (v: unknown) =>
+    s(v)
+      .split('\n')
+      .map((x) => x.trim())
+      .filter(Boolean);
+
   // Clean white background
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, 210, 297, 'F');
@@ -567,32 +574,32 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
-  doc.text(sale.canteenName || 'Canteen Customer', 25, cardY + 20);
+  doc.text(s(sale.canteenName) || 'Canteen Customer', 25, cardY + 20);
   
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
   
   // Handle billing address
-  if (sale.billingAddress && sale.billingAddress !== sale.canteenAddress) {
-    const billingLines = sale.billingAddress.split('\n').filter(line => line.trim()).slice(0, 2);
+  if (s(sale.billingAddress) && s(sale.billingAddress) !== s(sale.canteenAddress)) {
+    const billingLines = splitLines(sale.billingAddress).slice(0, 2);
     billingLines.forEach((line, index) => {
       doc.text(line.trim(), 25, cardY + 28 + (index * 6));
     });
-    doc.text(`${sale.billingCity}, ${sale.billingState} - ${sale.billingPincode}`, 25, cardY + 40);
+    doc.text(`${s(sale.billingCity)}, ${s(sale.billingState)} - ${s(sale.billingPincode)}`, 25, cardY + 40);
   } else {
     // Use delivery address for billing
-    const deliveryLines = sale.canteenAddress.split('\n').filter(line => line.trim()).slice(0, 2);
+    const deliveryLines = splitLines(sale.canteenAddress).slice(0, 2);
     deliveryLines.forEach((line, index) => {
       doc.text(line.trim(), 25, cardY + 28 + (index * 6));
     });
-    doc.text(`${sale.canteenCity}, ${sale.canteenState} - ${sale.canteenPincode}`, 25, cardY + 40);
+    doc.text(`${s(sale.canteenCity)}, ${s(sale.canteenState)} - ${s(sale.canteenPincode)}`, 25, cardY + 40);
   }
   
   // GST and emails
-  doc.text(`GST: ${sale.gstNumber || '33AAAGT0316F1ZT'}`, 25, cardY + 48);
+  doc.text(`GST: ${s(sale.gstNumber) || '33AAAGT0316F1ZT'}`, 25, cardY + 48);
   if (sale.billingEmail) {
     doc.setFontSize(8);
-    doc.text(`Billing Email: ${sale.billingEmail}`, 25, cardY + 54);
+    doc.text(`Billing Email: ${s(sale.billingEmail)}`, 25, cardY + 54);
     doc.setFontSize(9);
   }
   
@@ -617,7 +624,7 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
   doc.setFont('helvetica', 'normal');
   doc.text('Invoice #:', 115, cardY + 20);
   doc.setFont('helvetica', 'bold');
-  doc.text(sale.invoiceNumber, 145, cardY + 20);
+  doc.text(s(sale.invoiceNumber), 145, cardY + 20);
   
   doc.setFont('helvetica', 'normal');
   doc.text('Date:', 115, cardY + 28);
@@ -627,18 +634,18 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
   doc.setFont('helvetica', 'normal');
   doc.text('Contact:', 115, cardY + 36);
   doc.setFont('helvetica', 'bold');
-  doc.text(sale.contactPerson || 'N/A', 145, cardY + 36);
+  doc.text(s(sale.contactPerson) || 'N/A', 145, cardY + 36);
   
   doc.setFont('helvetica', 'normal');
   doc.text('Mobile:', 115, cardY + 44);
   doc.setFont('helvetica', 'bold');
-  doc.text(sale.mobileNumber || 'N/A', 145, cardY + 44);
+  doc.text(s(sale.mobileNumber) || 'N/A', 145, cardY + 44);
   if (sale.deliveryEmail) {
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.text('Delivery Email:', 115, cardY + 52);
     doc.setFont('helvetica', 'bold');
-    doc.text(String(sale.deliveryEmail), 145, cardY + 52);
+    doc.text(s(sale.deliveryEmail), 145, cardY + 52);
     doc.setFontSize(9);
   }
   
@@ -692,7 +699,7 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
     doc.text(String(item.quantity), 32, yPos);
     
     // Product name (left aligned)
-    doc.text(item.productName, 50, yPos);
+    doc.text(s(item.productName) || s(item.productId) || 'Product', 50, yPos);
     
     // Unit price (right aligned)
     doc.setFont('helvetica', 'bold');

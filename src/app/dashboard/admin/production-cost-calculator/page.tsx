@@ -69,6 +69,7 @@ export default function ProductionCostCalculatorPage() {
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [dataSourceLabel, setDataSourceLabel] = useState('Live pricing');
   
   // Form inputs
   const [calculatorForm, setCalculatorForm] = useState({
@@ -116,46 +117,50 @@ export default function ProductionCostCalculatorPage() {
   }, [calculatorForm, rawMaterials]);
 
   const fetchRawMaterials = async () => {
+    const mockMaterials: RawMaterial[] = [
+      { id: 'rm-groundnuts', name: 'Groundnuts (Raw)', category: 'seeds', costPerUnit: 80, unit: 'kg', currentStock: 2500 },
+      { id: 'rm-sesame', name: 'Sesame Seeds', category: 'seeds', costPerUnit: 120, unit: 'kg', currentStock: 800 },
+      { id: 'rm-coconut', name: 'Coconut (Copra)', category: 'seeds', costPerUnit: 40, unit: 'kg', currentStock: 1200 },
+      { id: 'rm-pet-1l', name: 'PET Bottle 1L', category: 'packaging', costPerUnit: 12, unit: 'pieces', currentStock: 500 },
+      { id: 'rm-pet-500ml', name: 'PET Bottle 500ml', category: 'packaging', costPerUnit: 8, unit: 'pieces', currentStock: 300 },
+      { id: 'rm-caps', name: 'Bottle Caps', category: 'packaging', costPerUnit: 2, unit: 'pieces', currentStock: 800 },
+      { id: 'rm-labels-groundnut', name: 'Groundnut Oil Labels', category: 'packaging', costPerUnit: 1.5, unit: 'pieces', currentStock: 1000 },
+      { id: 'rm-labels-gingelly', name: 'Gingelly Oil Labels', category: 'packaging', costPerUnit: 1.5, unit: 'pieces', currentStock: 800 },
+      { id: 'rm-labels-coconut', name: 'Coconut Oil Labels', category: 'packaging', costPerUnit: 1.5, unit: 'pieces', currentStock: 600 },
+      { id: 'rm-cardboard', name: 'Cardboard Boxes', category: 'packaging', costPerUnit: 25, unit: 'pieces', currentStock: 150 },
+    ];
+
+    const parseProductCost = (p: any) => {
+      const n = Number(p?.basePrice ?? p?.retailPrice ?? 0);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    };
+
     try {
-      // Fetch actual raw materials from API with current pricing
-      const response = await fetch('/api/raw-materials');
+      // Primary source: products API (raw-material endpoint not present in this repo).
+      const response = await fetch('/api/products');
       const data = await response.json();
-      
-      if (data.success && data.data) {
-        const materialsWithCosts = data.data.map((material: any) => ({
-          id: material.id,
-          name: material.name,
-          category: material.category || 'materials',
-          costPerUnit: parseFloat(material.costPerUnit || '0'),
-          unit: material.unit || 'kg',
-          currentStock: parseFloat(material.currentStock || '0')
-        }));
-        setRawMaterials(materialsWithCosts);
-      } else {
-        // Fallback to mock data if API fails
-        const mockMaterials: RawMaterial[] = [
-          { id: 'rm-groundnuts', name: 'Groundnuts (Raw)', category: 'seeds', costPerUnit: 80, unit: 'kg', currentStock: 2500 },
-          { id: 'rm-sesame', name: 'Sesame Seeds', category: 'seeds', costPerUnit: 120, unit: 'kg', currentStock: 800 },
-          { id: 'rm-coconut', name: 'Coconut (Copra)', category: 'seeds', costPerUnit: 40, unit: 'kg', currentStock: 1200 },
-          { id: 'rm-pet-1l', name: 'PET Bottle 1L', category: 'packaging', costPerUnit: 12, unit: 'pieces', currentStock: 500 },
-          { id: 'rm-pet-500ml', name: 'PET Bottle 500ml', category: 'packaging', costPerUnit: 8, unit: 'pieces', currentStock: 300 },
-          { id: 'rm-caps', name: 'Bottle Caps', category: 'packaging', costPerUnit: 2, unit: 'pieces', currentStock: 800 },
-          { id: 'rm-labels-groundnut', name: 'Groundnut Oil Labels', category: 'packaging', costPerUnit: 1.5, unit: 'pieces', currentStock: 1000 },
-          { id: 'rm-labels-gingelly', name: 'Gingelly Oil Labels', category: 'packaging', costPerUnit: 1.5, unit: 'pieces', currentStock: 800 },
-          { id: 'rm-labels-coconut', name: 'Coconut Oil Labels', category: 'packaging', costPerUnit: 1.5, unit: 'pieces', currentStock: 600 },
-          { id: 'rm-cardboard', name: 'Cardboard Boxes', category: 'packaging', costPerUnit: 25, unit: 'pieces', currentStock: 150 },
-        ];
-        setRawMaterials(mockMaterials);
-      }
+      const products = Array.isArray(data?.products) ? data.products : [];
+
+      // Build seed cost hints from live product pricing where possible.
+      const groundnut = products.find((p: any) => String(p?.name || '').toLowerCase().includes('groundnut'));
+      const gingelly = products.find((p: any) => String(p?.name || '').toLowerCase().includes('gingelly'));
+      const coconut = products.find((p: any) => String(p?.name || '').toLowerCase().includes('coconut'));
+
+      const merged = mockMaterials.map((m) => {
+        if (m.id === 'rm-groundnuts' && groundnut) return { ...m, costPerUnit: parseProductCost(groundnut) || m.costPerUnit };
+        if (m.id === 'rm-sesame' && gingelly) return { ...m, costPerUnit: parseProductCost(gingelly) || m.costPerUnit };
+        if (m.id === 'rm-coconut' && coconut) return { ...m, costPerUnit: parseProductCost(coconut) || m.costPerUnit };
+        return m;
+      });
+
+      setRawMaterials(merged);
+      setDataSourceLabel(products.length > 0 ? 'Live pricing (products API)' : 'Default pricing');
+      setError('');
     } catch (err) {
-      setError('Failed to fetch raw materials');
-      // Use mock data as fallback
-      const mockMaterials: RawMaterial[] = [
-        { id: 'rm-groundnuts', name: 'Groundnuts (Raw)', category: 'seeds', costPerUnit: 80, unit: 'kg', currentStock: 2500 },
-        { id: 'rm-sesame', name: 'Sesame Seeds', category: 'seeds', costPerUnit: 120, unit: 'kg', currentStock: 800 },
-        { id: 'rm-coconut', name: 'Coconut (Copra)', category: 'seeds', costPerUnit: 40, unit: 'kg', currentStock: 1200 },
-      ];
+      // Silent fallback to defaults for uninterrupted calculator usage.
       setRawMaterials(mockMaterials);
+      setDataSourceLabel('Default pricing');
+      setError('');
     }
   };
 
@@ -302,6 +307,7 @@ export default function ProductionCostCalculatorPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">🧮 Production Cost Calculator</h1>
           <p className="text-gray-600 mt-1">Calculate accurate production costs for oil manufacturing</p>
+          <p className="text-xs text-gray-500 mt-1">Source: {dataSourceLabel}</p>
         </div>
         <div className="flex gap-2">
           <Button onClick={saveProductionPlan} disabled={!costBreakdown} className="bg-green-600 hover:bg-green-700">

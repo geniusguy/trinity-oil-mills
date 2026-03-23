@@ -17,3 +17,25 @@ cd /var/www/trinityoil-api && bash run-migrate.sh
 ```
 
 Safe to run multiple times.
+
+---
+
+## Courier expenses (`courier_expenses`)
+
+**DDL only:** `scripts/sql/migrate_courier_expenses.sql`
+
+**Table + 2 demo rows (needs ≥1 user in `users`):**
+
+- **Node (uses `.env.local` / `.env`):** from `oil-shop-web` folder:
+
+  ```bash
+  npm run db:seed-courier-local
+  ```
+
+  Re-seed demo rows: `npm run db:seed-courier-local -- --force`
+
+- **MySQL CLI:**
+
+  ```bash
+  mysql -u USER -p YOUR_DATABASE < oil-shop-web/scripts/sql/seed_courier_expenses_local.sql
+  ```

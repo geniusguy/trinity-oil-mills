@@ -15,6 +15,7 @@
     "db:studio": "drizzle-kit studio",
     "db:zero-inventory": "node scripts/zero-inventory.js",
     "db:seed": "tsx src/db/seed.ts",
+    "db:seed-courier-local": "node scripts/seed-courier-expenses-local.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

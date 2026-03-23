@@ -38,6 +38,7 @@ interface PLStatement {
     utilities: number;
     maintenance: number;
     other: number;
+    courierShipping?: number;
     totalOperatingExpenses: number;
   };
   operatingProfit: {
@@ -48,8 +49,16 @@ interface PLStatement {
     amount: number;
     margin: number;
   };
+  /** Included in summary.totalExpenses via operating total + COGS + interest */
+  loanPayments?: {
+    totalPayments: number;
+    interestExpense: number;
+    principalPayments: number;
+    loanCount: number;
+  };
   summary: {
     totalRevenue: number;
+    /** COGS + total operating expenses (incl. courier) + loan interest */
     totalExpenses: number;
     netProfit: number;
     profitMargin: number;
@@ -598,11 +607,33 @@ const FinancialStatementsPage: React.FC = () => {
                     <span>Other</span>
                     <span>{formatCurrency(plStatement.operatingExpenses.other)}</span>
                   </div>
+                  <div className="flex justify-between text-indigo-800">
+                    <span>Courier (canteen) — Courier Expenses module</span>
+                    <span>{formatCurrency(plStatement.operatingExpenses.courierShipping ?? 0)}</span>
+                  </div>
                   <div className="flex justify-between border-t pt-2">
                     <span className="font-semibold">Total Operating Expenses</span>
                     <span className="font-semibold text-red-600">{formatCurrency(plStatement.operatingExpenses.totalOperatingExpenses)}</span>
                   </div>
+                  <p className="text-xs text-gray-500 pt-1">
+                    Includes daily expense categories above plus{' '}
+                    <strong>courier (canteen)</strong>{' '}
+                    {formatCurrency(plStatement.operatingExpenses.courierShipping ?? 0)} — counted in this total.
+                  </p>
                 </div>
+              </div>
+
+              <div className="mb-6 rounded-lg bg-slate-50 border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold text-slate-800 mb-2">Overall expenses (P&amp;L)</h3>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-slate-700">Total (COGS + operating incl. courier + loan interest)</span>
+                  <span className="text-lg font-bold text-red-700">
+                    {formatCurrency(plStatement.summary.totalExpenses)}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Operating expenses above already include courier. This line is the full expense stack used for net profit.
+                </p>
               </div>
 
               <div className="mb-6">
@@ -614,6 +645,17 @@ const FinancialStatementsPage: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {(plStatement.loanPayments?.interestExpense ?? 0) > 0 && (
+                <div className="mb-4">
+                  <div className="flex justify-between text-sm">
+                    <span>Loan interest expense</span>
+                    <span className="text-red-600">
+                      −{formatCurrency(plStatement.loanPayments?.interestExpense ?? 0)}
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="border-t-2 pt-4">
                 <div className="flex justify-between">
@@ -1020,6 +1062,9 @@ const FinancialStatementsPage: React.FC = () => {
                     { name: 'Utilities', amount: plStatement.operatingExpenses.utilities },
                     { name: 'Maintenance', amount: plStatement.operatingExpenses.maintenance },
                     { name: 'Other', amount: plStatement.operatingExpenses.other },
+                    ...(plStatement.operatingExpenses.courierShipping
+                      ? [{ name: 'Courier (canteen)', amount: plStatement.operatingExpenses.courierShipping }]
+                      : []),
                   ]}
                   height={250}
                 />

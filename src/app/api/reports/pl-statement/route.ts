@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
     const now = new Date();
     const defaultStart = startDate || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
     const defaultEnd = endDate || new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    const toNum = (v: any) => (v === null || v === undefined ? 0 : Number(v));
 
     // Use historical P&L calculation for accurate costs
     const historicalPNL = await HistoricalPNLCalculator.calculatePNLForPeriod(
@@ -66,6 +67,22 @@ export async function GET(request: NextRequest) {
       console.warn('pl-statement operating expenses query failed, defaulting to 0s');
     }
 
+    // Courier expenses (canteen shipping — separate table)
+    let courierShipping = 0;
+    try {
+      const courierRes = await db.execute(sql`
+        SELECT COALESCE(SUM(cost), 0) AS total_courier
+        FROM courier_expenses
+        WHERE courier_date >= ${defaultStart} AND courier_date <= ${defaultEnd}
+      `);
+      const courierRow =
+        (courierRes as any)?.rows?.[0] ??
+        (Array.isArray(courierRes) ? (courierRes as any)[0] : undefined);
+      if (courierRow) courierShipping = toNum((courierRow as any).total_courier);
+    } catch (e) {
+      console.warn('pl-statement courier_expenses query failed (table may be missing)');
+    }
+
     // Loan payments (interest expense + principal payment tracking)
     let loanData: any = { total_payments: 0, interest_expense: 0, principal_payments: 0, loan_count: 0 };
     try {
@@ -85,12 +102,11 @@ export async function GET(request: NextRequest) {
       console.warn('pl-statement loan payments query failed, defaulting to 0s');
     }
 
-    const toNum = (v: any) => (v === null || v === undefined ? 0 : Number(v));
-    
     // Use historical P&L data for accurate calculations
     const totalRevenue = historicalPNL.summary.totalRevenue || toNum(revenue.total_revenue);
     const totalCOGS = historicalPNL.summary.totalCost;
-    const totalOpEx = toNum(opx.total_expenses);
+    const totalOpExBase = toNum(opx.total_expenses);
+    const totalOpEx = totalOpExBase + courierShipping;
     const loanInterestExpense = toNum(loanData.interest_expense);
 
     const grossProfit = totalRevenue - totalCOGS;
@@ -122,6 +138,7 @@ export async function GET(request: NextRequest) {
           utilities: toNum(opx.utility_expenses),
           maintenance: toNum(opx.maintenance_expenses),
           other: toNum(opx.other_expenses),
+          courierShipping,
           totalOperatingExpenses: totalOpEx
         },
         operatingProfit: { amount: operatingProfit, margin: pct(operatingProfit) },

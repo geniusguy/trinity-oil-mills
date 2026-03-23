@@ -37,7 +37,7 @@ export default function RawMaterialsPage() {
   const [purchases, setPurchases] = useState<RawMaterialPurchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('oil-tins');
+  const [activeTab, setActiveTab] = useState('seeds');
   const [showAddForm, setShowAddForm] = useState(false);
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
@@ -54,7 +54,7 @@ export default function RawMaterialsPage() {
   // Filter states
   const [filters, setFilters] = useState({
     search: '',
-    category: 'all',
+    category: 'seeds',
     stockStatus: 'all',
     supplier: 'all',
     sortBy: 'name',
@@ -68,7 +68,7 @@ export default function RawMaterialsPage() {
   // Form states
   const [materialForm, setMaterialForm] = useState({
     name: '',
-    category: 'packaging',
+    category: 'seeds',
     type: '',
     description: '',
     unit: 'pieces',
@@ -725,7 +725,7 @@ export default function RawMaterialsPage() {
         }
       ];
 
-      setRawMaterials(mockMaterials);
+      setRawMaterials(mockMaterials.filter(m => m.category === 'seeds'));
     } catch (err) {
       setError('Failed to fetch raw materials data');
     } finally {
@@ -745,7 +745,7 @@ export default function RawMaterialsPage() {
       setRawMaterials([...rawMaterials, newMaterial]);
       setMaterialForm({
         name: '',
-        category: 'packaging',
+        category: 'seeds',
         type: '',
         description: '',
         unit: 'pieces',
@@ -826,7 +826,7 @@ export default function RawMaterialsPage() {
       setEditingMaterial(null);
       setMaterialForm({
         name: '',
-        category: 'packaging',
+        category: 'seeds',
         type: '',
         description: '',
         unit: 'pieces',
@@ -906,11 +906,8 @@ export default function RawMaterialsPage() {
       // Supplier filter
       const supplierMatch = filters.supplier === 'all' || material.supplier === filters.supplier;
 
-      // Active tab filter
-      const tabMatch = activeTab === 'oil-tins' && material.category === 'oil_tins' ||
-        activeTab === 'packaging' && material.category === 'packaging' ||
-        activeTab === 'labels' && material.type === 'label' ||
-        activeTab === 'seeds' && material.category === 'seeds';
+      // Seeds-only mode
+      const tabMatch = material.category === 'seeds';
 
       return searchMatch && categoryMatch && stockMatch && supplierMatch && tabMatch;
     });
@@ -966,7 +963,7 @@ export default function RawMaterialsPage() {
   const clearFilters = () => {
     setFilters({
       search: '',
-      category: 'all',
+      category: 'seeds',
       stockStatus: 'all',
       supplier: 'all',
       sortBy: 'name',
@@ -1278,23 +1275,11 @@ export default function RawMaterialsPage() {
       <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">🏭 Raw Materials Management</h1>
-          <p className="text-gray-600 mt-1">Manage oil tins, packaging materials, and production inputs</p>
+          <p className="text-gray-600 mt-1">Seeds only view — manage seed inventory and seed purchases</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => setShowOilTinForm(true)} className="bg-orange-600 hover:bg-orange-700">
-            🛢️ Add Oil Tin
-          </Button>
-          <Button onClick={() => setShowBottlePouringForm(true)} className="bg-blue-600 hover:bg-blue-700">
-            🍶 Pour Bottles
-          </Button>
-          <Button onClick={() => setShowBulkLabelForm(true)} className="bg-purple-600 hover:bg-purple-700">
-            🏷️ Bulk Labels
-          </Button>
-          <Button onClick={() => setShowRetailSalesForm(true)} className="bg-green-600 hover:bg-green-700">
-            💰 Retail Sales
-          </Button>
           <Button onClick={() => setShowAddForm(true)} className="bg-green-600 hover:bg-green-700">
-            ➕ Add Material
+            ➕ Add Seed
           </Button>
           <Button onClick={exportToCSV} variant="outline" className="border-gray-300">
             📊 Export CSV
@@ -1327,12 +1312,7 @@ export default function RawMaterialsPage() {
                 onChange={(e) => setFilters({...filters, category: e.target.value})}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
               >
-                <option value="all">All Categories</option>
-                <option value="oil_tins">Oil TINs</option>
-                <option value="packaging">Packaging</option>
                 <option value="seeds">Seeds</option>
-                <option value="chemicals">Chemicals</option>
-                <option value="equipment">Equipment</option>
               </select>
             </div>
 
@@ -1400,7 +1380,7 @@ export default function RawMaterialsPage() {
           {/* Filter Results Summary */}
           <div className="mt-3 flex justify-between items-center">
             <div className="text-sm text-gray-600">
-              Showing {getFilteredAndSortedMaterials().length} of {rawMaterials.length} materials
+              Showing {getFilteredAndSortedMaterials().length} of {rawMaterials.filter(m => m.category === 'seeds').length} seeds
               {selectedMaterials.length > 0 && (
                 <span className="ml-2 text-blue-600 font-medium">
                   ({selectedMaterials.length} selected)
@@ -1438,144 +1418,38 @@ export default function RawMaterialsPage() {
         </div>
       </Card>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <div className="p-4 text-center">
-            <div className="text-3xl font-bold text-orange-600">
-              {rawMaterials.filter(m => m.category === 'oil_tins').length}
-            </div>
-            <div className="text-sm text-gray-600 mt-1">Oil TINs (16L)</div>
-            <div className="text-xs text-gray-500 mt-1">
-              {rawMaterials.filter(m => m.category === 'oil_tins').reduce((sum, m) => sum + m.currentStock, 0).toFixed(1)} tins total
-            </div>
-          </div>
-        </Card>
-        <Card>
-          <div className="p-4 text-center">
-            <div className="text-3xl font-bold text-green-600">
-              {rawMaterials.filter(m => m.category === 'packaging').length}
-            </div>
-            <div className="text-sm text-gray-600 mt-1">Packaging Materials</div>
-          </div>
-        </Card>
-        <Card>
-          <div className="p-4 text-center">
-            <div className="text-3xl font-bold text-purple-600">
-              {rawMaterials.filter(m => m.type === 'label').length}
-            </div>
-            <div className="text-sm text-gray-600 mt-1">Label Types</div>
-            <div className="text-xs text-gray-500 mt-1">
-              {rawMaterials.filter(m => m.type === 'label').reduce((sum, m) => sum + m.currentStock, 0).toLocaleString()} labels total
-            </div>
-          </div>
-        </Card>
+      {/* Seeds summary */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <div className="p-4 text-center">
             <div className="text-3xl font-bold text-blue-600">
               {rawMaterials.filter(m => m.category === 'seeds').length}
             </div>
-            <div className="text-sm text-gray-600 mt-1">Raw Seeds</div>
+            <div className="text-sm text-gray-600 mt-1">Seed Types</div>
           </div>
         </Card>
-      </div>
-
-      {/* Oil Production Overview */}
-      <Card>
-        <div className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">🛢️ Oil Production Overview</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {rawMaterials.filter(m => m.category === 'oil_tins').map(tin => (
-              <div key={tin.id} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-medium text-gray-900">{tin.name}</h4>
-                  <span className="text-sm text-gray-500">{tin.currentStock.toFixed(1)} tins</span>
-                </div>
-                <div className="space-y-1">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Available Oil:</span>
-                    <span className="font-medium">{(tin.currentStock * 16).toFixed(1)}L</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Cost per Tin:</span>
-                    <span className="font-medium">₹{tin.costPerUnit.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Total Value:</span>
-                    <span className="font-medium">₹{(tin.currentStock * tin.costPerUnit).toLocaleString()}</span>
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-orange-500 h-2 rounded-full" 
-                      style={{ width: `${Math.min((tin.currentStock / 10) * 100, 100)}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Stock Level: {tin.currentStock >= 10 ? 'High' : tin.currentStock >= 5 ? 'Medium' : 'Low'}
-                  </p>
-                </div>
-              </div>
-            ))}
+        <Card>
+          <div className="p-4 text-center">
+            <div className="text-3xl font-bold text-green-600">
+              {rawMaterials.filter(m => m.category === 'seeds').reduce((sum, m) => sum + m.currentStock, 0).toLocaleString()}
+            </div>
+            <div className="text-sm text-gray-600 mt-1">Total Seed Stock</div>
           </div>
-        </div>
-      </Card>
-
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
-          <button
-            onClick={() => setActiveTab('oil-tins')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'oil-tins'
-                ? 'border-orange-500 text-orange-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            🛢️ Oil TINs (16L)
-          </button>
-          <button
-            onClick={() => setActiveTab('packaging')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'packaging'
-                ? 'border-green-500 text-green-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            📦 Packaging Materials
-          </button>
-          <button
-            onClick={() => setActiveTab('labels')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'labels'
-                ? 'border-purple-500 text-purple-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            🏷️ Labels
-          </button>
-          <button
-            onClick={() => setActiveTab('seeds')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'seeds'
-                ? 'border-green-500 text-green-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            🌱 Seeds & Raw Materials
-          </button>
-        </nav>
+        </Card>
+        <Card>
+          <div className="p-4 text-center">
+            <div className="text-3xl font-bold text-emerald-700">
+              ₹{rawMaterials.filter(m => m.category === 'seeds').reduce((sum, m) => sum + (m.currentStock * m.costPerUnit), 0).toLocaleString()}
+            </div>
+            <div className="text-sm text-gray-600 mt-1">Seed Inventory Value</div>
+          </div>
+        </Card>
       </div>
 
       {/* Materials Table */}
       <Card>
         <div className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            {activeTab === 'oil-tins' ? 'Oil TINs (16L)' : 
-             activeTab === 'packaging' ? 'Packaging Materials' : 
-             activeTab === 'labels' ? 'Labels' : 'Seeds & Raw Materials'}
-          </h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Seeds</h3>
           <div className="overflow-x-auto">
             <table className="min-w-full">
               <thead>
@@ -1703,10 +1577,7 @@ export default function RawMaterialsPage() {
                   onChange={(e) => setMaterialForm({...materialForm, category: e.target.value})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                 >
-                  <option value="packaging">Packaging</option>
                   <option value="seeds">Seeds</option>
-                  <option value="chemicals">Chemicals</option>
-                  <option value="equipment">Equipment</option>
                 </select>
               </div>
 
@@ -1771,15 +1642,15 @@ export default function RawMaterialsPage() {
             <h3 className="text-lg font-semibold mb-4">Record Purchase</h3>
             <form onSubmit={handlePurchase} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Material *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Seed *</label>
                 <select
                   value={purchaseForm.rawMaterialId}
                   onChange={(e) => setPurchaseForm({...purchaseForm, rawMaterialId: e.target.value})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   required
                 >
-                  <option value="">Select Material</option>
-                  {rawMaterials.map(material => (
+                  <option value="">Select Seed</option>
+                  {rawMaterials.filter(material => material.category === 'seeds').map(material => (
                     <option key={material.id} value={material.id}>
                       {material.name} (₹{material.costPerUnit}/{material.unit})
                     </option>
@@ -1864,10 +1735,7 @@ export default function RawMaterialsPage() {
                   onChange={(e) => setMaterialForm({...materialForm, category: e.target.value})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                 >
-                  <option value="packaging">Packaging</option>
                   <option value="seeds">Seeds</option>
-                  <option value="chemicals">Chemicals</option>
-                  <option value="equipment">Equipment</option>
                 </select>
               </div>
 

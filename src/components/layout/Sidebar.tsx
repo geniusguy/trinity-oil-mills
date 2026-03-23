@@ -165,7 +165,16 @@ const navigationSections: NavSection[] = [
         ),
         roles: ['admin', 'accountant', 'retail_staff']
       },
-      // Raw Materials is intentionally hidden for now.
+      {
+        name: 'Raw Materials',
+        href: '/dashboard/admin/raw-materials',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V7a2 2 0 00-2-2h-3V3a1 1 0 00-1-1h-4a1 1 0 00-1 1v2H6a2 2 0 00-2 2v6m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0H4m5 0a3 3 0 006 0" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff']
+      },
       {
         name: 'Price Management',
         href: '/dashboard/admin/price-management',
@@ -206,6 +215,17 @@ const navigationSections: NavSection[] = [
         ),
         roles: ['admin', 'accountant'],
         description: 'Track daily business expenses'
+      },
+      {
+        name: 'Courier Expenses',
+        href: '/dashboard/admin/courier-expenses',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant'],
+        badge: 'NEW'
       },
       {
         name: 'Loan Management',
@@ -296,7 +316,7 @@ const navigationSections: NavSection[] = [
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
           </svg>
         ),
-        roles: ['admin', 'accountant'],
+        roles: ['admin', 'accountant', 'retail_staff'],
         description: 'Production cost calculation tool'
       }
     ],
