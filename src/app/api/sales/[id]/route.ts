@@ -62,7 +62,8 @@ export async function PUT(
 ) {
   try {
     const session = await auth();
-    if (!session || session.user?.role !== 'admin') {
+    const allowedRoles = ['admin', 'accountant', 'retail_staff'];
+    if (!session || !allowedRoles.includes(session.user?.role || '')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -83,12 +84,35 @@ export async function PUT(
       keptOnDisplay,
       courierWeightOrRs,
       mailSentHoDate,
+      referencePdfPath,
+      referencePdfOriginalName,
     } = requestData;
 
     console.log('Received update data:', requestData); // Debug log
     console.log('Canteen Address ID to update:', canteenAddressId); // Debug log
 
     const connection = await createConnection();
+
+    // Ensure optional PDF columns exist on older databases (MariaDB-safe).
+    // Some MariaDB versions do not support ADD COLUMN IF NOT EXISTS reliably.
+    try {
+      const [pCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "reference_pdf_path"');
+      const hasPath = Array.isArray(pCols) && pCols.length > 0;
+      if (!hasPath) {
+        await connection.execute('ALTER TABLE sales ADD COLUMN reference_pdf_path VARCHAR(500) NULL');
+      }
+    } catch (e) {
+      console.log('Could not ensure reference_pdf_path:', (e as Error).message);
+    }
+    try {
+      const [nCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "reference_pdf_original_name"');
+      const hasName = Array.isArray(nCols) && nCols.length > 0;
+      if (!hasName) {
+        await connection.execute('ALTER TABLE sales ADD COLUMN reference_pdf_original_name VARCHAR(255) NULL');
+      }
+    } catch (e) {
+      console.log('Could not ensure reference_pdf_original_name:', (e as Error).message);
+    }
 
     // Check if po_number column exists
     let hasPoNumberColumn = false;
@@ -223,6 +247,30 @@ export async function PUT(
         const trimmed = typeof mailSentHoDate === 'string' ? mailSentHoDate.trim() : '';
         updateFields.push('mail_sent_ho_date = ?');
         updateValues.push(trimmed ? trimmed.slice(0, 10) : null);
+      }
+    } catch (_) {}
+
+    // reference_pdf_* (optional attachment from POS/canteen edit)
+    try {
+      const [pCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "reference_pdf_path"');
+      const hasRefPdfPath = Array.isArray(pCols) && pCols.length > 0;
+      if (hasRefPdfPath && referencePdfPath !== undefined) {
+        const v = referencePdfPath && String(referencePdfPath).trim() ? String(referencePdfPath).trim() : null;
+        updateFields.push('reference_pdf_path = ?');
+        updateValues.push(v);
+      }
+    } catch (_) {}
+
+    try {
+      const [nCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "reference_pdf_original_name"');
+      const hasRefPdfName = Array.isArray(nCols) && nCols.length > 0;
+      if (hasRefPdfName && referencePdfOriginalName !== undefined) {
+        const v =
+          referencePdfOriginalName && String(referencePdfOriginalName).trim()
+            ? String(referencePdfOriginalName).trim()
+            : null;
+        updateFields.push('reference_pdf_original_name = ?');
+        updateValues.push(v);
       }
     } catch (_) {}
 

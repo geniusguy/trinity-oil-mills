@@ -133,6 +133,7 @@ export default function CourierExpensesPage() {
   const [billPdfError, setBillPdfError] = useState<string>('');
   const [existingPdfPath, setExistingPdfPath] = useState<string | null>(null);
   const [existingPdfOriginalName, setExistingPdfOriginalName] = useState<string | null>(null);
+  const [removeExistingPdf, setRemoveExistingPdf] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FormFieldKey, string>>>({});
   const courierDateRef = useRef<HTMLInputElement | null>(null);
   const quantityRef = useRef<HTMLInputElement | null>(null);
@@ -270,6 +271,7 @@ export default function CourierExpensesPage() {
     setBillPdfError('');
     setExistingPdfPath(null);
     setExistingPdfOriginalName(null);
+    setRemoveExistingPdf(false);
     setFieldErrors({});
     setForm({
       courierDate: toYmd(new Date()),
@@ -295,6 +297,7 @@ export default function CourierExpensesPage() {
     setBillPdfError('');
     setExistingPdfPath(r.referencePdfPath || null);
     setExistingPdfOriginalName(r.referencePdfOriginalName || null);
+    setRemoveExistingPdf(false);
     setForm({
       courierDate: r.courierDate,
       quantity: String(r.quantity),
@@ -467,8 +470,8 @@ export default function CourierExpensesPage() {
           return;
         }
 
-        let uploadedReferencePdfPath: string | null = existingPdfPath;
-        let uploadedReferencePdfOriginalName: string | null = existingPdfOriginalName;
+        let uploadedReferencePdfPath: string | null = removeExistingPdf ? null : existingPdfPath;
+        let uploadedReferencePdfOriginalName: string | null = removeExistingPdf ? null : existingPdfOriginalName;
         if (billPdfFile) {
           setBillPdfError('');
           const fd = new FormData();
@@ -1168,6 +1171,16 @@ export default function CourierExpensesPage() {
                   >
                     View current PDF{existingPdfOriginalName ? ` (${existingPdfOriginalName})` : ''}
                   </a>
+                )}
+                {editingId && existingPdfPath && (
+                  <label className="mt-2 inline-flex items-center gap-2 text-xs text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={removeExistingPdf}
+                      onChange={(e) => setRemoveExistingPdf(e.target.checked)}
+                    />
+                    Remove current PDF on save
+                  </label>
                 )}
                 {billPdfError && <p className="text-xs text-red-600 mt-1">{billPdfError}</p>}
               </div>

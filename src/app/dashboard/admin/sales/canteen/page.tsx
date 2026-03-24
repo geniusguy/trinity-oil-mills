@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -37,6 +37,8 @@ interface Sale {
   keptOnDisplay?: number | boolean;
   courierWeightOrRs?: string | null;
   mailSentHoDate?: string | null;
+  referencePdfPath?: string | null;
+  referencePdfOriginalName?: string | null;
 }
 
 interface CanteenAddress {
@@ -82,6 +84,10 @@ export default function CanteenSalesPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [editReferencePdfFile, setEditReferencePdfFile] = useState<File | null>(null);
+  const [editReferencePdfError, setEditReferencePdfError] = useState('');
+  const [removeExistingReferencePdf, setRemoveExistingReferencePdf] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [editForm, setEditForm] = useState({
     paymentStatus: '',
     shipmentStatus: '',
@@ -427,6 +433,9 @@ export default function CanteenSalesPage() {
     setShowEditModal(true);
     setError('');
     setSuccess('');
+    setEditReferencePdfFile(null);
+    setEditReferencePdfError('');
+    setRemoveExistingReferencePdf(false);
   };
 
   const handleDeleteSale = (sale: Sale) => {
@@ -445,11 +454,37 @@ export default function CanteenSalesPage() {
       
       // Prepare data for update
       const updateData = { ...editForm };
+
+      // Optional PDF upload from edit modal
+      let uploadedReferencePdfPath: string | null = removeExistingReferencePdf ? null : selectedSale.referencePdfPath || null;
+      let uploadedReferencePdfOriginalName: string | null =
+        removeExistingReferencePdf ? null : selectedSale.referencePdfOriginalName || null;
+      if (editReferencePdfFile) {
+        setEditReferencePdfError('');
+        const fd = new FormData();
+        fd.append('file', editReferencePdfFile);
+        fd.append('scope', 'sales');
+        const upRes = await fetch('/api/uploads/reference-pdf', {
+          method: 'POST',
+          body: fd,
+          credentials: 'include',
+        });
+        const upJson = await upRes.json();
+        if (!upRes.ok) {
+          const msg = upJson.error || 'PDF upload failed';
+          setEditReferencePdfError(msg);
+          throw new Error(msg);
+        }
+        uploadedReferencePdfPath = upJson.path || null;
+        uploadedReferencePdfOriginalName = upJson.originalName || null;
+      }
       
       // Combine mode of sales with email if it's an email order
       if (editForm.modeOfSales === 'email' && editForm.customerEmail) {
         updateData.modeOfSales = `email:${editForm.customerEmail}`;
       }
+      (updateData as any).referencePdfPath = uploadedReferencePdfPath;
+      (updateData as any).referencePdfOriginalName = uploadedReferencePdfOriginalName;
       
       console.log('Updating sale with data:', updateData); // Debug log
       
@@ -524,6 +559,9 @@ export default function CanteenSalesPage() {
       courierWeightOrRs: '',
       mailSentHoDate: '',
     });
+    setEditReferencePdfFile(null);
+    setEditReferencePdfError('');
+    setRemoveExistingReferencePdf(false);
   };
 
   const closeDeleteModal = () => {
@@ -957,6 +995,21 @@ export default function CanteenSalesPage() {
                           <span className="font-semibold">HO Date:</span>{' '}
                           {(sale as any).mailSentHoDate ? new Date((sale as any).mailSentHoDate).toLocaleDateString('en-GB') : '—'}
                         </div>
+                        <div className="text-xs text-gray-500">
+                          <span className="font-semibold">Reference PDF:</span>{' '}
+                          {sale.referencePdfPath ? (
+                            <a
+                              href={sale.referencePdfPath}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-indigo-600 hover:text-indigo-900 font-medium underline"
+                            >
+                              View PDF
+                            </a>
+                          ) : (
+                            '—'
+                          )}
+                        </div>
                       </div>
                     </td>
                     
@@ -994,14 +1047,14 @@ export default function CanteenSalesPage() {
                         >
                           📄 Invoice
                         </a>
-                        {(sale as any).referencePdfPath && (
+                        {sale.referencePdfPath && (
                           <a
-                            href={(sale as any).referencePdfPath}
+                            href={sale.referencePdfPath}
                             target="_blank"
                             rel="noreferrer"
                             className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
                           >
-                            📎 View Reference PDF
+                            📎 View PDF
                           </a>
                         )}
                         <button 
@@ -1028,18 +1081,18 @@ export default function CanteenSalesPage() {
 
       {/* Edit Sale Modal */}
       {showEditModal && selectedSale && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-10 mx-auto p-6 border w-full max-w-2xl shadow-lg rounded-md bg-white max-h-screen overflow-y-auto">
+        <div className="fixed inset-0 bg-gray-700/50 overflow-y-auto z-50">
+          <div className="min-h-full flex items-start justify-center p-3 sm:p-4 md:pt-8">
+          <div className="relative w-full max-w-5xl p-3 sm:p-4 md:p-5 border shadow-xl rounded-xl bg-white max-h-[94vh] overflow-y-auto">
             <div className="mt-3">
               <h3 className="text-lg font-medium text-gray-900 mb-4">
                 Edit Sale - {selectedSale.invoiceNumber}
-                <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded ml-2">Enhanced v2.0</span>
               </h3>
               
-              <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {/* Invoice Number */}
                 <div>
-                  <label htmlFor="invoiceNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="invoiceNumber" className="block text-xs font-medium text-gray-700 mb-1">
                     Invoice Number
                   </label>
                   <input
@@ -1047,7 +1100,7 @@ export default function CanteenSalesPage() {
                     type="text"
                     value={editForm.invoiceNumber}
                     onChange={(e) => setEditForm({ ...editForm, invoiceNumber: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     placeholder="e.g., C0000056/2025"
                   />
                   <p className="text-xs text-gray-500 mt-1">Format: C0001/2024-25 (FY) for canteen, R0001/2024-25 for retail. Legacy /2026 still accepted.</p>
@@ -1055,7 +1108,7 @@ export default function CanteenSalesPage() {
 
                 {/* PO Number */}
                 <div>
-                  <label htmlFor="poNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="poNumber" className="block text-xs font-medium text-gray-700 mb-1">
                     PO Number (Customer Reference)
                   </label>
                   <input
@@ -1063,7 +1116,7 @@ export default function CanteenSalesPage() {
                     type="text"
                     value={editForm.poNumber}
                     onChange={(e) => setEditForm({ ...editForm, poNumber: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     placeholder="e.g., PO-2025-001, REQ-123, 56-2025"
                   />
                   <p className="text-xs text-gray-500 mt-1">Customer's Purchase Order number</p>
@@ -1071,7 +1124,7 @@ export default function CanteenSalesPage() {
 
                 {/* PO Date */}
                 <div>
-                  <label htmlFor="poDate" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="poDate" className="block text-xs font-medium text-gray-700 mb-1">
                     PO Date (Optional)
                   </label>
                   <input
@@ -1079,14 +1132,14 @@ export default function CanteenSalesPage() {
                     type="date"
                     value={editForm.poDate}
                     onChange={(e) => setEditForm({ ...editForm, poDate: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   />
                   <p className="text-xs text-gray-500 mt-1">Purchase Order Date - appears as "Dated: [selected date]" on invoice</p>
                 </div>
 
                 {/* Invoice Date */}
                 <div>
-                  <label htmlFor="invoiceDate" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="invoiceDate" className="block text-xs font-medium text-gray-700 mb-1">
                     Invoice Date (Optional)
                   </label>
                   <input
@@ -1094,14 +1147,14 @@ export default function CanteenSalesPage() {
                     type="date"
                     value={editForm.invoiceDate}
                     onChange={(e) => setEditForm({ ...editForm, invoiceDate: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   />
                   <p className="text-xs text-gray-500 mt-1">Invoice Date used when generating the invoice; defaults to created date if empty.</p>
                 </div>
 
                 {/* Mode of Sales */}
                 <div>
-                  <label htmlFor="modeOfSales" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="modeOfSales" className="block text-xs font-medium text-gray-700 mb-1">
                     Mode of Sales
                   </label>
                   <select
@@ -1113,7 +1166,7 @@ export default function CanteenSalesPage() {
                         setEditForm(prev => ({ ...prev, customerEmail: '' }));
                       }
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   >
                     <option value="">Select mode...</option>
                     <option value="email">📧 Email Order</option>
@@ -1134,7 +1187,7 @@ export default function CanteenSalesPage() {
                         value={editForm.customerEmail}
                         onChange={(e) => setEditForm({ ...editForm, customerEmail: e.target.value })}
                         placeholder="customer@example.com"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                       />
                     </div>
                   )}
@@ -1143,8 +1196,8 @@ export default function CanteenSalesPage() {
                 </div>
 
                 {/* Customer/Canteen Selection */}
-                <div>
-                  <label htmlFor="canteenAddressId" className="block text-sm font-medium text-gray-700 mb-1">
+                <div className="md:col-span-2 xl:col-span-3">
+                  <label htmlFor="canteenAddressId" className="block text-xs font-medium text-gray-700 mb-1">
                     {selectedSale?.saleType === 'canteen' ? 'Select Canteen' : 'Customer Name'}
                   </label>
                   {selectedSale?.saleType === 'canteen' ? (
@@ -1152,7 +1205,7 @@ export default function CanteenSalesPage() {
                       id="canteenAddressId"
                       value={editForm.canteenAddressId}
                       onChange={(e) => setEditForm({ ...editForm, canteenAddressId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     >
                       <option value="">Choose canteen...</option>
                       {canteenAddresses.map((address) => (
@@ -1167,7 +1220,7 @@ export default function CanteenSalesPage() {
                       type="text"
                       value={editForm.customerName}
                       onChange={(e) => setEditForm({ ...editForm, customerName: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                       placeholder="Enter customer name..."
                     />
                   )}
@@ -1176,14 +1229,14 @@ export default function CanteenSalesPage() {
                 {/* Kept on display (Canteen only) */}
                 {selectedSale?.saleType === 'canteen' && (
                   <div>
-                    <label htmlFor="keptOnDisplay" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="keptOnDisplay" className="block text-xs font-medium text-gray-700 mb-1">
                       Kept on display
                     </label>
                     <select
                       id="keptOnDisplay"
                       value={editForm.keptOnDisplay ? 'yes' : 'no'}
                       onChange={(e) => setEditForm({ ...editForm, keptOnDisplay: e.target.value === 'yes' })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     >
                       <option value="no">No</option>
                       <option value="yes">Yes</option>
@@ -1195,7 +1248,7 @@ export default function CanteenSalesPage() {
                 {/* Mail sent HO date (Canteen only) */}
                 {selectedSale?.saleType === 'canteen' && (
                   <div>
-                    <label htmlFor="mailSentHoDate" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="mailSentHoDate" className="block text-xs font-medium text-gray-700 mb-1">
                       Mail sent HO (Date)
                     </label>
                     <input
@@ -1203,15 +1256,15 @@ export default function CanteenSalesPage() {
                       type="date"
                       value={(editForm as any).mailSentHoDate}
                       onChange={(e) => setEditForm({ ...(editForm as any), mailSentHoDate: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                 )}
 
-                {/* Courier weig/rs (Canteen only) */}
+                    {/* Courier weig/rs (Canteen only) */}
                 {selectedSale?.saleType === 'canteen' && (
                   <div>
-                    <label htmlFor="courierWeightOrRs" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="courierWeightOrRs" className="block text-xs font-medium text-gray-700 mb-1">
                       Courier weig/rs
                     </label>
                     <input
@@ -1219,16 +1272,94 @@ export default function CanteenSalesPage() {
                       type="text"
                       value={(editForm as any).courierWeightOrRs}
                       onChange={(e) => setEditForm({ ...(editForm as any), courierWeightOrRs: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                       placeholder='e.g. "12kg" or "₹450"'
                     />
                     <p className="text-xs text-gray-500 mt-1">You can type weight or amount.</p>
                   </div>
                 )}
 
+                {/* PDF attachment (Canteen only) */}
+                {selectedSale?.saleType === 'canteen' && (
+                  <div className="md:col-span-2 xl:col-span-3">
+                    <label className="block text-sm font-bold text-gray-800 mb-2">
+                      Attach Courier / Canteen Bill PDF (optional)
+                    </label>
+                    {selectedSale.referencePdfPath && !editReferencePdfFile && (
+                      <div className="mb-2">
+                        <a
+                          href={selectedSale.referencePdfPath}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-indigo-600 hover:text-indigo-900 font-medium underline"
+                        >
+                          View current PDF
+                          {selectedSale.referencePdfOriginalName ? ` (${selectedSale.referencePdfOriginalName})` : ''}
+                        </a>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="application/pdf"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0] || null;
+                          setEditReferencePdfError('');
+                          if (!f) {
+                            setEditReferencePdfFile(null);
+                            return;
+                          }
+                          const isPdf =
+                            String(f.type || '').toLowerCase().includes('pdf') ||
+                            String(f.name || '').toLowerCase().endsWith('.pdf');
+                          if (!isPdf) {
+                            setEditReferencePdfFile(null);
+                            setEditReferencePdfError('Only PDF files are allowed');
+                            return;
+                          }
+                          const maxBytes = 20 * 1024 * 1024;
+                          if (typeof f.size === 'number' && f.size > maxBytes) {
+                            setEditReferencePdfFile(null);
+                            setEditReferencePdfError('PDF too large (max 20MB)');
+                            return;
+                          }
+                          setEditReferencePdfFile(f);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-3 py-1.5 border border-gray-300 rounded-md bg-white hover:bg-gray-50 text-sm font-medium"
+                      >
+                        Browse...
+                      </button>
+                      {editReferencePdfFile ? (
+                        <span className="text-xs text-gray-600">Selected: {editReferencePdfFile.name}</span>
+                      ) : (
+                        <span className="text-xs text-gray-500">No file selected</span>
+                      )}
+                    </div>
+                    {selectedSale.referencePdfPath && (
+                      <label className="mt-2 inline-flex items-center gap-2 text-xs text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={removeExistingReferencePdf}
+                          onChange={(e) => setRemoveExistingReferencePdf(e.target.checked)}
+                        />
+                        Remove current PDF on save
+                      </label>
+                    )}
+                    {editReferencePdfError && (
+                      <p className="text-xs text-red-600 mt-1">{editReferencePdfError}</p>
+                    )}
+                  </div>
+                )}
+
                 {/* Payment Method */}
                 <div>
-                  <label htmlFor="paymentMethod" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="paymentMethod" className="block text-xs font-medium text-gray-700 mb-1">
                     Payment Method
                   </label>
                   {selectedSale?.saleType === 'canteen' ? (
@@ -1248,7 +1379,7 @@ export default function CanteenSalesPage() {
                         id="paymentMethod"
                         value={editForm.paymentMethod}
                         onChange={(e) => setEditForm({ ...editForm, paymentMethod: e.target.value })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                        className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                       >
                         <option value="credit">Credit (Default)</option>
                         <option value="cash">Cash</option>
@@ -1261,7 +1392,7 @@ export default function CanteenSalesPage() {
                       id="paymentMethod"
                       value={editForm.paymentMethod}
                       onChange={(e) => setEditForm({ ...editForm, paymentMethod: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                     >
                       <option value="cash">Cash</option>
                       <option value="card">Card</option>
@@ -1272,14 +1403,14 @@ export default function CanteenSalesPage() {
                 </div>
 
                 <div>
-                  <label htmlFor="paymentStatus" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="paymentStatus" className="block text-xs font-medium text-gray-700 mb-1">
                     Payment Status
                   </label>
                   <select
                     id="paymentStatus"
                     value={editForm.paymentStatus}
                     onChange={(e) => setEditForm({ ...editForm, paymentStatus: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   >
                     <option value="pending">Pending</option>
                     <option value="paid">Credited to our account</option>
@@ -1289,14 +1420,14 @@ export default function CanteenSalesPage() {
                 </div>
                 
                 <div>
-                  <label htmlFor="shipmentStatus" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="shipmentStatus" className="block text-xs font-medium text-gray-700 mb-1">
                     Shipment Status
                   </label>
                   <select
                     id="shipmentStatus"
                     value={editForm.shipmentStatus}
                     onChange={(e) => setEditForm({ ...editForm, shipmentStatus: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   >
                     <option value="courier">Courier</option>
                     <option value="walk_in_delivery">Walk in delivery</option>
@@ -1307,16 +1438,16 @@ export default function CanteenSalesPage() {
                   </select>
                 </div>
                 
-                <div>
-                  <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
+                <div className="md:col-span-2 xl:col-span-3">
+                  <label htmlFor="notes" className="block text-xs font-medium text-gray-700 mb-1">
                     Notes
                   </label>
                   <textarea
                     id="notes"
                     value={editForm.notes}
                     onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                    rows={3}
+                    className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    rows={2}
                     placeholder="Add any notes about this sale..."
                   />
                 </div>
@@ -1328,7 +1459,7 @@ export default function CanteenSalesPage() {
                 </div>
               )}
 
-              <div className="flex justify-end space-x-3 mt-6">
+              <div className="sticky bottom-0 bg-white pt-4 mt-6 border-t flex justify-end space-x-3">
                 <button
                   onClick={closeEditModal}
                   className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
@@ -1345,6 +1476,7 @@ export default function CanteenSalesPage() {
                 </button>
               </div>
             </div>
+          </div>
           </div>
         </div>
       )}
