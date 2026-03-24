@@ -1164,7 +1164,7 @@ export default function CourierExpensesPage() {
                 {billPdfFile && <p className="text-xs text-slate-500 mt-1">Selected: {billPdfFile.name}</p>}
                 {!billPdfFile && existingPdfPath && (
                   <a
-                    href={existingPdfPath}
+                    href={`/api/uploads/inline?path=${encodeURIComponent(existingPdfPath)}`}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-block mt-1 text-xs text-indigo-600 hover:text-indigo-800 underline"
@@ -1349,7 +1349,7 @@ export default function CourierExpensesPage() {
                         {r.referencePdfPath && (
                           <div className="mt-1">
                             <a
-                              href={r.referencePdfPath}
+                              href={`/api/uploads/inline?path=${encodeURIComponent(r.referencePdfPath)}`}
                               target="_blank"
                               rel="noreferrer"
                               className="text-indigo-600 hover:text-indigo-800 text-[11px] font-medium underline"
