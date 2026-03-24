@@ -51,7 +51,10 @@ export async function GET(request: NextRequest) {
     // Summary (full filter, no pagination)
     const [aggRow] = await db
       .select({
-        totalCost: sum(courierExpenses.cost),
+        totalCostExGst: sum(courierExpenses.cost),
+        totalCgst: sum(courierExpenses.cgstAmount),
+        totalSgst: sum(courierExpenses.sgstAmount),
+        totalGst: sum(courierExpenses.gstAmount),
         totalQuantity: sum(courierExpenses.quantity),
         rowCount: count(),
       })
@@ -86,7 +89,10 @@ export async function GET(request: NextRequest) {
     const byCanteenRaw = await db
       .select({
         canteenAddressId: courierExpenses.canteenAddressId,
-        totalCost: sum(courierExpenses.cost),
+        totalCostExGst: sum(courierExpenses.cost),
+        totalCgst: sum(courierExpenses.cgstAmount),
+        totalSgst: sum(courierExpenses.sgstAmount),
+        totalGst: sum(courierExpenses.gstAmount),
         totalQuantity: sum(courierExpenses.quantity),
         entryCount: count(),
       })
@@ -94,16 +100,25 @@ export async function GET(request: NextRequest) {
       .where(whereClause)
       .groupBy(courierExpenses.canteenAddressId);
 
-    const byCanteen = byCanteenRaw.map((r) => ({
+    const byCanteen = byCanteenRaw.map((r) => {
+      const totalGstNum = toNum(r.totalGst);
+      const totalCgstNum = Math.round((totalGstNum / 2) * 100) / 100;
+      const totalSgstNum = Math.round((totalGstNum - totalCgstNum) * 100) / 100;
+      return {
       canteenAddressId: r.canteenAddressId,
       canteenName:
         (r.canteenAddressId
           ? canteenMap.get(String(r.canteenAddressId))?.canteenName
           : null) || (r.canteenAddressId ? '—' : 'Other / note only'),
-      totalCost: toNum(r.totalCost),
+      totalCostExGst: toNum(r.totalCostExGst),
+      totalCgst: totalCgstNum,
+      totalSgst: totalSgstNum,
+      totalGst: totalGstNum,
+      totalCost: toNum(r.totalCostExGst) + toNum(r.totalGst),
       totalQuantity: toNum(r.totalQuantity),
       entryCount: Number(r.entryCount ?? 0),
-    }));
+      };
+    });
 
     const orderDate = sortDir === 'asc' ? asc(courierExpenses.courierDate) : desc(courierExpenses.courierDate);
     const orderCost = sortDir === 'asc' ? asc(courierExpenses.cost) : desc(courierExpenses.cost);
@@ -116,11 +131,17 @@ export async function GET(request: NextRequest) {
         courierDate: courierExpenses.courierDate,
         quantity: courierExpenses.quantity,
         cost: courierExpenses.cost,
+        gstRate: courierExpenses.gstRate,
+        gstAmount: courierExpenses.gstAmount,
+        cgstAmount: courierExpenses.cgstAmount,
+        sgstAmount: courierExpenses.sgstAmount,
         canteenAddressId: courierExpenses.canteenAddressId,
         destinationNote: courierExpenses.destinationNote,
         notes: courierExpenses.notes,
         paymentMethod: courierExpenses.paymentMethod,
         referenceNo: courierExpenses.referenceNo,
+        referencePdfPath: courierExpenses.referencePdfPath,
+        referencePdfOriginalName: courierExpenses.referencePdfOriginalName,
         userId: courierExpenses.userId,
         createdAt: courierExpenses.createdAt,
         updatedAt: courierExpenses.updatedAt,
@@ -129,23 +150,35 @@ export async function GET(request: NextRequest) {
       .where(whereClause)
       .orderBy(orderExpr, desc(courierExpenses.id));
 
-    const dataRaw = rows.map((r) => ({
-      id: r.id,
-      courierDate: r.courierDate,
-      quantity: toNum(r.quantity),
-      cost: toNum(r.cost),
-      canteenAddressId: r.canteenAddressId,
-      destinationNote: r.destinationNote ?? '',
-      notes: r.notes ?? '',
-      paymentMethod: r.paymentMethod,
-      referenceNo: r.referenceNo ?? '',
-      userId: r.userId,
-      createdAt: r.createdAt?.toISOString?.() ?? null,
-      updatedAt: r.updatedAt?.toISOString?.() ?? null,
-      canteenName: r.canteenAddressId ? canteenMap.get(String(r.canteenAddressId))?.canteenName ?? null : null,
-      canteenCity: r.canteenAddressId ? canteenMap.get(String(r.canteenAddressId))?.city ?? null : null,
-      canteenAddressLine: r.canteenAddressId ? canteenMap.get(String(r.canteenAddressId))?.address ?? null : null,
-    }));
+    const dataRaw = rows.map((r) => {
+      const gstAmtNum = toNum((r as any).gstAmount);
+      const cgstNum = Math.round((gstAmtNum / 2) * 100) / 100;
+      const sgstNum = Math.round((gstAmtNum - cgstNum) * 100) / 100;
+      return {
+        id: r.id,
+        courierDate: r.courierDate,
+        quantity: toNum(r.quantity),
+        cost: toNum(r.cost),
+        gstRate: toNum((r as any).gstRate),
+        gstAmount: gstAmtNum,
+        cgstAmount: cgstNum,
+        sgstAmount: sgstNum,
+        totalAmount: toNum(r.cost) + gstAmtNum,
+        canteenAddressId: r.canteenAddressId,
+        destinationNote: r.destinationNote ?? '',
+        notes: r.notes ?? '',
+        paymentMethod: r.paymentMethod,
+        referenceNo: r.referenceNo ?? '',
+        referencePdfPath: (r as any).referencePdfPath ?? null,
+        referencePdfOriginalName: (r as any).referencePdfOriginalName ?? null,
+        userId: r.userId,
+        createdAt: r.createdAt?.toISOString?.() ?? null,
+        updatedAt: r.updatedAt?.toISOString?.() ?? null,
+        canteenName: r.canteenAddressId ? canteenMap.get(String(r.canteenAddressId))?.canteenName ?? null : null,
+        canteenCity: r.canteenAddressId ? canteenMap.get(String(r.canteenAddressId))?.city ?? null : null,
+        canteenAddressLine: r.canteenAddressId ? canteenMap.get(String(r.canteenAddressId))?.address ?? null : null,
+      };
+    });
 
     const data =
       sortBy === 'canteen'
@@ -161,7 +194,16 @@ export async function GET(request: NextRequest) {
       success: true,
       data,
       summary: {
-        totalCost: toNum(aggRow?.totalCost),
+        totalCostExGst: toNum(aggRow?.totalCostExGst),
+        totalGst: toNum(aggRow?.totalGst),
+        totalCgst: Math.round((toNum(aggRow?.totalGst) / 2) * 100) / 100,
+        totalSgst:
+          Math.round(
+            (toNum(aggRow?.totalGst) -
+              Math.round((toNum(aggRow?.totalGst) / 2) * 100) / 100) *
+              100,
+          ) / 100,
+        totalCost: toNum(aggRow?.totalCostExGst) + toNum(aggRow?.totalGst),
         totalQuantity: toNum(aggRow?.totalQuantity),
         count: Number(aggRow?.rowCount ?? 0),
       },
@@ -188,11 +230,15 @@ export async function POST(request: NextRequest) {
       courierDate,
       quantity,
       cost,
+      gstRate,
+      gstAmount,
       canteenAddressId,
       destinationNote,
       notes,
       paymentMethod,
       referenceNo,
+      referencePdfPath,
+      referencePdfOriginalName,
     } = body as Record<string, unknown>;
 
     if (!courierDate || String(courierDate).trim() === '') {
@@ -208,6 +254,21 @@ export async function POST(request: NextRequest) {
     if (Number.isNaN(costNum) || costNum <= 0) {
       return NextResponse.json({ success: false, error: 'Cost must be greater than 0' }, { status: 400 });
     }
+
+    const gstRateNum = gstRate == null || String(gstRate).trim() === '' ? 0 : Number(gstRate);
+    if (Number.isNaN(gstRateNum) || gstRateNum < 0) {
+      return NextResponse.json({ success: false, error: 'GST rate must be 0 or positive' }, { status: 400 });
+    }
+
+    const gstAmountNum =
+      gstAmount == null || String(gstAmount).trim() === '' ? (costNum * gstRateNum) / 100 : Number(gstAmount);
+    if (Number.isNaN(gstAmountNum) || gstAmountNum < 0) {
+      return NextResponse.json({ success: false, error: 'GST amount must be 0 or positive' }, { status: 400 });
+    }
+
+    // Intra-state split: GST = CGST + SGST (typically 50/50 for 18% => 9% + 9%).
+    const cgstAmountNum = Math.round((gstAmountNum / 2) * 100) / 100;
+    const sgstAmountNum = Math.round((gstAmountNum - cgstAmountNum) * 100) / 100;
 
     const cantId = canteenAddressId && String(canteenAddressId).trim() ? String(canteenAddressId).trim() : null;
     const dest = destinationNote != null ? String(destinationNote).trim() : '';
@@ -225,11 +286,21 @@ export async function POST(request: NextRequest) {
       courierDate: String(courierDate).slice(0, 10),
       quantity: String(qty),
       cost: String(costNum),
+      gstRate: String(gstRateNum),
+      gstAmount: String(gstAmountNum),
+      cgstAmount: String(cgstAmountNum),
+      sgstAmount: String(sgstAmountNum),
       canteenAddressId: cantId,
       destinationNote: dest || null,
       notes: notes != null && String(notes).trim() ? String(notes).trim() : null,
       paymentMethod: (paymentMethod && String(paymentMethod)) || 'cash',
       referenceNo: referenceNo != null && String(referenceNo).trim() ? String(referenceNo).trim() : null,
+      referencePdfPath:
+        referencePdfPath != null && String(referencePdfPath).trim() ? String(referencePdfPath).trim() : null,
+      referencePdfOriginalName:
+        referencePdfOriginalName != null && String(referencePdfOriginalName).trim()
+          ? String(referencePdfOriginalName).trim()
+          : null,
       userId: session.user.id,
       createdAt: new Date(),
       updatedAt: new Date(),

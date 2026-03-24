@@ -80,6 +80,15 @@ export async function POST(request: NextRequest) {
           console.log('total_tins column already exists or error:', error.message);
         }
 
+        // Optional reference PDF attachment from canteen POS
+        try {
+          await connection.execute('ALTER TABLE sales ADD COLUMN IF NOT EXISTS reference_pdf_path VARCHAR(500) NULL');
+          await connection.execute('ALTER TABLE sales ADD COLUMN IF NOT EXISTS reference_pdf_original_name VARCHAR(255) NULL');
+          console.log('Added reference_pdf_* columns to sales table');
+        } catch (error) {
+          console.log('reference_pdf_* columns already exists or error:', (error as Error).message);
+        }
+
         // Add billing / delivery contact columns to canteen_addresses if missing
         for (const [colName, def] of [
           ['billing_contact_person', 'VARCHAR(255) NULL'],
@@ -160,11 +169,17 @@ export async function POST(request: NextRequest) {
         courier_date DATE NOT NULL,
         quantity DECIMAL(12, 2) NOT NULL DEFAULT 0,
         cost DECIMAL(12, 2) NOT NULL,
+        gst_rate DECIMAL(5, 2) NOT NULL DEFAULT 0,
+        gst_amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
+        cgst_amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
+        sgst_amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
         canteen_address_id VARCHAR(255) NULL,
         destination_note TEXT NULL,
         notes TEXT NULL,
         payment_method VARCHAR(50) NOT NULL DEFAULT 'cash',
         reference_no VARCHAR(100) NULL,
+        reference_pdf_path VARCHAR(500) NULL,
+        reference_pdf_original_name VARCHAR(255) NULL,
         user_id VARCHAR(255) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -173,6 +188,66 @@ export async function POST(request: NextRequest) {
       )
     `;
     await connection.execute(courierExpensesSQL);
+
+    // Ensure GST columns exist for older databases
+    try {
+      const [gRateCols] = await connection.query('SHOW COLUMNS FROM courier_expenses LIKE "gst_rate"');
+      const hasGstRate = Array.isArray(gRateCols) && gRateCols.length > 0;
+      if (!hasGstRate) {
+        await connection.execute('ALTER TABLE courier_expenses ADD COLUMN gst_rate DECIMAL(5,2) NOT NULL DEFAULT 0');
+      }
+    } catch (_) {}
+
+    try {
+      const [gAmtCols] = await connection.query('SHOW COLUMNS FROM courier_expenses LIKE "gst_amount"');
+      const hasGstAmount = Array.isArray(gAmtCols) && gAmtCols.length > 0;
+      if (!hasGstAmount) {
+        await connection.execute('ALTER TABLE courier_expenses ADD COLUMN gst_amount DECIMAL(12,2) NOT NULL DEFAULT 0');
+      }
+    } catch (_) {}
+
+    // Ensure CGST/SGST columns exist for older databases
+    try {
+      const [cCols] = await connection.query('SHOW COLUMNS FROM courier_expenses LIKE "cgst_amount"');
+      const hasCgst = Array.isArray(cCols) && cCols.length > 0;
+      if (!hasCgst) {
+        await connection.execute('ALTER TABLE courier_expenses ADD COLUMN cgst_amount DECIMAL(12,2) NOT NULL DEFAULT 0');
+      }
+    } catch (_) {}
+
+    try {
+      const [sCols] = await connection.query('SHOW COLUMNS FROM courier_expenses LIKE "sgst_amount"');
+      const hasSgst = Array.isArray(sCols) && sCols.length > 0;
+      if (!hasSgst) {
+        await connection.execute('ALTER TABLE courier_expenses ADD COLUMN sgst_amount DECIMAL(12,2) NOT NULL DEFAULT 0');
+      }
+    } catch (_) {}
+
+    // Backfill CGST/SGST from gst_amount (common intra-state split).
+    try {
+      await connection.execute(`
+        UPDATE courier_expenses
+        SET
+          cgst_amount = ROUND(gst_amount / 2, 2),
+          sgst_amount = ROUND(gst_amount - (gst_amount / 2), 2)
+        WHERE gst_amount IS NOT NULL AND gst_amount > 0
+          AND (cgst_amount = 0 AND sgst_amount = 0)
+      `);
+    } catch (_) {}
+
+    // Reference PDF attachment columns (optional)
+    for (const [colName, colDef] of [
+      ['reference_pdf_path', 'VARCHAR(500) NULL'],
+      ['reference_pdf_original_name', 'VARCHAR(255) NULL'],
+    ]) {
+      try {
+        const [cols] = await connection.query(`SHOW COLUMNS FROM courier_expenses LIKE ?`, [colName]);
+        const hasCol = Array.isArray(cols) && cols.length > 0;
+        if (!hasCol) {
+          await connection.execute(`ALTER TABLE courier_expenses ADD COLUMN ${colName} ${colDef}`);
+        }
+      } catch (_) {}
+    }
 
     // Create indexes for better performance
     const indexes = [

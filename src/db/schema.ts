@@ -122,6 +122,10 @@ export const sales = mysqlTable('sales', {
   totalLiters: decimal('total_liters', { precision: 10, scale: 2 }),   // supply report: total liters
   totalTins: decimal('total_tins', { precision: 10, scale: 2 }),       // supply report: tin-equivalent (15.2 L usable = 1 tin)
   notes: text('notes'),
+  /** Optional PDF reference uploaded from canteen POS. */
+  referencePdfPath: varchar('reference_pdf_path', { length: 500 }),
+  /** Optional original filename for the uploaded PDF. */
+  referencePdfOriginalName: varchar('reference_pdf_original_name', { length: 255 }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
 });
@@ -274,12 +278,24 @@ export const courierExpenses = mysqlTable('courier_expenses', {
   courierDate: date('courier_date', { mode: 'string' }).notNull(),
   quantity: decimal('quantity', { precision: 12, scale: 2 }).notNull().default('0'),
   cost: decimal('cost', { precision: 12, scale: 2 }).notNull(),
+  /** Cost excluding GST (base amount). */
+  gstRate: decimal('gst_rate', { precision: 5, scale: 2 }).notNull().default('0'),
+  /** GST amount for the line. */
+  gstAmount: decimal('gst_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+  /** Split GST for intra-state bills (CGST). */
+  cgstAmount: decimal('cgst_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+  /** Split GST for intra-state bills (SGST). */
+  sgstAmount: decimal('sgst_amount', { precision: 12, scale: 2 }).notNull().default('0'),
   canteenAddressId: varchar('canteen_address_id', { length: 255 }),
   /** Free-text destination when not using canteen master */
   destinationNote: text('destination_note'),
   notes: text('notes'),
   paymentMethod: varchar('payment_method', { length: 50 }).notNull().default('cash'),
   referenceNo: varchar('reference_no', { length: 100 }),
+  /** Optional PDF reference uploaded from courier bill form. */
+  referencePdfPath: varchar('reference_pdf_path', { length: 500 }),
+  /** Optional original filename for the uploaded PDF. */
+  referencePdfOriginalName: varchar('reference_pdf_original_name', { length: 255 }),
   userId: varchar('user_id', { length: 255 }).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),

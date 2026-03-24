@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
     let courierShipping = 0;
     try {
       const courierRes = await db.execute(sql`
-        SELECT COALESCE(SUM(cost), 0) AS total_courier
+        SELECT COALESCE(SUM(cost + gst_amount), 0) AS total_courier
         FROM courier_expenses
         WHERE courier_date >= ${defaultStart} AND courier_date <= ${defaultEnd}
       `);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -113,6 +113,14 @@ export default function POSPage() {
   const [customerEmail, setCustomerEmail] = useState('');
   const [mailSentHoDate, setMailSentHoDate] = useState(''); // canteen: date mailed to HO
   const [courierWeightOrRs, setCourierWeightOrRs] = useState(''); // canteen: weight or amount
+  const [referencePdfFile, setReferencePdfFile] = useState<File | null>(null); // canteen: optional courier/canteen reference PDF
+  const [referencePdfError, setReferencePdfError] = useState('');
+  const [referencePdfPreviewUrl, setReferencePdfPreviewUrl] = useState('');
+  const [canteenFieldErrors, setCanteenFieldErrors] = useState<Record<string, string>>({});
+  const canteenSelectRef = useRef<HTMLSelectElement | null>(null);
+  const poDateRef = useRef<HTMLInputElement | null>(null);
+  const poNumberRef = useRef<HTMLInputElement | null>(null);
+  const customerEmailRef = useRef<HTMLInputElement | null>(null);
   const [customInvoiceNum, setCustomInvoiceNum] = useState(''); // 4-digit number when editing
   const [customInvoiceYear, setCustomInvoiceYear] = useState(() =>
     getFinancialYearLabelForDate(new Date())
@@ -196,6 +204,16 @@ export default function POSPage() {
       setGstMode((prev) => prev || 'excluded'); // Default GST mode: GST extra
     }
   }, [saleType]);
+
+  useEffect(() => {
+    if (!referencePdfFile) {
+      setReferencePdfPreviewUrl('');
+      return;
+    }
+    const url = URL.createObjectURL(referencePdfFile);
+    setReferencePdfPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [referencePdfFile]);
 
   // Fetch data
   useEffect(() => {
@@ -375,6 +393,7 @@ export default function POSPage() {
   // Process sale
   const processSale = async () => {
     setError('');
+    setCanteenFieldErrors({});
     if (cart.length === 0) {
       const msg = 'Please add items to cart';
       setError(msg);
@@ -384,33 +403,54 @@ export default function POSPage() {
 
     if (saleType === 'canteen' && !selectedCanteen) {
       const msg = 'Please select a canteen address';
-      setError(msg);
+      setCanteenFieldErrors((prev) => ({ ...prev, selectedCanteen: msg }));
+      canteenSelectRef.current?.focus();
       addToast(msg, 'error');
       return;
     }
 
     if (!poDate || !poDate.trim()) {
       const msg = 'Please select PO Date';
-      setError(msg);
+      if (saleType === 'canteen') {
+        setCanteenFieldErrors((prev) => ({ ...prev, poDate: msg }));
+        poDateRef.current?.focus();
+      } else {
+        setError(msg);
+      }
       addToast(msg, 'error');
       return;
     }
     if (!isValidDate(poDate.trim())) {
       const msg = 'PO Date must be a valid date (YYYY-MM-DD)';
-      setError(msg);
+      if (saleType === 'canteen') {
+        setCanteenFieldErrors((prev) => ({ ...prev, poDate: msg }));
+        poDateRef.current?.focus();
+      } else {
+        setError(msg);
+      }
       addToast(msg, 'error');
       return;
     }
 
     if (!poNumberValue || !poNumberValue.trim()) {
       const msg = 'Please enter PO Number (Customer Reference)';
-      setError(msg);
+      if (saleType === 'canteen') {
+        setCanteenFieldErrors((prev) => ({ ...prev, poNumberValue: msg }));
+        poNumberRef.current?.focus();
+      } else {
+        setError(msg);
+      }
       addToast(msg, 'error');
       return;
     }
     if (!/^\d{1,10}$/.test(poNumberValue.trim())) {
       const msg = 'PO Number must be 1–10 digits only';
-      setError(msg);
+      if (saleType === 'canteen') {
+        setCanteenFieldErrors((prev) => ({ ...prev, poNumberValue: msg }));
+        poNumberRef.current?.focus();
+      } else {
+        setError(msg);
+      }
       addToast(msg, 'error');
       return;
     }
@@ -425,13 +465,15 @@ export default function POSPage() {
     if (saleType === 'canteen' && modeOfSales === 'email') {
       if (!customerEmail || !customerEmail.trim()) {
         const msg = 'Please enter customer email for email orders';
-        setError(msg);
+        setCanteenFieldErrors((prev) => ({ ...prev, customerEmail: msg }));
+        customerEmailRef.current?.focus();
         addToast(msg, 'error');
         return;
       }
       if (!isValidEmail(customerEmail)) {
         const msg = 'Please enter a valid email address';
-        setError(msg);
+        setCanteenFieldErrors((prev) => ({ ...prev, customerEmail: msg }));
+        customerEmailRef.current?.focus();
         addToast(msg, 'error');
         return;
       }
@@ -451,6 +493,28 @@ export default function POSPage() {
 
     try {
       const { subtotal, gstAmount, total } = calculateTotals();
+
+      let uploadedReferencePdfPath: string | null = null;
+      let uploadedReferencePdfOriginalName: string | null = null;
+      if (saleType === 'canteen' && referencePdfFile) {
+        setReferencePdfError('');
+        const fd = new FormData();
+        fd.append('file', referencePdfFile);
+        fd.append('scope', 'sales');
+        const upRes = await fetch('/api/uploads/reference-pdf', {
+          method: 'POST',
+          body: fd,
+          credentials: 'include',
+        });
+        const upJson = await upRes.json();
+        if (!upRes.ok) {
+          const msg = upJson.error || 'PDF upload failed';
+          setReferencePdfError(msg);
+          throw new Error(msg);
+        }
+        uploadedReferencePdfPath = upJson.path || null;
+        uploadedReferencePdfOriginalName = upJson.originalName || null;
+      }
       
       const saleData = {
         items: cart.map(item => ({
@@ -475,6 +539,8 @@ export default function POSPage() {
         // new supplied-details capture (canteen only)
         courierWeightOrRs: saleType === 'canteen' ? (courierWeightOrRs || null) : null,
         mailSentHoDate: saleType === 'canteen' ? (mailSentHoDate || null) : null,
+        referencePdfPath: uploadedReferencePdfPath,
+        referencePdfOriginalName: uploadedReferencePdfOriginalName,
       };
 
       const response = await fetch('/api/sales', {
@@ -486,7 +552,12 @@ export default function POSPage() {
       const result = await response.json();
 
       if (response.ok) {
-        addToast(`🎉 Sale completed! Invoice: ${result.sale?.invoiceNumber || 'Generated'}`, 'success');
+        addToast(
+          `🎉 Sale completed! Invoice: ${result.sale?.invoiceNumber || 'Generated'}${
+            uploadedReferencePdfPath ? ' (Reference PDF attached)' : ''
+          }`,
+          'success',
+        );
         setCart([]);
         setCustomerName('');
         setSelectedCanteen('');
@@ -498,6 +569,10 @@ export default function POSPage() {
         setCustomerEmail('');
         setMailSentHoDate('');
         setCourierWeightOrRs('');
+        setReferencePdfFile(null);
+        setReferencePdfError('');
+        setReferencePdfPreviewUrl('');
+        setCanteenFieldErrors({});
         setCustomInvoiceNum('');
         setCustomInvoiceYear(getFinancialYearLabelForDate(new Date()));
         setShowInvoiceEdit(false);
@@ -509,7 +584,11 @@ export default function POSPage() {
       }
     } catch (error) {
       console.error('Error processing sale:', error);
-      addToast('Network error. Please try again.', 'error');
+      const msg = error instanceof Error ? error.message : 'Network error. Please try again.';
+      if (saleType !== 'canteen') {
+        setError(msg);
+      }
+      addToast(msg, 'error');
     } finally {
       setIsSaving(false);
     }
@@ -854,9 +933,11 @@ export default function POSPage() {
                       Select Canteen *
                     </label>
                     <select
+                      ref={canteenSelectRef}
                       value={selectedCanteen}
                       onChange={(e) => {
                         const id = e.target.value;
+                        setCanteenFieldErrors((prev) => ({ ...prev, selectedCanteen: '' }));
                         setSelectedCanteen(id);
                         const addr = canteenAddresses.find((a) => a.id === id);
                         // Prefer delivery email for mode-of-order; fall back to billing email
@@ -877,6 +958,9 @@ export default function POSPage() {
                         </option>
                       ))}
                     </select>
+                    {canteenFieldErrors.selectedCanteen && (
+                      <p className="text-xs text-red-600 mt-1">{canteenFieldErrors.selectedCanteen}</p>
+                    )}
 
                     {selectedCanteen && (() => {
                       const addr = canteenAddresses.find(a => a.id === selectedCanteen);
@@ -905,10 +989,14 @@ export default function POSPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-gray-600 font-medium">PO-</span>
                         <input
+                          ref={poNumberRef}
                           type="text"
                           inputMode="numeric"
                           value={poNumberValue}
-                          onChange={(e) => setPoNumberValue(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                          onChange={(e) => {
+                            setCanteenFieldErrors((prev) => ({ ...prev, poNumberValue: '' }));
+                            setPoNumberValue(e.target.value.replace(/\D/g, '').slice(0, 10));
+                          }}
                           placeholder="Number"
                           className="flex-1 min-w-[80px] max-w-[120px] px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                         />
@@ -923,6 +1011,9 @@ export default function POSPage() {
                           ))}
                         </select>
                       </div>
+                      {canteenFieldErrors.poNumberValue && (
+                        <p className="text-xs text-red-600 mt-1">{canteenFieldErrors.poNumberValue}</p>
+                      )}
                       <p className="text-xs text-gray-500 mt-1">
                         <strong>Customer&apos;s Purchase Order</strong> — appears as &quot;PO NO: PO-{poNumberValue || '…'} / {poYear}&quot; on the invoice
                       </p>
@@ -936,12 +1027,19 @@ export default function POSPage() {
                         </label>
                       </div>
                       <input
+                        ref={poDateRef}
                         type="date"
                         required
                         value={poDate}
-                        onChange={(e) => setPoDate(e.target.value)}
+                        onChange={(e) => {
+                          setCanteenFieldErrors((prev) => ({ ...prev, poDate: '' }));
+                          setPoDate(e.target.value);
+                        }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                       />
+                      {canteenFieldErrors.poDate && (
+                        <p className="text-xs text-red-600 mt-1">{canteenFieldErrors.poDate}</p>
+                      )}
                       <p className="text-xs text-gray-500 mt-1">
                         <strong>Purchase Order Date</strong> — This is the main date saved and shown as &quot;Dated&quot; on the invoice.
                       </p>
@@ -995,13 +1093,20 @@ export default function POSPage() {
                               Receiving Person Email ID <span className="text-red-500">*</span>
                             </label>
                             <input
+                              ref={customerEmailRef}
                               type="email"
                               value={customerEmail}
-                              onChange={(e) => setCustomerEmail(e.target.value)}
+                              onChange={(e) => {
+                                setCanteenFieldErrors((prev) => ({ ...prev, customerEmail: '' }));
+                                setCustomerEmail(e.target.value);
+                              }}
                               placeholder="receiving.person@canteen.com"
                               required={modeOfSales === 'email'}
                               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                             />
+                            {canteenFieldErrors.customerEmail && (
+                              <p className="text-xs text-red-600 mt-1">{canteenFieldErrors.customerEmail}</p>
+                            )}
                             <p className="text-xs text-gray-500 mt-1">
                               This will be used as the email under <strong>Mode of Order</strong> on the invoice.
                             </p>
@@ -1087,6 +1192,57 @@ export default function POSPage() {
                       <p className="text-xs text-gray-500 mt-1">
                         Auto buttons help fill from <strong>calculation</strong> (Total ₹) or from <strong>Lts</strong>.
                       </p>
+                    </div>
+
+                    {/* PDF reference attachment (Canteen only) */}
+                    <div className="mt-3">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Attach Courier / Canteen Bill PDF (optional)
+                      </label>
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0] || null;
+                          setReferencePdfError('');
+                          if (!f) {
+                            setReferencePdfFile(null);
+                            return;
+                          }
+                          const isPdf =
+                            String(f.type || '').toLowerCase().includes('pdf') ||
+                            String(f.name || '').toLowerCase().endsWith('.pdf');
+                          if (!isPdf) {
+                            setReferencePdfFile(null);
+                            setReferencePdfError('Only PDF files are allowed');
+                            return;
+                          }
+                          const maxBytes = 20 * 1024 * 1024;
+                          if (typeof f.size === 'number' && f.size > maxBytes) {
+                            setReferencePdfFile(null);
+                            setReferencePdfError('PDF too large (max 20MB)');
+                            return;
+                          }
+                          setReferencePdfFile(f);
+                        }}
+                        className="w-full text-sm text-gray-700"
+                      />
+                      {referencePdfFile && (
+                        <p className="text-xs text-gray-500 mt-1">Selected: {referencePdfFile.name}</p>
+                      )}
+                      {referencePdfPreviewUrl && (
+                        <a
+                          href={referencePdfPreviewUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-block mt-1 text-xs text-blue-600 hover:text-blue-800 underline"
+                        >
+                          View selected PDF
+                        </a>
+                      )}
+                      {referencePdfError && (
+                        <p className="text-xs text-red-600 mt-1">{referencePdfError}</p>
+                      )}
                     </div>
                   </div>
                 ) : (

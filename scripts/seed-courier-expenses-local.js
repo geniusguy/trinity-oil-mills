@@ -71,6 +71,27 @@ async function run() {
     await conn.query(ddl);
     console.log('OK: table courier_expenses (CREATE IF NOT EXISTS).');
 
+    // If the table already existed, CREATE IF NOT EXISTS won't add new columns.
+    // Ensure GST columns exist so demo inserts work on older local DBs.
+    const columnsToEnsure = [
+      { name: 'gst_rate', def: 'DECIMAL(5,2) NOT NULL DEFAULT 0' },
+      { name: 'gst_amount', def: 'DECIMAL(12,2) NOT NULL DEFAULT 0' },
+      { name: 'cgst_amount', def: 'DECIMAL(12,2) NOT NULL DEFAULT 0' },
+      { name: 'sgst_amount', def: 'DECIMAL(12,2) NOT NULL DEFAULT 0' },
+      { name: 'reference_pdf_path', def: 'VARCHAR(500) NULL' },
+      { name: 'reference_pdf_original_name', def: 'VARCHAR(255) NULL' },
+    ];
+
+    for (const c of columnsToEnsure) {
+      // SHOW COLUMNS is simple + compatible across MySQL/MariaDB.
+      const [cols] = await conn.query(`SHOW COLUMNS FROM courier_expenses LIKE ?`, [c.name]);
+      const exists = Array.isArray(cols) && cols.length > 0;
+      if (!exists) {
+        console.log(`Altering courier_expenses: adding ${c.name}`);
+        await conn.query(`ALTER TABLE courier_expenses ADD COLUMN ${c.name} ${c.def}`);
+      }
+    }
+
     const [users] = await conn.query(
       'SELECT id FROM users ORDER BY created_at ASC LIMIT 1'
     );
@@ -103,20 +124,34 @@ async function run() {
       console.log('Removed old demo rows (if any).');
     }
 
+    const gstRate = 18; // standard intra-state split in your invoice example (9% + 9%)
+    const row1Cost = 850.0;
+    const row2Cost = 320.0;
+    const row1Gst = (row1Cost * gstRate) / 100;
+    const row1Cgst = Math.round((row1Gst / 2) * 100) / 100;
+    const row1Sgst = Math.round((row1Gst - row1Cgst) * 100) / 100;
+    const row2Gst = (row2Cost * gstRate) / 100;
+    const row2Cgst = Math.round((row2Gst / 2) * 100) / 100;
+    const row2Sgst = Math.round((row2Gst - row2Cgst) * 100) / 100;
+
     const d1 = new Date();
     d1.setDate(d1.getDate() - 7);
     const d2 = new Date();
 
     await conn.query(
       `INSERT INTO courier_expenses (
-        id, courier_date, quantity, cost, canteen_address_id, destination_note, notes,
-        payment_method, reference_no, user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        id, courier_date, quantity, cost, gst_rate, gst_amount, cgst_amount, sgst_amount,
+        canteen_address_id, destination_note, notes, payment_method, reference_no, user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
       [
         DEMO_IDS[0],
         ymd(d1),
         2,
-        850.0,
+        row1Cost,
+        gstRate,
+        row1Gst,
+        row1Cgst,
+        row1Sgst,
         canteenId,
         null,
         'Local seed: courier to canteen (if linked)',
@@ -128,14 +163,18 @@ async function run() {
 
     await conn.query(
       `INSERT INTO courier_expenses (
-        id, courier_date, quantity, cost, canteen_address_id, destination_note, notes,
-        payment_method, reference_no, user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        id, courier_date, quantity, cost, gst_rate, gst_amount, cgst_amount, sgst_amount,
+        canteen_address_id, destination_note, notes, payment_method, reference_no, user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
       [
         DEMO_IDS[1],
         ymd(d2),
         1,
-        320.0,
+        row2Cost,
+        gstRate,
+        row2Gst,
+        row2Cgst,
+        row2Sgst,
         null,
         'Tirupur — direct address (no canteen master)',
         'Local seed: destination note only',

@@ -7,6 +7,10 @@ CREATE TABLE IF NOT EXISTS courier_expenses (
   courier_date DATE NOT NULL,
   quantity DECIMAL(12, 2) NOT NULL DEFAULT 0,
   cost DECIMAL(12, 2) NOT NULL,
+  gst_rate DECIMAL(5, 2) NOT NULL DEFAULT 0,
+  gst_amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
+  cgst_amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
+  sgst_amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
   canteen_address_id VARCHAR(255) NULL,
   destination_note TEXT NULL,
   notes TEXT NULL,
@@ -23,7 +27,7 @@ CREATE TABLE IF NOT EXISTS courier_expenses (
 DELETE FROM courier_expenses WHERE id IN ('cexp-local-demo-1', 'cexp-local-demo-2');
 
 INSERT INTO courier_expenses (
-  id, courier_date, quantity, cost, canteen_address_id, destination_note, notes,
+  id, courier_date, quantity, cost, gst_rate, gst_amount, cgst_amount, sgst_amount, canteen_address_id, destination_note, notes,
   payment_method, reference_no, user_id
 )
 SELECT
@@ -31,6 +35,10 @@ SELECT
   DATE_SUB(CURDATE(), INTERVAL 7 DAY),
   2.00,
   850.00,
+  18.00,
+  ROUND(850.00 * 18.00 / 100, 2),
+  ROUND((ROUND(850.00 * 18.00 / 100, 2) / 2), 2),
+  ROUND((ROUND(850.00 * 18.00 / 100, 2) - (ROUND(850.00 * 18.00 / 100, 2) / 2)), 2),
   (SELECT id FROM canteen_addresses WHERE is_active = 1 ORDER BY canteen_name ASC LIMIT 1),
   NULL,
   'SQL seed: courier to canteen',
@@ -41,7 +49,7 @@ FROM DUAL
 WHERE EXISTS (SELECT 1 FROM users LIMIT 1);
 
 INSERT INTO courier_expenses (
-  id, courier_date, quantity, cost, canteen_address_id, destination_note, notes,
+  id, courier_date, quantity, cost, gst_rate, gst_amount, cgst_amount, sgst_amount, canteen_address_id, destination_note, notes,
   payment_method, reference_no, user_id
 )
 SELECT
@@ -49,6 +57,10 @@ SELECT
   CURDATE(),
   1.00,
   320.00,
+  18.00,
+  ROUND(320.00 * 18.00 / 100, 2),
+  ROUND((ROUND(320.00 * 18.00 / 100, 2) / 2), 2),
+  ROUND((ROUND(320.00 * 18.00 / 100, 2) - (ROUND(320.00 * 18.00 / 100, 2) / 2)), 2),
   NULL,
   'Tirupur — direct address (no canteen master)',
   'SQL seed: destination note only',

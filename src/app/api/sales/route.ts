@@ -325,8 +325,25 @@ export async function GET(request: NextRequest) {
       if (Array.isArray(mCols) && mCols.length > 0) mailSentField = ', s.mail_sent_ho_date as mailSentHoDate';
     } catch (_) {}
 
+    // Optional reference PDF attachment fields (from canteen POS / courier bills)
+    let referencePdfPathField = ', NULL as referencePdfPath';
+    let referencePdfOriginalNameField = ', NULL as referencePdfOriginalName';
+    try {
+      const [rCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "reference_pdf_path"');
+      if (Array.isArray(rCols) && rCols.length > 0) {
+        referencePdfPathField = ', s.reference_pdf_path as referencePdfPath';
+      }
+    } catch (_) {}
+
+    try {
+      const [oCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "reference_pdf_original_name"');
+      if (Array.isArray(oCols) && oCols.length > 0) {
+        referencePdfOriginalNameField = ', s.reference_pdf_original_name as referencePdfOriginalName';
+      }
+    } catch (_) {}
+
     let query = `SELECT s.id, s.invoice_number as invoiceNumber, s.sale_type as saleType, s.subtotal, s.gst_amount as gstAmount, s.total_amount as totalAmount,
-                        s.payment_method as paymentMethod, s.payment_status as paymentStatus, s.shipment_status as shipmentStatus, s.notes${poNumberField}${poDateField}${invoiceDateField}${modeOfSalesField}${keptOnDisplayField}${courierField}${mailSentField}, s.created_at as createdAt,
+                        s.payment_method as paymentMethod, s.payment_status as paymentStatus, s.shipment_status as shipmentStatus, s.notes${poNumberField}${poDateField}${invoiceDateField}${modeOfSalesField}${keptOnDisplayField}${courierField}${mailSentField}${referencePdfPathField}${referencePdfOriginalNameField}, s.created_at as createdAt,
                         s.canteen_address_id as canteenAddressId, u.name as userName, s.notes as customerName, ca.canteen_name as canteenName, ca.address as canteenAddress,
                         ca.contact_person as canteenContact, ca.mobile_number as canteenMobile
                  FROM sales s
@@ -506,10 +523,35 @@ export async function POST(request: NextRequest) {
       keptOnDisplay = null,
       courierWeightOrRs = null,
       mailSentHoDate = null,
+      referencePdfPath = null,
+      referencePdfOriginalName = null,
       gstMode,
     } = body;
+
+    const isValidDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d));
+    const isValidEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+    if (!['retail', 'canteen'].includes(String(saleType))) {
+      return NextResponse.json({ error: 'Invalid sale type' }, { status: 400 });
+    }
     if (!Array.isArray(items) || items.length === 0) {
       return NextResponse.json({ error: 'At least one item is required' }, { status: 400 });
+    }
+
+    const poNumberRaw = typeof poNumber === 'string' ? poNumber.trim() : '';
+    const poNumberMatch = poNumberRaw.match(/^PO-(\d{1,10})\s*\/\s*(\d{2}-\d{2})$/);
+    if (!poNumberMatch) {
+      return NextResponse.json({ error: 'PO Number must be in format PO-<number> / <yy-yy>' }, { status: 400 });
+    }
+
+    const poDateRaw = typeof poDate === 'string' ? poDate.trim() : '';
+    if (!poDateRaw || !isValidDate(poDateRaw)) {
+      return NextResponse.json({ error: 'PO Date must be a valid date (YYYY-MM-DD)' }, { status: 400 });
+    }
+
+    const invoiceDateRaw = typeof invoiceDate === 'string' ? invoiceDate.trim() : '';
+    if (invoiceDateRaw && !isValidDate(invoiceDateRaw)) {
+      return NextResponse.json({ error: 'Invoice Date must be a valid date (YYYY-MM-DD)' }, { status: 400 });
     }
 
     // Set default values for canteen sales
@@ -517,12 +559,22 @@ export async function POST(request: NextRequest) {
     let finalShipmentStatus = shipmentStatus;
     
     if (saleType === 'canteen') {
+      if (!canteenAddressId || !String(canteenAddressId).trim()) {
+        return NextResponse.json({ error: 'Canteen address is required for canteen sales' }, { status: 400 });
+      }
+
       finalPaymentStatus = 'pending'; // Default to pending for canteen
       finalShipmentStatus = 'pending'; // Default to pending for canteen orders
       
       // Make email mandatory for canteen sales
-      if (modeOfSales === 'email' && !customerEmail) {
+      const mode = String(modeOfSales || '').toLowerCase();
+      const isEmailMode = mode === 'email' || mode.startsWith('email:');
+      const emailRaw = String(customerEmail || '').trim();
+      if (isEmailMode && !emailRaw) {
         return NextResponse.json({ error: 'Email is required for email orders' }, { status: 400 });
+      }
+      if (isEmailMode && !isValidEmail(emailRaw)) {
+        return NextResponse.json({ error: 'Please enter a valid email address' }, { status: 400 });
       }
     }
 
@@ -828,6 +880,18 @@ export async function POST(request: NextRequest) {
         const v = saleType === 'canteen' ? (trimmed ? trimmed.slice(0, 10) : null) : null;
         insertValues.push(v);
         insertPlaceholders += ', ?';
+      }
+    } catch (_) {}
+
+    // Optional reference PDF attachment from canteen POS
+    try {
+      const [pCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "reference_pdf_path"');
+      const hasRefPdf =
+        Array.isArray(pCols) && pCols.length > 0;
+      if (hasRefPdf) {
+        insertFields += ', reference_pdf_path, reference_pdf_original_name';
+        insertValues.push(referencePdfPath, referencePdfOriginalName);
+        insertPlaceholders += ', ?, ?';
       }
     } catch (_) {}
 

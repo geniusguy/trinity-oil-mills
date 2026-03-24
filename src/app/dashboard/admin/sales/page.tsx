@@ -824,6 +824,16 @@ export default function AdminSalesPage() {
                         >
                           📄 Invoice
                         </a>
+                        {(s as any).referencePdfPath && (
+                          <a
+                            href={(s as any).referencePdfPath}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
+                          >
+                            📎 View Reference PDF
+                          </a>
+                        )}
                         <button 
                           onClick={() => handleEditSale(s)} 
                           className="text-blue-600 hover:text-blue-900 text-xs font-medium text-left"
