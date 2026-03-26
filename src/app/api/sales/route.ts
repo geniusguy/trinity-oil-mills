@@ -750,6 +750,17 @@ export async function POST(request: NextRequest) {
     let insertPlaceholders = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
 
     if (hasPoNumberColumn) {
+      // Enforce unique PO number when provided (clear message to UI).
+      if (poNumber && String(poNumber).trim()) {
+        const [existingPo]: any = await connection.query(
+          'SELECT id FROM sales WHERE po_number = ? LIMIT 1',
+          [String(poNumber).trim()]
+        );
+        if (Array.isArray(existingPo) && existingPo.length > 0) {
+          throw new Error('PO number already exists');
+        }
+      }
+
       insertFields += ', po_number';
       insertValues.push(poNumber);
       insertPlaceholders += ', ?';
@@ -946,6 +957,36 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     console.error('Sales POST error:', error);
+    const message = error instanceof Error ? error.message : 'Internal server error';
+
+    if (message.includes('Invoice number already exists')) {
+      return NextResponse.json(
+        { error: 'Invoice number already exists. Please use a different invoice number.' },
+        { status: 409 }
+      );
+    }
+
+    if (message.includes('PO number already exists')) {
+      return NextResponse.json(
+        { error: 'PO number already exists. Please use a different PO number.' },
+        { status: 409 }
+      );
+    }
+
+    if (message.toLowerCase().includes('duplicate entry') && message.toLowerCase().includes('invoice_number')) {
+      return NextResponse.json(
+        { error: 'Invoice number already exists. Please use a different invoice number.' },
+        { status: 409 }
+      );
+    }
+
+    if (message.toLowerCase().includes('duplicate entry') && message.toLowerCase().includes('po_number')) {
+      return NextResponse.json(
+        { error: 'PO number already exists. Please use a different PO number.' },
+        { status: 409 }
+      );
+    }
+
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

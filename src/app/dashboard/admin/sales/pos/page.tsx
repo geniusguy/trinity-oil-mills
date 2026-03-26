@@ -575,7 +575,11 @@ export default function POSPage() {
           router.push('/dashboard/admin/sales');
         }, 2000);
       } else {
-        addToast(result.error || 'Failed to process sale', 'error');
+        const rawError = String(result.error || 'Failed to process sale');
+        const lower = rawError.toLowerCase();
+        const isDuplicate = lower.includes('already exists') || lower.includes('duplicate');
+        const message = isDuplicate ? `Duplicate: ${rawError}` : rawError;
+        addToast(message, 'error');
       }
     } catch (error) {
       console.error('Error processing sale:', error);
