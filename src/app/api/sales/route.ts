@@ -412,12 +412,17 @@ async function generateInvoiceNumber(
     
     // Check if custom invoice number already exists
     const [existing] = await connection.query(
-      'SELECT id FROM sales WHERE invoice_number = ?',
+      'SELECT id, invoice_number as invoiceNumber, po_number as poNumber, created_at as createdAt FROM sales WHERE invoice_number = ?',
       [formattedNumber]
     );
     
     if (existing.length > 0) {
-      throw new Error('Invoice number already exists');
+      const row = existing[0] as any;
+      const dt = row?.createdAt ? new Date(row.createdAt).toISOString().slice(0, 10) : 'unknown date';
+      const po = row?.poNumber ? String(row.poNumber) : 'N/A';
+      throw new Error(
+        `Invoice number already exists. Existing entry: Invoice ${row?.invoiceNumber || formattedNumber}, PO ${po}, Date ${dt}.`
+      );
     }
     
     return formattedNumber;
@@ -753,11 +758,15 @@ export async function POST(request: NextRequest) {
       // Enforce unique PO number when provided (clear message to UI).
       if (poNumber && String(poNumber).trim()) {
         const [existingPo]: any = await connection.query(
-          'SELECT id FROM sales WHERE po_number = ? LIMIT 1',
+          'SELECT id, invoice_number as invoiceNumber, po_number as poNumber, created_at as createdAt FROM sales WHERE po_number = ? LIMIT 1',
           [String(poNumber).trim()]
         );
         if (Array.isArray(existingPo) && existingPo.length > 0) {
-          throw new Error('PO number already exists');
+          const row = existingPo[0];
+          const dt = row?.createdAt ? new Date(row.createdAt).toISOString().slice(0, 10) : 'unknown date';
+          throw new Error(
+            `PO number already exists. Existing entry: PO ${row?.poNumber || poNumber}, Invoice ${row?.invoiceNumber || 'N/A'}, Date ${dt}.`
+          );
         }
       }
 
@@ -961,14 +970,14 @@ export async function POST(request: NextRequest) {
 
     if (message.includes('Invoice number already exists')) {
       return NextResponse.json(
-        { error: 'Invoice number already exists. Please use a different invoice number.' },
+        { error: message },
         { status: 409 }
       );
     }
 
     if (message.includes('PO number already exists')) {
       return NextResponse.json(
-        { error: 'PO number already exists. Please use a different PO number.' },
+        { error: message },
         { status: 409 }
       );
     }
