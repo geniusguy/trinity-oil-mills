@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -33,6 +33,8 @@ interface SaleRow {
   poDate?: string;
   invoiceDate?: string;
   canteenAddressId?: string;
+  referencePdfPath?: string | null;
+  referencePdfOriginalName?: string | null;
 }
 
 export default function AdminSalesPage() {
@@ -80,6 +82,13 @@ export default function AdminSalesPage() {
     paymentMethod: ''
   });
   const [canteenAddresses, setCanteenAddresses] = useState<any[]>([]);
+
+  const [editReferencePdfFile, setEditReferencePdfFile] = useState<File | null>(null);
+  const [editReferencePdfError, setEditReferencePdfError] = useState('');
+  const [removeExistingReferencePdf, setRemoveExistingReferencePdf] = useState(false);
+  const [existingPdfPath, setExistingPdfPath] = useState<string | null>(null);
+  const [existingPdfOriginalName, setExistingPdfOriginalName] = useState<string | null>(null);
+  const editFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -363,6 +372,12 @@ export default function AdminSalesPage() {
     setShowEditModal(true);
     setError('');
     setSuccess('');
+
+    setEditReferencePdfFile(null);
+    setEditReferencePdfError('');
+    setRemoveExistingReferencePdf(false);
+    setExistingPdfPath(sale.referencePdfPath || null);
+    setExistingPdfOriginalName(sale.referencePdfOriginalName || null);
   };
 
   const handleDeleteSale = (sale: SaleRow) => {
@@ -379,10 +394,41 @@ export default function AdminSalesPage() {
       setIsUpdating(true);
       setError('');
       
+      let uploadedReferencePdfPath: string | null = removeExistingReferencePdf ? null : existingPdfPath;
+      let uploadedReferencePdfOriginalName: string | null = removeExistingReferencePdf
+        ? null
+        : existingPdfOriginalName;
+
+      if (editReferencePdfFile) {
+        setEditReferencePdfError('');
+        const fd = new FormData();
+        fd.append('file', editReferencePdfFile);
+        fd.append('scope', 'sales');
+        const upRes = await fetch('/api/uploads/reference-pdf', {
+          method: 'POST',
+          body: fd,
+          credentials: 'include',
+        });
+        const upJson = await upRes.json();
+        if (!upRes.ok) {
+          const msg = upJson.error || 'PDF upload failed';
+          setEditReferencePdfError(msg);
+          throw new Error(msg);
+        }
+        uploadedReferencePdfPath = upJson.path || null;
+        uploadedReferencePdfOriginalName = upJson.originalName || null;
+      }
+
+      const payload = {
+        ...editForm,
+        referencePdfPath: uploadedReferencePdfPath,
+        referencePdfOriginalName: uploadedReferencePdfOriginalName,
+      };
+
       const response = await fetch(`/api/sales/${selectedSale.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm)
+        body: JSON.stringify(payload)
       });
 
       const data = await response.json();
@@ -396,7 +442,7 @@ export default function AdminSalesPage() {
         setError(data.error || 'Failed to update sale');
       }
     } catch (error) {
-      setError('Network error. Please try again.');
+      setError(error instanceof Error ? error.message : 'Failed to update sale');
     } finally {
       setIsUpdating(false);
     }
@@ -445,6 +491,12 @@ export default function AdminSalesPage() {
       canteenAddressId: '',
       paymentMethod: ''
     });
+
+    setEditReferencePdfFile(null);
+    setEditReferencePdfError('');
+    setRemoveExistingReferencePdf(false);
+    setExistingPdfPath(null);
+    setExistingPdfOriginalName(null);
   };
 
   const closeDeleteModal = () => {
@@ -826,12 +878,12 @@ export default function AdminSalesPage() {
                         </a>
                         {(s as any).referencePdfPath && (
                           <a
-                            href={(s as any).referencePdfPath}
+                            href={`/api/uploads/inline?path=${encodeURIComponent((s as any).referencePdfPath)}`}
                             target="_blank"
                             rel="noreferrer"
                             className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
                           >
-                            📎 View Reference PDF
+                            📎 View PDF
                           </a>
                         )}
                         <button 
@@ -858,15 +910,16 @@ export default function AdminSalesPage() {
 
       {/* Edit Sale Modal */}
       {showEditModal && selectedSale && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-10 mx-auto p-6 border w-full max-w-2xl shadow-lg rounded-md bg-white max-h-screen overflow-y-auto">
-            <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">
-                Edit Sale - {selectedSale.invoiceNumber}
-                <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded ml-2">Enhanced v2.0</span>
-              </h3>
-              
-              <div className="space-y-4">
+        <div className="fixed inset-0 bg-gray-700/50 overflow-y-auto z-50">
+          <div className="min-h-full flex items-start justify-center p-3 sm:p-4 md:pt-8">
+            <div className="relative w-full max-w-5xl p-3 sm:p-4 md:p-5 border shadow-xl rounded-xl bg-white max-h-[94vh] overflow-y-auto">
+              <div className="mt-3">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">
+                  Edit Sale - {selectedSale.invoiceNumber}
+                  <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded ml-2">Enhanced v2.0</span>
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {/* Invoice Number */}
                 <div>
                   <label htmlFor="invoiceNumber" className="block text-sm font-medium text-gray-700 mb-1">
@@ -959,6 +1012,93 @@ export default function AdminSalesPage() {
                     />
                   )}
                 </div>
+
+                {selectedSale?.saleType === 'canteen' && (
+                  <div className="md:col-span-2 xl:col-span-3">
+                    <label className="block text-sm font-bold text-gray-800 mb-2">
+                      Attach Courier / Canteen Bill PDF (optional)
+                    </label>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        ref={editFileInputRef}
+                        type="file"
+                        accept="application/pdf"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0] || null;
+                          setEditReferencePdfError('');
+                          if (!f) {
+                            setEditReferencePdfFile(null);
+                            return;
+                          }
+
+                          const isPdf =
+                            String(f.type || '').toLowerCase().includes('pdf') ||
+                            String(f.name || '').toLowerCase().endsWith('.pdf');
+
+                          if (!isPdf) {
+                            setEditReferencePdfFile(null);
+                            setEditReferencePdfError('Only PDF files are allowed');
+                            return;
+                          }
+
+                          const maxBytes = 20 * 1024 * 1024;
+                          if (typeof f.size === 'number' && f.size > maxBytes) {
+                            setEditReferencePdfFile(null);
+                            setEditReferencePdfError('PDF too large (max 20MB)');
+                            return;
+                          }
+
+                          setEditReferencePdfFile(f);
+                        }}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={() => editFileInputRef.current?.click()}
+                        className="px-3 py-1.5 border border-gray-300 rounded-md bg-white hover:bg-gray-50 text-sm font-medium"
+                      >
+                        Browse...
+                      </button>
+
+                      {editReferencePdfFile ? (
+                        <span className="text-xs text-gray-600">Selected: {editReferencePdfFile.name}</span>
+                      ) : (
+                        <span className="text-xs text-gray-500">No file selected</span>
+                      )}
+                    </div>
+
+                    {!editReferencePdfFile && existingPdfPath && (
+                      <div className="mt-2">
+                        <a
+                          href={`/api/uploads/inline?path=${encodeURIComponent(existingPdfPath)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-indigo-600 hover:text-indigo-900 font-medium underline"
+                        >
+                          View current PDF
+                          {existingPdfOriginalName ? ` (${existingPdfOriginalName})` : ''}
+                        </a>
+                      </div>
+                    )}
+
+                    {existingPdfPath && (
+                      <label className="mt-2 inline-flex items-center gap-2 text-xs text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={removeExistingReferencePdf}
+                          onChange={(e) => setRemoveExistingReferencePdf(e.target.checked)}
+                        />
+                        Remove current PDF on save
+                      </label>
+                    )}
+
+                    {editReferencePdfError && (
+                      <p className="text-xs text-red-600 mt-1">{editReferencePdfError}</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Payment Method */}
                 <div>
@@ -1062,7 +1202,7 @@ export default function AdminSalesPage() {
                 </div>
               )}
 
-              <div className="flex justify-end space-x-3 mt-6">
+              <div className="sticky bottom-0 bg-white pt-4 mt-6 border-t flex justify-end space-x-3">
                 <button
                   onClick={closeEditModal}
                   className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400"
@@ -1081,6 +1221,7 @@ export default function AdminSalesPage() {
             </div>
           </div>
         </div>
+      </div>
       )}
 
       {/* Delete Sale Modal */}

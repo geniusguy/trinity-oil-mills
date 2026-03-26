@@ -463,14 +463,9 @@ export default function POSPage() {
     }
 
     if (saleType === 'canteen' && modeOfSales === 'email') {
-      if (!customerEmail || !customerEmail.trim()) {
-        const msg = 'Please enter customer email for email orders';
-        setCanteenFieldErrors((prev) => ({ ...prev, customerEmail: msg }));
-        customerEmailRef.current?.focus();
-        addToast(msg, 'error');
-        return;
-      }
-      if (!isValidEmail(customerEmail)) {
+      const emailRaw = (customerEmail || '').trim();
+      // Optional field: only validate format if user entered an email.
+      if (emailRaw && !isValidEmail(emailRaw)) {
         const msg = 'Please enter a valid email address';
         setCanteenFieldErrors((prev) => ({ ...prev, customerEmail: msg }));
         customerEmailRef.current?.focus();
@@ -1085,12 +1080,12 @@ export default function POSPage() {
                         <option value="online">Online Order</option>
                       </select>
                       
-                      {/* Receiving Person Email ID - required for canteen email orders */}
+                      {/* Receiving Person Email ID - optional */}
                       {modeOfSales === 'email' && (
                         <>
                           <div className="mt-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Receiving Person Email ID <span className="text-red-500">*</span>
+                              Receiving Person Email ID
                             </label>
                             <input
                               ref={customerEmailRef}
@@ -1101,7 +1096,6 @@ export default function POSPage() {
                                 setCustomerEmail(e.target.value);
                               }}
                               placeholder="receiving.person@canteen.com"
-                              required={modeOfSales === 'email'}
                               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
                             />
                             {canteenFieldErrors.customerEmail && (

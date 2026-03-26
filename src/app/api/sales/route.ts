@@ -566,14 +566,12 @@ export async function POST(request: NextRequest) {
       finalPaymentStatus = 'pending'; // Default to pending for canteen
       finalShipmentStatus = 'pending'; // Default to pending for canteen orders
       
-      // Make email mandatory for canteen sales
       const mode = String(modeOfSales || '').toLowerCase();
       const isEmailMode = mode === 'email' || mode.startsWith('email:');
       const emailRaw = String(customerEmail || '').trim();
-      if (isEmailMode && !emailRaw) {
-        return NextResponse.json({ error: 'Email is required for email orders' }, { status: 400 });
-      }
-      if (isEmailMode && !isValidEmail(emailRaw)) {
+      // Receiving person email is optional for canteen orders.
+      // Validate only if user provided an email.
+      if (isEmailMode && emailRaw && !isValidEmail(emailRaw)) {
         return NextResponse.json({ error: 'Please enter a valid email address' }, { status: 400 });
       }
     }
