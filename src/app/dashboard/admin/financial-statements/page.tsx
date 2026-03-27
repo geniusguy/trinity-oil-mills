@@ -21,6 +21,11 @@ interface PLStatement {
     gstCollected: number;
     totalRevenue: number;
   };
+  taxes?: {
+    gstCollected: number;
+    gstPaidToGovernment: number;
+    netGstPayable: number;
+  };
   costOfGoodsSold: {
     productionCosts: number;
     materialCosts: number;
@@ -534,7 +539,7 @@ const FinancialStatementsPage: React.FC = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">Revenue</h3>
                 <div className="space-y-2">
                   <div className="flex justify-between">
-                    <span>Gross Revenue</span>
+                    <span>Gross Revenue (ex GST)</span>
                     <span className="font-semibold">{formatCurrency(plStatement.revenue.grossRevenue)}</span>
                   </div>
                   <div className="flex justify-between">
@@ -542,8 +547,26 @@ const FinancialStatementsPage: React.FC = () => {
                     <span>{formatCurrency(plStatement.revenue.gstCollected)}</span>
                   </div>
                   <div className="flex justify-between border-t pt-2">
-                    <span className="font-semibold">Total Revenue</span>
+                    <span className="font-semibold">Invoice Revenue (incl GST)</span>
                     <span className="font-semibold text-green-600">{formatCurrency(plStatement.revenue.totalRevenue)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-6 rounded-lg bg-amber-50 border border-amber-200 p-4">
+                <h3 className="text-sm font-semibold text-amber-900 mb-2">GST Position</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span>GST Collected (Output)</span>
+                    <span className="font-medium">{formatCurrency(plStatement.taxes?.gstCollected ?? plStatement.revenue.gstCollected)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>GST Paid (Input)</span>
+                    <span className="font-medium">{formatCurrency(plStatement.taxes?.gstPaidToGovernment ?? 0)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-amber-200 pt-2">
+                    <span className="font-semibold">Net GST Payable</span>
+                    <span className="font-semibold">{formatCurrency(plStatement.taxes?.netGstPayable ?? ((plStatement.taxes?.gstCollected ?? plStatement.revenue.gstCollected) - (plStatement.taxes?.gstPaidToGovernment ?? 0)))}</span>
                   </div>
                 </div>
               </div>
@@ -659,12 +682,15 @@ const FinancialStatementsPage: React.FC = () => {
 
               <div className="border-t-2 pt-4">
                 <div className="flex justify-between">
-                  <span className="text-xl font-bold">Net Profit</span>
+                  <span className="text-xl font-bold">Net Profit (Actual business profit, ex GST)</span>
                   <div className="text-right">
                     <div className="text-xl font-bold text-green-600">{formatCurrency(plStatement.netProfit.amount)}</div>
                     <div className="text-sm text-gray-600">Margin: {formatPercentage(plStatement.netProfit.margin)}</div>
                   </div>
                 </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  This profit uses revenue excluding GST, so you can clearly see how much profit the business made.
+                </p>
               </div>
             </div>
           </Card>

@@ -14,10 +14,19 @@ export async function GET(request: NextRequest) {
     const defaultEnd = endDate || new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
     const toNum = (v: any) => (v === null || v === undefined ? 0 : Number(v));
 
+    // Build an inclusive date range [start, end] by using an exclusive end boundary.
+    const periodStart = new Date(`${defaultStart}T00:00:00`);
+    const periodEndExclusive = new Date(`${defaultEnd}T00:00:00`);
+    periodEndExclusive.setDate(periodEndExclusive.getDate() + 1);
+    const periodEndInclusive = new Date(periodEndExclusive.getTime() - 1);
+    const toSqlDateTime = (d: Date) => d.toISOString().slice(0, 19).replace('T', ' ');
+    const periodStartSql = toSqlDateTime(periodStart);
+    const periodEndExclusiveSql = toSqlDateTime(periodEndExclusive);
+
     // Use historical P&L calculation for accurate costs
     const historicalPNL = await HistoricalPNLCalculator.calculatePNLForPeriod(
-      new Date(defaultStart), 
-      new Date(defaultEnd)
+      periodStart,
+      periodEndInclusive
     );
 
     // Also get traditional revenue data for consistency
@@ -29,7 +38,7 @@ export async function GET(request: NextRequest) {
           COALESCE(SUM(s.gst_amount), 0) AS gst_collected,
           COALESCE(SUM(s.total_amount), 0) AS total_revenue
         FROM sales s
-        WHERE s.created_at >= ${defaultStart} AND s.created_at <= ${defaultEnd}
+        WHERE s.created_at >= ${periodStartSql} AND s.created_at < ${periodEndExclusiveSql}
           AND s.payment_status = 'paid'
       `);
       const revenueRow = (revenueRes as any)?.rows?.[0] ?? (Array.isArray(revenueRes) ? (revenueRes as any)[0] : undefined);
@@ -38,13 +47,39 @@ export async function GET(request: NextRequest) {
       console.warn('pl-statement revenue query failed, defaulting to 0s');
     }
 
-    // Use historical cost data instead of simple production costs
-    const historicalCOGS = historicalPNL.summary.totalCost;
+    // Historical COGS from sale-items/recipes.
+    const historicalCOGS = toNum(historicalPNL?.summary?.totalCost);
+    // Fallback COGS from raw material purchases for deployments where historical sale-item
+    // costing is not fully wired yet.
+    let purchaseCOGSExGst = 0;
+    let purchaseGstPaid = 0;
+    try {
+      const purchaseRes = await db.execute(sql`
+        SELECT
+          COALESCE(SUM(rmp.total_cost), 0) AS total_purchase_ex_gst,
+          COALESCE(SUM(IFNULL(rmp.gst_amount, 0)), 0) AS total_purchase_gst
+        FROM raw_material_purchases rmp
+        WHERE rmp.purchase_date >= ${periodStartSql} AND rmp.purchase_date < ${periodEndExclusiveSql}
+      `);
+      const purchaseRow =
+        (purchaseRes as any)?.rows?.[0] ??
+        (Array.isArray(purchaseRes) ? (purchaseRes as any)[0] : undefined);
+      if (purchaseRow) {
+        purchaseCOGSExGst = toNum((purchaseRow as any).total_purchase_ex_gst);
+        purchaseGstPaid = toNum((purchaseRow as any).total_purchase_gst);
+      }
+    } catch (e) {
+      console.warn('pl-statement raw_material_purchases query failed, fallback COGS unavailable');
+    }
+
+    const usingHistoricalCogs = historicalCOGS > 0;
+    const computedCOGSExGst = usingHistoricalCogs ? historicalCOGS : purchaseCOGSExGst;
+    const computedCogsGstPaid = usingHistoricalCogs ? 0 : purchaseGstPaid;
     let cogs: any = { 
-      production_costs: historicalCOGS, 
-      material_costs: historicalCOGS * 0.6, // Estimated breakdown
-      labor_costs: historicalCOGS * 0.2, 
-      overhead_costs: historicalCOGS * 0.2 
+      production_costs: computedCOGSExGst, 
+      material_costs: computedCOGSExGst * 0.6, // Estimated breakdown
+      labor_costs: computedCOGSExGst * 0.2, 
+      overhead_costs: computedCOGSExGst * 0.2 
     };
 
     // Operating expenses
@@ -59,7 +94,7 @@ export async function GET(request: NextRequest) {
           COALESCE(SUM(CASE WHEN e.category = 'maintenance' THEN e.amount ELSE 0 END), 0) AS maintenance_expenses,
           COALESCE(SUM(CASE WHEN e.category = 'other' THEN e.amount ELSE 0 END), 0) AS other_expenses
         FROM expenses e
-        WHERE e.expense_date >= ${defaultStart} AND e.expense_date <= ${defaultEnd}
+        WHERE e.expense_date >= ${periodStartSql} AND e.expense_date < ${periodEndExclusiveSql}
       `);
       const opxRow = (opxRes as any)?.rows?.[0] ?? (Array.isArray(opxRes) ? (opxRes as any)[0] : undefined);
       if (opxRow) opx = opxRow;
@@ -68,17 +103,23 @@ export async function GET(request: NextRequest) {
     }
 
     // Courier expenses (canteen shipping — separate table)
-    let courierShipping = 0;
+    let courierShippingExGst = 0;
+    let courierGstPaid = 0;
     try {
       const courierRes = await db.execute(sql`
-        SELECT COALESCE(SUM(cost + gst_amount), 0) AS total_courier
+        SELECT
+          COALESCE(SUM(cost), 0) AS total_courier_ex_gst,
+          COALESCE(SUM(gst_amount), 0) AS total_courier_gst
         FROM courier_expenses
         WHERE courier_date >= ${defaultStart} AND courier_date <= ${defaultEnd}
       `);
       const courierRow =
         (courierRes as any)?.rows?.[0] ??
         (Array.isArray(courierRes) ? (courierRes as any)[0] : undefined);
-      if (courierRow) courierShipping = toNum((courierRow as any).total_courier);
+      if (courierRow) {
+        courierShippingExGst = toNum((courierRow as any).total_courier_ex_gst);
+        courierGstPaid = toNum((courierRow as any).total_courier_gst);
+      }
     } catch (e) {
       console.warn('pl-statement courier_expenses query failed (table may be missing)');
     }
@@ -103,26 +144,39 @@ export async function GET(request: NextRequest) {
     }
 
     // Use historical P&L data for accurate calculations
-    const totalRevenue = historicalPNL.summary.totalRevenue || toNum(revenue.total_revenue);
-    const totalCOGS = historicalPNL.summary.totalCost;
+    const grossRevenueExGst = toNum(revenue.gross_revenue);
+    const totalInvoiceRevenue = toNum(revenue.total_revenue);
+    const gstCollected = toNum(revenue.gst_collected);
+    const fallbackRevenue = historicalPNL.summary.totalRevenue || totalInvoiceRevenue;
+    const totalRevenue = totalInvoiceRevenue > 0 ? totalInvoiceRevenue : fallbackRevenue;
+    const totalCOGS = computedCOGSExGst;
     const totalOpExBase = toNum(opx.total_expenses);
-    const totalOpEx = totalOpExBase + courierShipping;
+    const totalOpEx = totalOpExBase + courierShippingExGst;
     const loanInterestExpense = toNum(loanData.interest_expense);
+    const gstPaidToGovernment = computedCogsGstPaid + courierGstPaid;
+    const netGstPayable = gstCollected - gstPaidToGovernment;
 
-    const grossProfit = totalRevenue - totalCOGS;
+    // Business profitability is calculated EX GST.
+    const revenueForProfit = grossRevenueExGst > 0 ? grossRevenueExGst : (totalRevenue - gstCollected);
+    const grossProfit = revenueForProfit - totalCOGS;
     const operatingProfit = grossProfit - totalOpEx;
     const netProfit = operatingProfit - loanInterestExpense; // Interest is deducted after operating profit
 
-    const pct = (num: number) => (totalRevenue > 0 ? (num / totalRevenue) * 100 : 0);
+    const pct = (num: number) => (revenueForProfit > 0 ? (num / revenueForProfit) * 100 : 0);
 
     return NextResponse.json({
       success: true,
       data: {
         period: { startDate: defaultStart, endDate: defaultEnd, generatedAt: new Date().toISOString() },
         revenue: {
-          grossRevenue: toNum(revenue.gross_revenue),
-          gstCollected: toNum(revenue.gst_collected),
+          grossRevenue: revenueForProfit,
+          gstCollected,
           totalRevenue
+        },
+        taxes: {
+          gstCollected,
+          gstPaidToGovernment,
+          netGstPayable
         },
         costOfGoodsSold: {
           productionCosts: toNum(cogs.production_costs),
@@ -138,7 +192,7 @@ export async function GET(request: NextRequest) {
           utilities: toNum(opx.utility_expenses),
           maintenance: toNum(opx.maintenance_expenses),
           other: toNum(opx.other_expenses),
-          courierShipping,
+          courierShipping: courierShippingExGst,
           totalOperatingExpenses: totalOpEx
         },
         operatingProfit: { amount: operatingProfit, margin: pct(operatingProfit) },
@@ -150,7 +204,7 @@ export async function GET(request: NextRequest) {
         },
         netProfit: { amount: netProfit, margin: pct(netProfit) },
         summary: {
-          totalRevenue,
+          totalRevenue: revenueForProfit,
           totalExpenses: totalCOGS + totalOpEx + loanInterestExpense,
           netProfit,
           profitMargin: pct(netProfit)
