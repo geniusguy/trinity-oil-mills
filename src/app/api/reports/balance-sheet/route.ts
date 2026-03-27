@@ -43,10 +43,13 @@ export async function GET(request: NextRequest) {
         CASE
           WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
           WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+          WHEN p.base_price IS NOT NULL AND sp.quantity IS NOT NULL THEN p.base_price * sp.quantity
+          WHEN p.retail_price IS NOT NULL AND sp.quantity IS NOT NULL THEN p.retail_price * sp.quantity
           ELSE 0
         END
       ), 0) AS stock_purchase_outflow
       FROM stock_purchases sp
+      LEFT JOIN products p ON p.id = sp.product_id
       WHERE sp.purchase_date < ${endExclusiveSql}
     `);
     const stockPurchases = (stockPurchaseRes as any)?.rows?.[0] ?? (Array.isArray(stockPurchaseRes) ? (stockPurchaseRes as any)[0] : undefined) ?? { stock_purchase_outflow: 0 };
