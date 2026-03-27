@@ -464,17 +464,28 @@ export class HistoricalPNLCalculator {
   /**
    * Calculate PNL for a specific period using historical prices
    */
-  static async calculatePNLForPeriod(startDate: Date, endDate: Date) {
+  static async calculatePNLForPeriod(
+    startDate: Date,
+    endDate: Date,
+    options?: { paidOnly?: boolean }
+  ) {
     try {
+      const paidOnly = options?.paidOnly ?? true;
       // Get all sales in the period
-      const salesData = await db.select()
-        .from(sales)
-        .where(
-          and(
+      const salesFilter = paidOnly
+        ? and(
+            gte(sales.createdAt, startDate),
+            lte(sales.createdAt, endDate),
+            eq(sales.paymentStatus, 'paid')
+          )
+        : and(
             gte(sales.createdAt, startDate),
             lte(sales.createdAt, endDate)
-          )
-        );
+          );
+
+      const salesData = await db.select()
+        .from(sales)
+        .where(salesFilter);
 
       // Check if there's any data
       if (salesData.length === 0) {

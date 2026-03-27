@@ -26,6 +26,9 @@ interface PLStatement {
     gstPaidToGovernment: number;
     netGstPayable: number;
   };
+  dataSource?: {
+    cogs?: string;
+  };
   costOfGoodsSold: {
     productionCosts: number;
     materialCosts: number;
@@ -407,7 +410,8 @@ const FinancialStatementsPage: React.FC = () => {
                   
                   setDateRange({
                     startDate: startDate.toISOString().split('T')[0],
-                    endDate: endDate.toISOString().split('T')[0]
+                    endDate: endDate.toISOString().split('T')[0],
+                    asOfDate: endDate.toISOString().split('T')[0],
                   });
                 }}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
@@ -433,7 +437,7 @@ const FinancialStatementsPage: React.FC = () => {
               <input
                 type="date"
                 value={dateRange.endDate}
-                onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
+                onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value, asOfDate: e.target.value }))}
                 className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
               />
             </div>
@@ -573,6 +577,9 @@ const FinancialStatementsPage: React.FC = () => {
 
               <div className="mb-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">Cost of Goods Sold</h3>
+                <p className="text-xs text-gray-500 mb-2">
+                  Source: {plStatement.dataSource?.cogs || 'unknown'}
+                </p>
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span>Production Costs</span>

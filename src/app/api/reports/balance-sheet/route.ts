@@ -6,33 +6,113 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const asOfDate = searchParams.get('asOfDate') || new Date().toISOString().slice(0, 10);
+    const endExclusive = new Date(`${asOfDate}T00:00:00`);
+    endExclusive.setDate(endExclusive.getDate() + 1);
+    const endExclusiveSql = endExclusive.toISOString().slice(0, 19).replace('T', ' ');
+    const toNum = (v: any) => (v === null || v === undefined ? 0 : Number(v));
 
-    // Very simple illustrative balance sheet using available tables
-    // Assets proxy: cash from paid sales - expenses paid - production costs to date
-    const revenueRes = await db.execute(sql`
-      SELECT COALESCE(SUM(s.total_amount), 0) AS total_revenue
+    // Paid cash inflow from sales (bank/cash proxy)
+    const paidSalesRes = await db.execute(sql`
+      SELECT COALESCE(SUM(s.total_amount), 0) AS paid_sales
       FROM sales s
-      WHERE s.created_at <= ${asOfDate} AND s.payment_status = 'paid'
+      WHERE s.created_at < ${endExclusiveSql}
+        AND s.payment_status = 'paid'
     `);
-    const revenue = (revenueRes as any)?.rows?.[0] ?? (Array.isArray(revenueRes) ? (revenueRes as any)[0] : undefined) ?? { total_revenue: 0 };
+    const paidSales = (paidSalesRes as any)?.rows?.[0] ?? (Array.isArray(paidSalesRes) ? (paidSalesRes as any)[0] : undefined) ?? { paid_sales: 0 };
 
+    // Outstanding receivables = pending sales
+    const receivableRes = await db.execute(sql`
+      SELECT COALESCE(SUM(s.total_amount), 0) AS accounts_receivable
+      FROM sales s
+      WHERE s.created_at < ${endExclusiveSql}
+        AND s.payment_status = 'pending'
+    `);
+    const receivables = (receivableRes as any)?.rows?.[0] ?? (Array.isArray(receivableRes) ? (receivableRes as any)[0] : undefined) ?? { accounts_receivable: 0 };
+
+    // Expenses paid out
     const expensesRes = await db.execute(sql`
       SELECT COALESCE(SUM(e.amount), 0) AS total_expenses
       FROM expenses e
-      WHERE e.expense_date <= ${asOfDate}
+      WHERE e.expense_date < ${endExclusiveSql}
     `);
     const expenses = (expensesRes as any)?.rows?.[0] ?? (Array.isArray(expensesRes) ? (expensesRes as any)[0] : undefined) ?? { total_expenses: 0 };
 
-    const prodRes = await db.execute(sql`
-      SELECT COALESCE(SUM(p.total_cost), 0) AS total_production_cost
-      FROM production p
-      WHERE p.production_date <= ${asOfDate}
+    // Stock purchases outflow (product purchases)
+    const stockPurchaseRes = await db.execute(sql`
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
+          WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+          ELSE 0
+        END
+      ), 0) AS stock_purchase_outflow
+      FROM stock_purchases sp
+      WHERE sp.purchase_date < ${endExclusiveSql}
     `);
-    const production = (prodRes as any)?.rows?.[0] ?? (Array.isArray(prodRes) ? (prodRes as any)[0] : undefined) ?? { total_production_cost: 0 };
+    const stockPurchases = (stockPurchaseRes as any)?.rows?.[0] ?? (Array.isArray(stockPurchaseRes) ? (stockPurchaseRes as any)[0] : undefined) ?? { stock_purchase_outflow: 0 };
 
-    const toNum = (v: any) => (v === null || v === undefined ? 0 : Number(v));
-    const totalAssets = Math.max(0, toNum(revenue.total_revenue) - toNum(expenses.total_expenses));
-    const totalLiabilities = toNum(production.total_production_cost) * 0.2; // placeholder assumption
+    // Raw material purchases outflow (base + GST)
+    const rawPurchaseRes = await db.execute(sql`
+      SELECT COALESCE(SUM(rmp.total_cost + IFNULL(rmp.gst_amount, 0)), 0) AS raw_purchase_outflow
+      FROM raw_material_purchases rmp
+      WHERE rmp.purchase_date < ${endExclusiveSql}
+    `);
+    const rawPurchases = (rawPurchaseRes as any)?.rows?.[0] ?? (Array.isArray(rawPurchaseRes) ? (rawPurchaseRes as any)[0] : undefined) ?? { raw_purchase_outflow: 0 };
+
+    // Courier outflow (base + GST)
+    const courierRes = await db.execute(sql`
+      SELECT COALESCE(SUM(c.cost + IFNULL(c.gst_amount, 0)), 0) AS courier_outflow
+      FROM courier_expenses c
+      WHERE c.courier_date <= ${asOfDate}
+    `);
+    const courier = (courierRes as any)?.rows?.[0] ?? (Array.isArray(courierRes) ? (courierRes as any)[0] : undefined) ?? { courier_outflow: 0 };
+
+    // Loan paid outflow (EMI payments)
+    const loanPaymentRes = await db.execute(sql`
+      SELECT COALESCE(SUM(lp.payment_amount), 0) AS loan_payment_outflow
+      FROM loan_payments lp
+      WHERE lp.payment_date <= ${asOfDate}
+        AND lp.payment_status = 'paid'
+    `);
+    const loanPayments = (loanPaymentRes as any)?.rows?.[0] ?? (Array.isArray(loanPaymentRes) ? (loanPaymentRes as any)[0] : undefined) ?? { loan_payment_outflow: 0 };
+
+    // Inventory valuation from current stock levels
+    const inventoryRes = await db.execute(sql`
+      SELECT COALESCE(SUM(
+        IFNULL(i.quantity, 0) * IFNULL(i.cost_price, IFNULL(p.base_price, IFNULL(p.retail_price, 0)))
+      ), 0) AS inventory_value
+      FROM inventory i
+      LEFT JOIN products p ON p.id = i.product_id
+    `);
+    const inventory = (inventoryRes as any)?.rows?.[0] ?? (Array.isArray(inventoryRes) ? (inventoryRes as any)[0] : undefined) ?? { inventory_value: 0 };
+
+    // Outstanding loan principal as debt
+    const loanBalanceRes = await db.execute(sql`
+      SELECT COALESCE(SUM(l.remaining_balance), 0) AS outstanding_loan
+      FROM loans l
+      WHERE l.status = 'active'
+    `);
+    const loanBalances = (loanBalanceRes as any)?.rows?.[0] ?? (Array.isArray(loanBalanceRes) ? (loanBalanceRes as any)[0] : undefined) ?? { outstanding_loan: 0 };
+
+    const cashAndCashEquivalents = Math.max(
+      0,
+      toNum(paidSales.paid_sales)
+        - toNum(expenses.total_expenses)
+        - toNum(stockPurchases.stock_purchase_outflow)
+        - toNum(rawPurchases.raw_purchase_outflow)
+        - toNum(courier.courier_outflow)
+        - toNum(loanPayments.loan_payment_outflow)
+    );
+    const accountsReceivable = toNum(receivables.accounts_receivable);
+    const inventoryValue = toNum(inventory.inventory_value);
+
+    const totalAssets = cashAndCashEquivalents + accountsReceivable + inventoryValue;
+
+    // AP is not tracked with payment status in current purchase tables; keep zero instead of fake estimate.
+    const accountsPayable = 0;
+    const shortTermDebt = 0;
+    const longTermDebt = toNum(loanBalances.outstanding_loan);
+    const totalLiabilities = accountsPayable + shortTermDebt + longTermDebt;
     const equity = totalAssets - totalLiabilities;
 
     return NextResponse.json({
@@ -40,21 +120,25 @@ export async function GET(request: NextRequest) {
       data: {
         asOfDate,
         assets: {
-          cashAndCashEquivalents: totalAssets,
-          accountsReceivable: 0,
-          inventory: Math.max(0, toNum(production.total_production_cost) * 0.8),
+          cashAndCashEquivalents,
+          accountsReceivable,
+          inventory: inventoryValue,
           totalAssets
         },
         liabilities: {
-          accountsPayable: totalLiabilities,
-          shortTermDebt: 0,
-          longTermDebt: 0,
+          accountsPayable,
+          shortTermDebt,
+          longTermDebt,
           totalLiabilities
         },
         equity: {
           retainedEarnings: equity,
           ownerEquity: 0,
           totalEquity: equity
+        },
+        dataQuality: {
+          note: 'accounts_payable is zero because vendor payable status is not tracked in purchase tables',
+          basedOn: ['sales', 'expenses', 'stock_purchases', 'raw_material_purchases', 'courier_expenses', 'loan_payments', 'loans', 'inventory']
         }
       }
     });

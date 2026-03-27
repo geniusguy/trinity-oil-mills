@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db/db';
-import { sales, expenses, production } from '@/db/schema';
-import { gte, lte, and, sum, count, eq } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { HistoricalPNLCalculator } from '@/lib/priceHistory';
 import { jsPDF } from 'jspdf/dist/jspdf.es.min.js';
 
@@ -19,120 +18,97 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const startDateTime = new Date(startDate);
-    const endDateTime = new Date(endDate);
-    endDateTime.setHours(23, 59, 59, 999); // End of day
+    const startDateTime = new Date(`${startDate}T00:00:00`);
+    const endDateExclusive = new Date(`${endDate}T00:00:00`);
+    endDateExclusive.setDate(endDateExclusive.getDate() + 1);
+    const endDateInclusive = new Date(endDateExclusive.getTime() - 1);
+    const toSqlDateTime = (d: Date) => d.toISOString().slice(0, 19).replace('T', ' ');
+    const startSql = toSqlDateTime(startDateTime);
+    const endExclusiveSql = toSqlDateTime(endDateExclusive);
 
     // Get historical P&L data for accurate pricing
     const historicalPNL = await HistoricalPNLCalculator.calculatePNLForPeriod(
       startDateTime, 
-      endDateTime
+      endDateInclusive,
+      { paidOnly: true }
     );
 
-    // Get sales data
-    const salesResult = await db
-      .select({
-        totalSales: count(sales.id),
-        totalRevenue: sum(sales.totalAmount),
-        totalGST: sum(sales.gstAmount)
-      })
-      .from(sales)
-      .where(
-        and(
-          gte(sales.createdAt, startDateTime),
-          lte(sales.createdAt, endDateTime)
-        )
-      );
+    const salesRes = await db.execute(sql`
+      SELECT
+        COUNT(s.id) AS total_sales,
+        COALESCE(SUM(s.subtotal), 0) AS total_revenue_ex_gst,
+        COALESCE(SUM(s.gst_amount), 0) AS total_gst,
+        COALESCE(SUM(s.total_amount), 0) AS total_revenue_incl_gst
+      FROM sales s
+      WHERE s.created_at >= ${startSql}
+        AND s.created_at < ${endExclusiveSql}
+        AND s.payment_status = 'paid'
+    `);
+    const salesData = (salesRes as any)?.rows?.[0] ?? (Array.isArray(salesRes) ? (salesRes as any)[0] : {}) ?? {};
 
-    // Get expenses data
-    const expensesResult = await db
-      .select({
-        totalExpenses: count(expenses.id),
-        totalExpenseAmount: sum(expenses.amount)
-      })
-      .from(expenses)
-      .where(
-        and(
-          gte(expenses.expenseDate, startDateTime),
-          lte(expenses.expenseDate, endDateTime)
-        )
-      );
+    const expensesRes = await db.execute(sql`
+      SELECT COUNT(e.id) AS total_expenses, COALESCE(SUM(e.amount), 0) AS total_expense_amount
+      FROM expenses e
+      WHERE e.expense_date >= ${startSql}
+        AND e.expense_date < ${endExclusiveSql}
+    `);
+    const expensesData = (expensesRes as any)?.rows?.[0] ?? (Array.isArray(expensesRes) ? (expensesRes as any)[0] : {}) ?? {};
 
-    // Get production costs
-    const productionResult = await db
-      .select({
-        totalProduction: count(production.id),
-        totalProductionCost: sum(production.totalCost)
-      })
-      .from(production)
-      .where(
-        and(
-          gte(production.productionDate, startDateTime),
-          lte(production.productionDate, endDateTime)
-        )
-      );
+    const expensesByCategoryRes = await db.execute(sql`
+      SELECT e.category, COALESCE(SUM(e.amount), 0) AS total_amount, COUNT(e.id) AS count
+      FROM expenses e
+      WHERE e.expense_date >= ${startSql}
+        AND e.expense_date < ${endExclusiveSql}
+      GROUP BY e.category
+    `);
+    const expensesByCategory = ((expensesByCategoryRes as any)?.rows ?? (Array.isArray(expensesByCategoryRes) ? expensesByCategoryRes : [])) as any[];
 
-    // Get sales by type
-    const retailSalesResult = await db
-      .select({
-        count: count(sales.id),
-        revenue: sum(sales.totalAmount)
-      })
-      .from(sales)
-      .where(
-        and(
-          gte(sales.createdAt, startDateTime),
-          lte(sales.createdAt, endDateTime),
-          eq(sales.saleType, 'retail')
-        )
-      );
+    const salesByTypeRes = await db.execute(sql`
+      SELECT s.sale_type, COUNT(s.id) AS count, COALESCE(SUM(s.total_amount), 0) AS revenue
+      FROM sales s
+      WHERE s.created_at >= ${startSql}
+        AND s.created_at < ${endExclusiveSql}
+        AND s.payment_status = 'paid'
+      GROUP BY s.sale_type
+    `);
+    const salesByType = ((salesByTypeRes as any)?.rows ?? (Array.isArray(salesByTypeRes) ? salesByTypeRes : [])) as any[];
+    const retailData = salesByType.find((r) => String(r.sale_type || '') === 'retail') || {};
+    const canteenData = salesByType.find((r) => String(r.sale_type || '') === 'canteen') || {};
 
-    const canteenSalesResult = await db
-      .select({
-        count: count(sales.id),
-        revenue: sum(sales.totalAmount)
-      })
-      .from(sales)
-      .where(
-        and(
-          gte(sales.createdAt, startDateTime),
-          lte(sales.createdAt, endDateTime),
-          eq(sales.saleType, 'canteen')
-        )
-      );
+    const courierRes = await db.execute(sql`
+      SELECT COALESCE(SUM(c.cost), 0) AS courier_ex_gst
+      FROM courier_expenses c
+      WHERE c.courier_date >= ${startDate}
+        AND c.courier_date <= ${endDate}
+    `);
+    const courierData = (courierRes as any)?.rows?.[0] ?? (Array.isArray(courierRes) ? (courierRes as any)[0] : {}) ?? {};
 
-    // Get expenses by category
-    const expensesByCategory = await db
-      .select({
-        category: expenses.category,
-        totalAmount: sum(expenses.amount),
-        count: count(expenses.id)
-      })
-      .from(expenses)
-      .where(
-        and(
-          gte(expenses.expenseDate, startDateTime),
-          lte(expenses.expenseDate, endDateTime)
-        )
-      )
-      .groupBy(expenses.category);
-
-    // Parse results and handle potential null values
-    const salesData = salesResult[0] || {};
-    const expensesData = expensesResult[0] || {};
-    const productionData = productionResult[0] || {};
-    const retailData = retailSalesResult[0] || {};
-    const canteenData = canteenSalesResult[0] || {};
+    const stockPurchasesRes = await db.execute(sql`
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
+          WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+          ELSE 0
+        END
+      ), 0) AS stock_purchase_cost
+      FROM stock_purchases sp
+      WHERE sp.purchase_date >= ${startSql}
+        AND sp.purchase_date < ${endExclusiveSql}
+    `);
+    const stockPurchasesData = (stockPurchasesRes as any)?.rows?.[0] ?? (Array.isArray(stockPurchasesRes) ? (stockPurchasesRes as any)[0] : {}) ?? {};
 
     // Use historical pricing for accurate calculations
-    const totalRevenue = historicalPNL.summary.totalRevenue || parseFloat(salesData.totalRevenue?.toString() || '0');
-    const totalExpenseAmount = parseFloat(expensesData.totalExpenseAmount?.toString() || '0');
+    const totalRevenue = parseFloat(salesData.total_revenue_ex_gst?.toString() || '0');
+    const totalExpenseAmount = parseFloat(expensesData.total_expense_amount?.toString() || '0');
     const totalHistoricalCost = historicalPNL.summary.totalCost; // Historical cost of goods sold
-    const totalCOGS = totalHistoricalCost; // Use historical costs
+    const totalStockPurchaseCost = parseFloat(stockPurchasesData.stock_purchase_cost?.toString() || '0');
+    const totalCOGS = totalHistoricalCost > 0 ? totalHistoricalCost : totalStockPurchaseCost;
+    const courierExGst = parseFloat(courierData.courier_ex_gst?.toString() || '0');
+    const totalOperatingExpenses = totalExpenseAmount + courierExGst;
 
     // Calculate financial metrics with historical pricing
     const grossProfit = totalRevenue - totalCOGS;
-    const operatingProfit = grossProfit - totalExpenseAmount;
+    const operatingProfit = grossProfit - totalOperatingExpenses;
     const profitMargin = totalRevenue > 0 ? (operatingProfit / totalRevenue) * 100 : 0;
 
     const financialData = {
@@ -144,21 +120,24 @@ export async function GET(request: NextRequest) {
         total: totalRevenue,
         retail: parseFloat(retailData.revenue?.toString() || '0'),
         canteen: parseFloat(canteenData.revenue?.toString() || '0'),
-        gst: parseFloat(salesData.totalGST?.toString() || '0')
+        gst: parseFloat(salesData.total_gst?.toString() || '0')
       },
       expenses: {
-        total: totalExpenseAmount,
-        count: parseInt(expensesData.totalExpenses?.toString() || '0'),
-        byCategory: expensesByCategory.map(item => ({
-          category: item.category,
-          amount: parseFloat(item.totalAmount?.toString() || '0'),
-          count: parseInt(item.count?.toString() || '0')
-        }))
+        total: totalOperatingExpenses,
+        count: parseInt(expensesData.total_expenses?.toString() || '0'),
+        byCategory: [
+          ...expensesByCategory.map(item => ({
+            category: item.category,
+            amount: parseFloat(item.total_amount?.toString() || '0'),
+            count: parseInt(item.count?.toString() || '0')
+          })),
+          ...(courierExGst > 0 ? [{ category: 'courier', amount: courierExGst, count: 1 }] : []),
+        ]
       },
       production: {
-        totalCost: totalHistoricalCost,
+        totalCost: totalCOGS,
         historicalCost: totalHistoricalCost,
-        count: parseInt(productionData.totalProduction?.toString() || '0')
+        count: 0
       },
       profitability: {
         grossProfit,
@@ -168,7 +147,7 @@ export async function GET(request: NextRequest) {
         historicalCogs: totalHistoricalCost
       },
       sales: {
-        totalCount: parseInt(salesData.totalSales?.toString() || '0'),
+        totalCount: parseInt(salesData.total_sales?.toString() || '0'),
         retail: {
           count: parseInt(retailData.count?.toString() || '0'),
           revenue: parseFloat(retailData.revenue?.toString() || '0')

@@ -26,7 +26,8 @@ export async function GET(request: NextRequest) {
     // Use historical P&L calculation for accurate costs
     const historicalPNL = await HistoricalPNLCalculator.calculatePNLForPeriod(
       periodStart,
-      periodEndInclusive
+      periodEndInclusive,
+      { paidOnly: true }
     );
 
     // Also get traditional revenue data for consistency
@@ -72,9 +73,38 @@ export async function GET(request: NextRequest) {
       console.warn('pl-statement raw_material_purchases query failed, fallback COGS unavailable');
     }
 
+    // Secondary fallback for setups using stock_purchases screen instead of raw_material_purchases.
+    let stockPurchaseCost = 0;
+    try {
+      const stockPurchaseRes = await db.execute(sql`
+        SELECT COALESCE(SUM(
+          CASE
+            WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
+            WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+            ELSE 0
+          END
+        ), 0) AS total_stock_purchase_cost
+        FROM stock_purchases sp
+        WHERE sp.purchase_date >= ${periodStartSql} AND sp.purchase_date < ${periodEndExclusiveSql}
+      `);
+      const stockPurchaseRow =
+        (stockPurchaseRes as any)?.rows?.[0] ??
+        (Array.isArray(stockPurchaseRes) ? (stockPurchaseRes as any)[0] : undefined);
+      if (stockPurchaseRow) {
+        stockPurchaseCost = toNum((stockPurchaseRow as any).total_stock_purchase_cost);
+      }
+    } catch (e) {
+      console.warn('pl-statement stock_purchases query failed, secondary fallback COGS unavailable');
+    }
+
     const usingHistoricalCogs = historicalCOGS > 0;
-    const computedCOGSExGst = usingHistoricalCogs ? historicalCOGS : purchaseCOGSExGst;
-    const computedCogsGstPaid = usingHistoricalCogs ? 0 : purchaseGstPaid;
+    const usingRawMaterialPurchasesFallback = !usingHistoricalCogs && purchaseCOGSExGst > 0;
+    const computedCOGSExGst = usingHistoricalCogs
+      ? historicalCOGS
+      : (purchaseCOGSExGst > 0 ? purchaseCOGSExGst : stockPurchaseCost);
+    const computedCogsGstPaid = usingHistoricalCogs
+      ? 0
+      : (purchaseCOGSExGst > 0 ? purchaseGstPaid : 0);
     let cogs: any = { 
       production_costs: computedCOGSExGst, 
       material_costs: computedCOGSExGst * 0.6, // Estimated breakdown
@@ -177,6 +207,12 @@ export async function GET(request: NextRequest) {
           gstCollected,
           gstPaidToGovernment,
           netGstPayable
+        },
+        dataSource: {
+          cogs:
+            usingHistoricalCogs
+              ? 'historical-sales-costing'
+              : (usingRawMaterialPurchasesFallback ? 'raw_material_purchases' : 'stock_purchases')
         },
         costOfGoodsSold: {
           productionCosts: toNum(cogs.production_costs),
