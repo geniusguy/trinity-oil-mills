@@ -75,19 +75,39 @@ export async function GET(request: NextRequest) {
 
     // Secondary fallback for setups using stock_purchases screen instead of raw_material_purchases.
     let stockPurchaseCost = 0;
+    let stockPurchaseRows = 0;
+    let stockPurchaseRowsWithAmount = 0;
     try {
       const stockPurchaseRes = await db.execute(sql`
-        SELECT COALESCE(SUM(
-          CASE
-            WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
-            WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
-            WHEN p.base_price IS NOT NULL AND sp.quantity IS NOT NULL THEN p.base_price * sp.quantity
-            WHEN p.retail_price IS NOT NULL AND sp.quantity IS NOT NULL THEN p.retail_price * sp.quantity
-            ELSE 0
-          END
-        ), 0) AS total_stock_purchase_cost
+        SELECT
+          COALESCE(SUM(
+            CASE
+              WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
+              WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+              WHEN ap.avg_unit_cost IS NOT NULL AND sp.quantity IS NOT NULL THEN ap.avg_unit_cost * sp.quantity
+              WHEN p.base_price IS NOT NULL AND sp.quantity IS NOT NULL THEN p.base_price * sp.quantity
+              WHEN p.retail_price IS NOT NULL AND sp.quantity IS NOT NULL THEN p.retail_price * sp.quantity
+              ELSE 0
+            END
+          ), 0) AS total_stock_purchase_cost,
+          COUNT(*) AS total_rows,
+          SUM(CASE WHEN sp.total_amount IS NOT NULL OR sp.unit_price IS NOT NULL THEN 1 ELSE 0 END) AS rows_with_amount
         FROM stock_purchases sp
         LEFT JOIN products p ON p.id = sp.product_id
+        LEFT JOIN (
+          SELECT
+            sp2.product_id,
+            AVG(
+              CASE
+                WHEN sp2.unit_price IS NOT NULL THEN sp2.unit_price
+                WHEN sp2.total_amount IS NOT NULL AND sp2.quantity IS NOT NULL AND sp2.quantity > 0
+                  THEN sp2.total_amount / sp2.quantity
+                ELSE NULL
+              END
+            ) AS avg_unit_cost
+          FROM stock_purchases sp2
+          GROUP BY sp2.product_id
+        ) ap ON ap.product_id = sp.product_id
         WHERE sp.purchase_date >= ${periodStartSql} AND sp.purchase_date < ${periodEndExclusiveSql}
       `);
       const stockPurchaseRow =
@@ -95,6 +115,8 @@ export async function GET(request: NextRequest) {
         (Array.isArray(stockPurchaseRes) ? (stockPurchaseRes as any)[0] : undefined);
       if (stockPurchaseRow) {
         stockPurchaseCost = toNum((stockPurchaseRow as any).total_stock_purchase_cost);
+        stockPurchaseRows = toNum((stockPurchaseRow as any).total_rows);
+        stockPurchaseRowsWithAmount = toNum((stockPurchaseRow as any).rows_with_amount);
       }
     } catch (e) {
       console.warn('pl-statement stock_purchases query failed, secondary fallback COGS unavailable');
@@ -216,6 +238,11 @@ export async function GET(request: NextRequest) {
             usingHistoricalCogs
               ? 'historical-sales-costing'
               : (usingRawMaterialPurchasesFallback ? 'raw_material_purchases' : 'stock_purchases')
+        },
+        diagnostics: {
+          stockPurchaseRows,
+          stockPurchaseRowsWithAmount,
+          derivedStockCost: stockPurchaseCost
         },
         costOfGoodsSold: {
           productionCosts: toNum(cogs.production_costs),

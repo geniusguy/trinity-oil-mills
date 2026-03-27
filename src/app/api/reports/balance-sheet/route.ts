@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
         CASE
           WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
           WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+          WHEN ap.avg_unit_cost IS NOT NULL AND sp.quantity IS NOT NULL THEN ap.avg_unit_cost * sp.quantity
           WHEN p.base_price IS NOT NULL AND sp.quantity IS NOT NULL THEN p.base_price * sp.quantity
           WHEN p.retail_price IS NOT NULL AND sp.quantity IS NOT NULL THEN p.retail_price * sp.quantity
           ELSE 0
@@ -50,6 +51,20 @@ export async function GET(request: NextRequest) {
       ), 0) AS stock_purchase_outflow
       FROM stock_purchases sp
       LEFT JOIN products p ON p.id = sp.product_id
+      LEFT JOIN (
+        SELECT
+          sp2.product_id,
+          AVG(
+            CASE
+              WHEN sp2.unit_price IS NOT NULL THEN sp2.unit_price
+              WHEN sp2.total_amount IS NOT NULL AND sp2.quantity IS NOT NULL AND sp2.quantity > 0
+                THEN sp2.total_amount / sp2.quantity
+              ELSE NULL
+            END
+          ) AS avg_unit_cost
+        FROM stock_purchases sp2
+        GROUP BY sp2.product_id
+      ) ap ON ap.product_id = sp.product_id
       WHERE sp.purchase_date < ${endExclusiveSql}
     `);
     const stockPurchases = (stockPurchaseRes as any)?.rows?.[0] ?? (Array.isArray(stockPurchaseRes) ? (stockPurchaseRes as any)[0] : undefined) ?? { stock_purchase_outflow: 0 };
