@@ -544,6 +544,9 @@ export async function POST(request: NextRequest) {
     }
 
     const poNumberRaw = typeof poNumber === 'string' ? poNumber.trim() : '';
+    if (!poNumberRaw) {
+      return NextResponse.json({ error: 'PO Number is required' }, { status: 400 });
+    }
     const poNumberMatch = poNumberRaw.match(/^PO-(\d{1,10})\s*\/\s*(\d{2}-\d{2})$/);
     if (!poNumberMatch) {
       return NextResponse.json({ error: 'PO Number must be in format PO-<number> / <yy-yy>' }, { status: 400 });
@@ -755,21 +758,6 @@ export async function POST(request: NextRequest) {
     let insertPlaceholders = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
 
     if (hasPoNumberColumn) {
-      // Enforce unique PO number when provided (clear message to UI).
-      if (poNumber && String(poNumber).trim()) {
-        const [existingPo]: any = await connection.query(
-          'SELECT id, invoice_number as invoiceNumber, po_number as poNumber, created_at as createdAt FROM sales WHERE po_number = ? LIMIT 1',
-          [String(poNumber).trim()]
-        );
-        if (Array.isArray(existingPo) && existingPo.length > 0) {
-          const row = existingPo[0];
-          const dt = row?.createdAt ? new Date(row.createdAt).toISOString().slice(0, 10) : 'unknown date';
-          throw new Error(
-            `PO number already exists. Existing entry: PO ${row?.poNumber || poNumber}, Invoice ${row?.invoiceNumber || 'N/A'}, Date ${dt}.`
-          );
-        }
-      }
-
       insertFields += ', po_number';
       insertValues.push(poNumber);
       insertPlaceholders += ', ?';
@@ -975,23 +963,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (message.includes('PO number already exists')) {
-      return NextResponse.json(
-        { error: message },
-        { status: 409 }
-      );
-    }
-
     if (message.toLowerCase().includes('duplicate entry') && message.toLowerCase().includes('invoice_number')) {
       return NextResponse.json(
         { error: 'Invoice number already exists. Please use a different invoice number.' },
-        { status: 409 }
-      );
-    }
-
-    if (message.toLowerCase().includes('duplicate entry') && message.toLowerCase().includes('po_number')) {
-      return NextResponse.json(
-        { error: 'PO number already exists. Please use a different PO number.' },
         { status: 409 }
       );
     }

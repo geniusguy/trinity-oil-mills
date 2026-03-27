@@ -432,7 +432,8 @@ export default function POSPage() {
       return;
     }
 
-    if (!poNumberValue || !poNumberValue.trim()) {
+    const poNumberRaw = (poNumberValue || '').trim();
+    if (!poNumberRaw) {
       const msg = 'Please enter PO Number (Customer Reference)';
       if (saleType === 'canteen') {
         setCanteenFieldErrors((prev) => ({ ...prev, poNumberValue: msg }));
@@ -443,7 +444,7 @@ export default function POSPage() {
       addToast(msg, 'error');
       return;
     }
-    if (!/^\d{1,10}$/.test(poNumberValue.trim())) {
+    if (poNumberRaw && !/^\d{1,10}$/.test(poNumberRaw)) {
       const msg = 'PO Number must be 1–10 digits only';
       if (saleType === 'canteen') {
         setCanteenFieldErrors((prev) => ({ ...prev, poNumberValue: msg }));
