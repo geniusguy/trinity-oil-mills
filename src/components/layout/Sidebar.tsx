@@ -396,6 +396,17 @@ const navigationSections: NavSection[] = [
         ),
         roles: ['admin'],
         badge: 'SETUP'
+      },
+      {
+        name: 'Database Backup',
+        href: '/dashboard/admin/database-backup',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16a2 2 0 002 2h12a2 2 0 002-2M12 4v10m0 0l4-4m-4 4l-4-4" />
+          </svg>
+        ),
+        roles: ['admin'],
+        badge: 'SQL'
       }
     ],
     roles: ['admin']
