@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
           FROM stock_purchases sp2
           GROUP BY sp2.product_id
         ) ap ON ap.product_id = sp.product_id
-        WHERE sp.purchase_date >= ${periodStartSql} AND sp.purchase_date < ${periodEndExclusiveSql}
+        WHERE DATE(sp.purchase_date) >= ${defaultStart} AND DATE(sp.purchase_date) <= ${defaultEnd}
       `);
       const stockPurchaseRow =
         (stockPurchaseRes as any)?.rows?.[0] ??

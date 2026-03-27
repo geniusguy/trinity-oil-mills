@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
         FROM stock_purchases sp2
         GROUP BY sp2.product_id
       ) ap ON ap.product_id = sp.product_id
-      WHERE sp.purchase_date < ${endExclusiveSql}
+      WHERE DATE(sp.purchase_date) <= ${asOfDate}
     `);
     const stockPurchases = (stockPurchaseRes as any)?.rows?.[0] ?? (Array.isArray(stockPurchaseRes) ? (stockPurchaseRes as any)[0] : undefined) ?? { stock_purchase_outflow: 0 };
 
