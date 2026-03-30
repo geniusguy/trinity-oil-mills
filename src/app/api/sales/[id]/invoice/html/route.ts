@@ -7,49 +7,57 @@ function convertNumberToWords(num: number): string {
   const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
   const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
   const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-  
+
   if (num === 0) return 'Zero';
-  
-  function convertHundreds(n: number): string {
-    let result = '';
-    if (n >= 100) {
-      result += ones[Math.floor(n / 100)] + ' Hundred';
-      n %= 100;
-      if (n > 0) result += ' ';
-    }
-    if (n >= 20) {
-      result += tens[Math.floor(n / 10)];
-      n %= 10;
-      if (n > 0) result += ' ' + ones[n];
-    } else if (n >= 10) {
-      result += teens[n - 10];
-    } else if (n > 0) {
-      result += ones[n];
-    }
-    return result;
-  }
-  
+
+  const convertBelow100 = (n: number): string => {
+    if (n < 10) return ones[n];
+    if (n < 20) return teens[n - 10];
+    const t = Math.floor(n / 10);
+    const o = n % 10;
+    if (o === 0) return tens[t];
+    // Match expected "Ninety-eight" style (hyphen between tens and ones)
+    return `${tens[t]}-${ones[o]}`;
+  };
+
+  const convertBelow1000 = (n: number): string => {
+    if (n < 100) return convertBelow100(n);
+    const h = Math.floor(n / 100);
+    const rem = n % 100;
+    // Match expected "... Five Hundred And Ninety-eight"
+    return rem > 0 ? `${ones[h]} Hundred And ${convertBelow100(rem)}` : `${ones[h]} Hundred`;
+  };
+
+  // Works for values up to crores (more than enough for invoice totals).
+  let n = num;
   let result = '';
-  if (num >= 10000000) {
-    result += convertHundreds(Math.floor(num / 10000000)) + ' Crore';
-    num %= 10000000;
-    if (num > 0) result += ' ';
+
+  const crore = Math.floor(n / 10000000);
+  if (crore > 0) {
+    result += `${convertBelow1000(crore)} crore`;
+    n %= 10000000;
+    if (n > 0) result += ' ';
   }
-  if (num >= 100000) {
-    result += convertHundreds(Math.floor(num / 100000)) + ' Lakh';
-    num %= 100000;
-    if (num > 0) result += ' ';
+
+  const lakh = Math.floor(n / 100000);
+  if (lakh > 0) {
+    result += `${convertBelow1000(lakh)} lakh`;
+    n %= 100000;
+    if (n > 0) result += ' ';
   }
-  if (num >= 1000) {
-    result += convertHundreds(Math.floor(num / 1000)) + ' Thousand';
-    num %= 1000;
-    if (num > 0) result += ' ';
+
+  const thousand = Math.floor(n / 1000);
+  if (thousand > 0) {
+    result += `${convertBelow1000(thousand)} thousand`;
+    n %= 1000;
+    if (n > 0) result += ' ';
   }
-  if (num > 0) {
-    result += convertHundreds(num);
+
+  if (n > 0) {
+    result += convertBelow1000(n);
   }
-  
-  return result.trim() + ' Only';
+
+  return result.trim();
 }
 
 // Convert 0-99 to words (for paise)
@@ -658,35 +666,59 @@ export async function GET(
         
         <!-- TOTALS SECTION - Optimized Layout with 4 columns -->
         ${(() => {
-          // Recompute taxable subtotal from sale_items robustly for both storage modes
-          // (some older sales stored unit_price as GST-included).
-          let taxableTotal = 0;
+          const round2 = (n: number) => Math.round(n * 100) / 100;
+
+          // Fallback taxable subtotal from sale_items (older rows may have GST-included unit_price).
+          let taxableTotalFromItems = 0;
           (items as any[]).forEach((item) => {
             const qty = Number(item.quantity || 0);
             const total = Number(item.total_amount || 0);
             const gst = Number(item.gst_amount || 0);
             const unitStored = Number(item.unit_price || 0);
-            const approx = (a, b) => Math.abs(Number(a) - Number(b)) < 0.02;
+            const approx = (a: any, b: any) => Math.abs(Number(a) - Number(b)) < 0.02;
             const looksIncluded = approx(unitStored * qty, total);
             const pid = String(item.product_id || '').trim();
             if (pid === CASTOR_200ML_NEW_ID) {
-              taxableTotal += CASTOR_200ML_NEW_BASE_PRICE * qty;
+              taxableTotalFromItems += CASTOR_200ML_NEW_BASE_PRICE * qty;
             } else {
-              taxableTotal += looksIncluded ? (total - gst) : (unitStored * qty);
+              taxableTotalFromItems += looksIncluded ? (total - gst) : (unitStored * qty);
             }
           });
-          taxableTotal = Number(taxableTotal.toFixed(2));
+          taxableTotalFromItems = round2(taxableTotalFromItems);
 
-          // GST at 5% total, split 2.5% + 2.5%, rounded to whole rupees per side
-          const sgstDisplay = Math.round(taxableTotal * 0.025);
-          const cgstDisplay = Math.round(taxableTotal * 0.025);
-          const grandTotalDisplay = taxableTotal + sgstDisplay + cgstDisplay;
+          // Use saved sale totals as source of truth (matches saved "total_amount" with round-off).
+          const saleSubtotal = round2(Number(sale.subtotal ?? taxableTotalFromItems));
+          const saleTotalInvoiceValueRaw = sale.totalAmount ?? sale.total_amount ?? null;
+          // totalInvoiceValue will be computed after the bill-total rounding logic below.
+
+          // GST split (display) must be derived from subtotal.
+          const derivedGstAmount = round2(saleSubtotal * 0.05);
+          const sgstDisplay = round2(derivedGstAmount / 2);
+          const cgstDisplay = round2(derivedGstAmount - sgstDisplay);
+
+          const exactTotal = round2(saleSubtotal + sgstDisplay + cgstDisplay);
+
+          // "Bill total" rounding strategy (to match printed bills):
+          // - keep displayed SGST/CGST as precise 2-decimal values
+          // - but apply "round off" by truncating each side to whole rupees
+          //   for the final total calculation.
+          const sgstBillWhole = Math.floor(sgstDisplay);
+          const cgstBillWhole = Math.floor(cgstDisplay);
+          const gstBill = round2(sgstBillWhole + cgstBillWhole);
+
+          const roundedTotal = round2(saleSubtotal + gstBill);
+          const roundedOff = round2(roundedTotal - exactTotal);
+          // Use roundedTotal for final invoice value (printed "Total Invoice Value").
+          const totalInvoiceValue = roundedTotal;
+
+          const absRoundedOff = Math.abs(roundedOff);
+          const roundedOffDisplay = roundedOff < 0 ? `-₹ ${absRoundedOff.toFixed(2)}` : `₹ ${absRoundedOff.toFixed(2)}`;
 
           return `
         <tr style="height: 25px;">
             <td class="bg-accent border-medium" colspan="2"></td>
             <td class="bg-white total-label text-right border-medium" style="font-size: 10pt; padding: 4px;">Subtotal</td>
-            <td class="bg-white total-value text-right border-medium" style="font-size: 10pt; padding: 4px;">₹ ${taxableTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td class="bg-white total-value text-right border-medium" style="font-size: 10pt; padding: 4px;">₹ ${saleSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>
         
         <tr style="height: 25px;">
@@ -700,22 +732,29 @@ export async function GET(
             <td class="bg-white total-label text-right border-light" style="font-size: 10pt; padding: 4px; line-height: 1.1;">CGST / IGST<br>2.5%</td>
             <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">₹ ${cgstDisplay.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>
+
+        <tr style="height: 25px;">
+            <td class="bg-accent border-light" colspan="2"></td>
+            <td class="bg-white total-label text-right border-light" style="font-size: 10pt; padding: 4px; line-height: 1.1;">Rounded Off</td>
+            <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">${roundedOffDisplay}</td>
+        </tr>
         
         <tr style="height: 32px;">
             <td class="bg-accent border-thick" style="padding: 6px 12px; font-size: 10pt; line-height: 1.2;" colspan="2">
                 <strong>Amount in Words:</strong><br>
                 <em style="font-size: 9pt; color: #666;">${(() => {
-                  const rupees = Math.floor(grandTotalDisplay);
-                  const paise = Math.round((grandTotalDisplay - rupees) * 100);
-                  const rupeesWords = convertNumberToWords(rupees).replace(' Only', '');
+                  const totalFixed = round2(totalInvoiceValue);
+                  const rupees = Math.floor(totalFixed);
+                  const paise = Math.round((totalFixed - rupees) * 100);
+                  const rupeesWords = convertNumberToWords(rupees);
                   if (paise > 0) {
-                    return rupeesWords + ' Rupees and ' + convertPaiseToWords(paise) + ' Paise Only';
+                    return `${rupeesWords} And ${convertPaiseToWords(paise)} Paise Only`;
                   }
-                  return rupeesWords + ' Rupees Only';
+                  return `${rupeesWords} Only`;
                 })()}</em>
             </td>
             <td class="bg-dark final-total text-right border-thick" style="color: white; font-size: 11pt; padding: 6px;">Total Invoice Value</td>
-            <td class="bg-dark final-total text-right border-thick" style="color: white; font-size: 13pt; padding: 6px;">₹ ${grandTotalDisplay.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+            <td class="bg-dark final-total text-right border-thick" style="color: white; font-size: 13pt; padding: 6px;">₹ ${totalInvoiceValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>`;
         })()}
         
@@ -801,7 +840,10 @@ export async function GET(
 </html>`;
 
     return new Response(invoiceHTML, {
-      headers: { 'Content-Type': 'text/html' },
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
     });
 
   } catch (error) {

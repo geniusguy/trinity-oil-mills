@@ -622,6 +622,19 @@ export default function POSPage() {
       : displayProductsBase;
 
   const { subtotal, gstAmount, total } = calculateTotals();
+  // Invoice-style GST split + round-off preview (SGST/CGST 2 decimals, then round off by whole rupees).
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const derivedGstAmount = round2(subtotal * 0.05);
+  const sgst = round2(derivedGstAmount / 2);
+  const cgst = round2(derivedGstAmount - sgst);
+  const exactTotal = round2(subtotal + sgst + cgst);
+  const sgstBillWhole = Math.floor(sgst);
+  const cgstBillWhole = Math.floor(cgst);
+  const gstBill = round2(sgstBillWhole + cgstBillWhole);
+  const roundedTotal = round2(subtotal + gstBill);
+  const roundedOff = round2(roundedTotal - exactTotal);
+  const roundedOffDisplay =
+    roundedOff < 0 ? `-₹ ${Math.abs(roundedOff).toFixed(2)}` : `₹ ${roundedOff.toFixed(2)}`;
 
   if (status === 'loading' || isLoading || !mounted) {
     return (
@@ -1521,15 +1534,21 @@ export default function POSPage() {
                     <span className="font-medium">₹{subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">
-                      GST ({gstMode === 'included' ? 'included in item price' : 'added separately'}):
-                    </span>
-                    <span className="font-medium">₹{gstAmount.toFixed(2)}</span>
+                    <span className="text-gray-600">SGST / IGST 2.5%:</span>
+                    <span className="font-medium">₹{sgst.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">CGST / IGST 2.5%:</span>
+                    <span className="font-medium">₹{cgst.toFixed(2)}</span>
                   </div>
                   <div className="border-t pt-2 mt-2">
                     <div className="flex justify-between items-center">
-                      <span className="text-lg font-semibold text-gray-900">Total:</span>
-                      <span className="text-2xl font-bold text-gray-900">₹{total.toFixed(2)}</span>
+                      <span className="text-lg font-semibold text-gray-900">Rounded Off:</span>
+                      <span className="text-md font-semibold text-gray-900">{roundedOffDisplay}</span>
+                    </div>
+                    <div className="flex justify-between items-center mt-2">
+                      <span className="text-lg font-semibold text-gray-900">Total Invoice Value:</span>
+                      <span className="text-2xl font-bold text-gray-900">₹{roundedTotal.toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
@@ -1547,7 +1566,7 @@ export default function POSPage() {
                   ) : (
                     <div className="flex items-center justify-center space-x-2">
                       <span>Process Sale</span>
-                      <span className="text-xl font-bold">₹{total.toFixed(2)}</span>
+                      <span className="text-xl font-bold">₹{roundedTotal.toFixed(2)}</span>
                     </div>
                   )}
                 </button>
