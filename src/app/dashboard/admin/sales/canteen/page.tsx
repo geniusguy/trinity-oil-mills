@@ -808,7 +808,18 @@ export default function CanteenSalesPage() {
         {/* Sales Table */}
         <div className="bg-white shadow rounded-lg">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-medium text-gray-900">Canteen Sales ({filteredSales.length})</h2>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <h2 className="text-lg font-medium text-gray-900">Canteen Sales ({filteredSales.length})</h2>
+              <div className="text-sm text-gray-600">
+                Total Amount (filtered):{' '}
+                <span className="font-semibold text-gray-900">
+                  ₹
+                  {filteredSales
+                    .reduce((sum, s) => sum + Number(s.totalAmount || 0), 0)
+                    .toFixed(2)}
+                </span>
+              </div>
+            </div>
           </div>
           
           <div className="overflow-x-auto shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
