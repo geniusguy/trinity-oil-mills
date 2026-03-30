@@ -110,6 +110,8 @@ export const sales = mysqlTable('sales', {
   totalAmount: decimal('total_amount', { precision: 10, scale: 2 }).notNull(),
   paymentMethod: varchar('payment_method', { length: 50 }).notNull().default('cash'), // cash, upi, card, canteen_autopayment
   paymentStatus: varchar('payment_status', { length: 50 }).notNull().default('paid'), // paid, pending, failed
+  /** Date when credited to account (used when payment_status='paid' / credited). */
+  creditedDate: date('credited_date', { mode: 'string' }),
   shipmentStatus: varchar('shipment_status', { length: 50 }).notNull().default('pending'), // pending, shipped, delivered, cancelled
   canteenAddressId: varchar('canteen_address_id', { length: 255 }),
   poNumber: varchar('po_number', { length: 100 }), // Purchase Order number for canteen sales

@@ -325,6 +325,13 @@ export async function GET(request: NextRequest) {
       if (Array.isArray(mCols) && mCols.length > 0) mailSentField = ', s.mail_sent_ho_date as mailSentHoDate';
     } catch (_) {}
 
+    // credited_date (credit to account date)
+    let creditedDateField = ', NULL as creditedDate';
+    try {
+      const [cCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "credited_date"');
+      if (Array.isArray(cCols) && cCols.length > 0) creditedDateField = ', s.credited_date as creditedDate';
+    } catch (_) {}
+
     // Optional reference PDF attachment fields (from canteen POS / courier bills)
     let referencePdfPathField = ', NULL as referencePdfPath';
     let referencePdfOriginalNameField = ', NULL as referencePdfOriginalName';
@@ -343,7 +350,7 @@ export async function GET(request: NextRequest) {
     } catch (_) {}
 
     let query = `SELECT s.id, s.invoice_number as invoiceNumber, s.sale_type as saleType, s.subtotal, s.gst_amount as gstAmount, s.total_amount as totalAmount,
-                        s.payment_method as paymentMethod, s.payment_status as paymentStatus, s.shipment_status as shipmentStatus, s.notes${poNumberField}${poDateField}${invoiceDateField}${modeOfSalesField}${keptOnDisplayField}${courierField}${mailSentField}${referencePdfPathField}${referencePdfOriginalNameField}, s.created_at as createdAt,
+                        s.payment_method as paymentMethod, s.payment_status as paymentStatus, s.shipment_status as shipmentStatus, s.notes${poNumberField}${poDateField}${invoiceDateField}${modeOfSalesField}${keptOnDisplayField}${courierField}${mailSentField}${creditedDateField}${referencePdfPathField}${referencePdfOriginalNameField}, s.created_at as createdAt,
                         s.canteen_address_id as canteenAddressId, u.name as userName, s.notes as customerName, ca.canteen_name as canteenName, ca.address as canteenAddress,
                         ca.contact_person as canteenContact, ca.mobile_number as canteenMobile
                  FROM sales s

@@ -89,6 +89,14 @@ export async function POST(request: NextRequest) {
           console.log('reference_pdf_* columns already exists or error:', (error as Error).message);
         }
 
+        // credited_date - credit to account date (only used when payment_status is paid/credited)
+        try {
+          await connection.execute('ALTER TABLE sales ADD COLUMN IF NOT EXISTS credited_date DATE NULL');
+          console.log('Added credited_date column to sales table');
+        } catch (error) {
+          console.log('credited_date column already exists or error:', (error as Error).message);
+        }
+
         // Add billing / delivery contact columns to canteen_addresses if missing
         for (const [colName, def] of [
           ['billing_contact_person', 'VARCHAR(255) NULL'],

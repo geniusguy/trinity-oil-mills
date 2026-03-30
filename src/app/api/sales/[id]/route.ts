@@ -84,6 +84,7 @@ export async function PUT(
       keptOnDisplay,
       courierWeightOrRs,
       mailSentHoDate,
+      creditedDate,
       referencePdfPath,
       referencePdfOriginalName,
     } = requestData;
@@ -247,6 +248,38 @@ export async function PUT(
         const trimmed = typeof mailSentHoDate === 'string' ? mailSentHoDate.trim() : '';
         updateFields.push('mail_sent_ho_date = ?');
         updateValues.push(trimmed ? trimmed.slice(0, 10) : null);
+      }
+    } catch (_) {}
+
+    // credited_date (credit to account date)
+    try {
+      const [cCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "credited_date"');
+      let hasCredited = Array.isArray(cCols) && cCols.length > 0;
+
+      // If older DB is missing the column, add it on-the-fly (MariaDB safe).
+      if (!hasCredited) {
+        try {
+          await connection.execute('ALTER TABLE sales ADD COLUMN credited_date DATE NULL');
+          hasCredited = true;
+        } catch (_) {
+          hasCredited = false;
+        }
+      }
+
+      if (hasCredited) {
+        if (paymentStatus === 'paid') {
+          const trimmed = typeof creditedDate === 'string' ? creditedDate.trim() : '';
+          if (trimmed) {
+            updateFields.push('credited_date = ?');
+            updateValues.push(trimmed.slice(0, 10));
+          } else {
+            // Date is optional; keep it null when not provided.
+            updateFields.push('credited_date = NULL');
+          }
+        } else {
+          updateFields.push('credited_date = ?');
+          updateValues.push(null);
+        }
       }
     } catch (_) {}
 

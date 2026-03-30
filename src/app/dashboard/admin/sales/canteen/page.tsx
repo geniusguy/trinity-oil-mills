@@ -39,6 +39,7 @@ interface Sale {
   mailSentHoDate?: string | null;
   referencePdfPath?: string | null;
   referencePdfOriginalName?: string | null;
+  creditedDate?: string | null;
 }
 
 interface CanteenAddress {
@@ -105,6 +106,7 @@ export default function CanteenSalesPage() {
     keptOnDisplay: false,
     courierWeightOrRs: '',
     mailSentHoDate: '',
+    creditedDate: '',
   });
 
   // Redirect if not authenticated or not admin
@@ -429,6 +431,7 @@ export default function CanteenSalesPage() {
       keptOnDisplay: Boolean((sale as any).keptOnDisplay),
       courierWeightOrRs: (sale as any).courierWeightOrRs || '',
       mailSentHoDate: normalizeDate((sale as any).mailSentHoDate),
+      creditedDate: normalizeDate((sale as any).creditedDate || null),
     });
     setShowEditModal(true);
     setError('');
@@ -558,6 +561,7 @@ export default function CanteenSalesPage() {
       keptOnDisplay: false,
       courierWeightOrRs: '',
       mailSentHoDate: '',
+      creditedDate: '',
     });
     setEditReferencePdfFile(null);
     setEditReferencePdfError('');
@@ -950,6 +954,14 @@ export default function CanteenSalesPage() {
                               ? 'Credited to our account'
                               : sale.paymentStatus}
                           </span>
+                          {sale.paymentStatus === 'paid' && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              Credited Date:{' '}
+                              {sale.creditedDate
+                                ? new Date(`${sale.creditedDate}T00:00:00`).toLocaleDateString('en-GB')
+                                : '—'}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -1409,7 +1421,13 @@ export default function CanteenSalesPage() {
                   <select
                     id="paymentStatus"
                     value={editForm.paymentStatus}
-                    onChange={(e) => setEditForm({ ...editForm, paymentStatus: e.target.value })}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        paymentStatus: e.target.value,
+                        creditedDate: e.target.value === 'paid' ? editForm.creditedDate : '',
+                      })
+                    }
                     className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   >
                     <option value="pending">Pending</option>
@@ -1418,6 +1436,22 @@ export default function CanteenSalesPage() {
                     <option value="refunded">Refunded</option>
                   </select>
                 </div>
+
+                {editForm.paymentStatus === 'paid' && (
+                  <div>
+                    <label htmlFor="creditedDate" className="block text-xs font-medium text-gray-700 mb-1">
+                      Credited Date
+                    </label>
+                    <input
+                      id="creditedDate"
+                      type="date"
+                      value={editForm.creditedDate}
+                      onChange={(e) => setEditForm({ ...editForm, creditedDate: e.target.value })}
+                      className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Date when the credit was added to the account.</p>
+                  </div>
+                )}
                 
                 <div>
                   <label htmlFor="shipmentStatus" className="block text-xs font-medium text-gray-700 mb-1">
