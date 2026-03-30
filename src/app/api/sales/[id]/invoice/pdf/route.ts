@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
+import { collectSaleLookupKeys, resolveDynamicRouteId } from '@/lib/saleRouteLookup';
 // NOTE: Force ESM/browser bundle to avoid `jspdf.node` -> `fflate/lib/node.cjs`
 // dynamic Worker resolution that breaks with Next 16.2 Turbopack on server builds.
 import { jsPDF } from 'jspdf/dist/jspdf.es.min.js';
@@ -63,16 +64,35 @@ function convertNumberToWords(num: number): string {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> | { id: string } },
 ) {
   try {
     const { searchParams } = new URL(request.url);
     let format = searchParams.get('format')?.toLowerCase();
     
     // If no format specified, we'll determine it from the sale type after fetching the sale
-    const { id: saleId } = await params;
+    const routeId = await resolveDynamicRouteId(params);
+    if (!routeId) {
+      return new Response('Bad Request', { status: 400 });
+    }
+    const { idKeys, invoiceKeys } = collectSaleLookupKeys(routeId);
+    const whereParts: string[] = [];
+    const whereArgs: unknown[] = [];
+    if (idKeys.length > 0) {
+      whereParts.push(`TRIM(s.id) IN (${idKeys.map(() => '?').join(',')})`);
+      whereArgs.push(...idKeys);
+    }
+    if (invoiceKeys.length > 0) {
+      whereParts.push(`s.invoice_number IN (${invoiceKeys.map(() => '?').join(',')})`);
+      whereArgs.push(...invoiceKeys);
+    }
+    if (whereParts.length === 0) {
+      return new Response('Bad Request', { status: 400 });
+    }
+    const whereSql = whereParts.join(' OR ');
+
     const connection = await createConnection();
-    const [[sale]]: any = await connection.query(
+    const [saleRows]: any = await connection.query(
       `SELECT s.id, s.invoice_number as invoiceNumber, s.subtotal, s.gst_amount as gstAmount, s.total_amount as totalAmount, s.payment_method as paymentMethod, s.created_at as createdAt, s.sale_type as saleType,
               s.po_number as poNumber, s.po_date as poDate, s.mode_of_sales as modeOfSales,
               u.name as userName, s.notes as customerName,
@@ -81,13 +101,15 @@ export async function GET(
               ca.billing_email as billingEmail, ca.delivery_email as deliveryEmail,
               ca.contact_person as contactPerson, ca.mobile_number as mobileNumber, ca.gst_number as gstNumber
        FROM sales s
-       JOIN users u ON u.id = s.user_id
-       LEFT JOIN canteen_addresses ca ON ca.id = s.canteen_address_id
-       WHERE s.id = ?
+       LEFT JOIN users u ON BINARY u.id = BINARY s.user_id
+       LEFT JOIN canteen_addresses ca ON BINARY ca.id = BINARY s.canteen_address_id
+       WHERE ${whereSql}
        LIMIT 1`,
-      [saleId],
+      whereArgs,
     );
+    const sale = Array.isArray(saleRows) && saleRows.length > 0 ? saleRows[0] : null;
     if (!sale) { await connection.end(); return new Response('Not Found', { status: 404 }); }
+    const saleId = String(sale.id ?? '').trim();
     
     // Auto-detect format based on sale type if not specified
     if (!format) {
@@ -97,7 +119,7 @@ export async function GET(
     const [items]: any = await connection.query(
       `SELECT si.product_id as productId, p.name as productName, si.quantity, si.unit_price as unitPrice, si.gst_rate as gstRate, si.gst_amount as gstAmount, si.total_amount as totalAmount
        FROM sale_items si
-       JOIN products p ON p.id = si.product_id
+       LEFT JOIN products p ON BINARY p.id = BINARY si.product_id
        WHERE si.sale_id = ?`,
       [saleId],
     );

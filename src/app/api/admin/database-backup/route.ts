@@ -215,6 +215,38 @@ async function generateDumpWithoutBinary(cfg: ReturnType<typeof getDatabaseConfi
   }
 }
 
+async function restoreWithoutBinary(
+  cfg: ReturnType<typeof getDatabaseConfig>,
+  sanitizedSql: string,
+  dropExisting: boolean
+) {
+  const connection = await mysql.createConnection({
+    host: cfg.host,
+    port: Number(cfg.port),
+    user: cfg.username,
+    password: cfg.password,
+    database: cfg.dbName,
+    timezone: 'Z',
+    multipleStatements: true,
+  });
+
+  try {
+    await connection.query('SET FOREIGN_KEY_CHECKS=0;');
+    if (dropExisting) {
+      const [tablesRows] = await connection.query('SHOW TABLES');
+      const tableKey = Object.keys((tablesRows as any[])[0] || {})[0];
+      const tables = (tablesRows as any[]).map((r) => String(r[tableKey])).filter(Boolean);
+      if (tables.length > 0) {
+        await connection.query(`DROP TABLE IF EXISTS ${tables.map((t) => `\`${t}\``).join(', ')};`);
+      }
+    }
+    await connection.query(sanitizedSql);
+    await connection.query('SET FOREIGN_KEY_CHECKS=1;');
+  } finally {
+    await connection.end();
+  }
+}
+
 export async function GET(_request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id || session.user.role !== 'admin') {
@@ -376,12 +408,11 @@ export async function POST(request: NextRequest) {
     MYSQL_PWD: cfg.password,
   };
 
-  let mysqlCmd: string;
+  let mysqlCmd: string | null = null;
   try {
     mysqlCmd = await resolveDbBinary('client');
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Database client binary not found';
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.warn('[database-backup] client binary not found, falling back to SQL restore via driver:', error);
   }
 
   const normalizeClientError = (errorMessage: string) => {
@@ -423,6 +454,14 @@ export async function POST(request: NextRequest) {
     });
 
   try {
+    if (!mysqlCmd) {
+      await restoreWithoutBinary(cfg, sanitizedText, dropExisting);
+      return NextResponse.json({
+        success: true,
+        message: 'Database restored successfully (fallback: restored without external client binary)',
+      });
+    }
+
     if (dropExisting) {
       // Get current tables and drop them.
       const tablesRaw = await runMysqlCapture('SHOW TABLES;');

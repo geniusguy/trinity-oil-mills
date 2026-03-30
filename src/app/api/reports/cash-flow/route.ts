@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     const expenseRes = await db.execute(sql`
       SELECT COALESCE(SUM(e.amount), 0) AS cash_out
       FROM expenses e
-      WHERE e.expense_date >= ${startSql} AND e.expense_date < ${endExclusiveSql}
+      WHERE DATE(e.expense_date) >= ${startDate} AND DATE(e.expense_date) <= ${endDate}
     `);
     const expenseOutflow = (expenseRes as any)?.rows?.[0] ?? (Array.isArray(expenseRes) ? (expenseRes as any)[0] : undefined) ?? { cash_out: 0 };
 
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
         END
       ), 0) AS cash_out
       FROM stock_purchases sp
-      LEFT JOIN products p ON p.id = sp.product_id
+      LEFT JOIN products p ON BINARY p.id = BINARY sp.product_id
       LEFT JOIN (
         SELECT
           sp2.product_id,

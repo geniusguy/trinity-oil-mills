@@ -49,16 +49,14 @@ export async function GET(request: NextRequest) {
     const expensesRes = await db.execute(sql`
       SELECT COUNT(e.id) AS total_expenses, COALESCE(SUM(e.amount), 0) AS total_expense_amount
       FROM expenses e
-      WHERE e.expense_date >= ${startSql}
-        AND e.expense_date < ${endExclusiveSql}
+      WHERE DATE(e.expense_date) >= ${startDate} AND DATE(e.expense_date) <= ${endDate}
     `);
     const expensesData = (expensesRes as any)?.rows?.[0] ?? (Array.isArray(expensesRes) ? (expensesRes as any)[0] : {}) ?? {};
 
     const expensesByCategoryRes = await db.execute(sql`
       SELECT e.category, COALESCE(SUM(e.amount), 0) AS total_amount, COUNT(e.id) AS count
       FROM expenses e
-      WHERE e.expense_date >= ${startSql}
-        AND e.expense_date < ${endExclusiveSql}
+      WHERE DATE(e.expense_date) >= ${startDate} AND DATE(e.expense_date) <= ${endDate}
       GROUP BY e.category
     `);
     const expensesByCategory = ((expensesByCategoryRes as any)?.rows ?? (Array.isArray(expensesByCategoryRes) ? expensesByCategoryRes : [])) as any[];
@@ -95,7 +93,7 @@ export async function GET(request: NextRequest) {
         END
       ), 0) AS stock_purchase_cost
       FROM stock_purchases sp
-      LEFT JOIN products p ON p.id = sp.product_id
+      LEFT JOIN products p ON BINARY p.id = BINARY sp.product_id
       LEFT JOIN (
         SELECT
           sp2.product_id,
@@ -115,12 +113,33 @@ export async function GET(request: NextRequest) {
     `);
     const stockPurchasesData = (stockPurchasesRes as any)?.rows?.[0] ?? (Array.isArray(stockPurchasesRes) ? (stockPurchasesRes as any)[0] : {}) ?? {};
 
+    let rawMaterialPurchaseCogs = 0;
+    try {
+      const rawMatRes = await db.execute(sql`
+        SELECT COALESCE(SUM(rmp.total_cost), 0) AS raw_material_cogs
+        FROM raw_material_purchases rmp
+        WHERE rmp.purchase_date >= ${startSql} AND rmp.purchase_date < ${endExclusiveSql}
+      `);
+      const rawMatRow =
+        (rawMatRes as any)?.rows?.[0] ?? (Array.isArray(rawMatRes) ? (rawMatRes as any)[0] : undefined);
+      if (rawMatRow) {
+        rawMaterialPurchaseCogs = parseFloat((rawMatRow as any).raw_material_cogs?.toString() || '0');
+      }
+    } catch {
+      console.warn('financial report raw_material_purchases COGS fallback unavailable');
+    }
+
     // Use historical pricing for accurate calculations
     const totalRevenue = parseFloat(salesData.total_revenue_ex_gst?.toString() || '0');
     const totalExpenseAmount = parseFloat(expensesData.total_expense_amount?.toString() || '0');
     const totalHistoricalCost = historicalPNL.summary.totalCost; // Historical cost of goods sold
     const totalStockPurchaseCost = parseFloat(stockPurchasesData.stock_purchase_cost?.toString() || '0');
-    const totalCOGS = totalHistoricalCost > 0 ? totalHistoricalCost : totalStockPurchaseCost;
+    const totalCOGS =
+      totalHistoricalCost > 0
+        ? totalHistoricalCost
+        : rawMaterialPurchaseCogs > 0
+          ? rawMaterialPurchaseCogs
+          : totalStockPurchaseCost;
     const courierExGst = parseFloat(courierData.courier_ex_gst?.toString() || '0');
     const totalOperatingExpenses = totalExpenseAmount + courierExGst;
 

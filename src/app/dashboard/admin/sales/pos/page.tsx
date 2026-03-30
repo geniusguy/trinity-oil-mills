@@ -572,8 +572,10 @@ export default function POSPage() {
         setCustomInvoiceNum('');
         setCustomInvoiceYear(getFinancialYearLabelForDate(new Date()));
         setShowInvoiceEdit(false);
+        const salesListPath =
+          saleType === 'canteen' ? '/dashboard/admin/sales/canteen' : '/dashboard/admin/sales';
         setTimeout(() => {
-          router.push('/dashboard/admin/sales');
+          router.push(salesListPath);
         }, 2000);
       } else {
         const rawError = String(result.error || 'Failed to process sale');
@@ -666,10 +668,10 @@ export default function POSPage() {
             <div className="flex items-center gap-3 flex-wrap md:justify-end">
               <span className="text-sm text-gray-600">Welcome, {session?.user?.name}</span>
               <Link
-                href="/dashboard/admin/sales"
+                href={saleType === 'canteen' ? '/dashboard/admin/sales/canteen' : '/dashboard/admin/sales'}
                 className="w-full sm:w-auto text-center bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
               >
-                View All Sales
+                {saleType === 'canteen' ? 'View Canteen Sales' : 'View All Sales'}
               </Link>
             </div>
           </div>

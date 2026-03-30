@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     const expensesRes = await db.execute(sql`
       SELECT COALESCE(SUM(e.amount), 0) AS total_expenses
       FROM expenses e
-      WHERE e.expense_date < ${endExclusiveSql}
+      WHERE DATE(e.expense_date) <= ${asOfDate}
     `);
     const expenses = (expensesRes as any)?.rows?.[0] ?? (Array.isArray(expensesRes) ? (expensesRes as any)[0] : undefined) ?? { total_expenses: 0 };
 
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
         END
       ), 0) AS stock_purchase_outflow
       FROM stock_purchases sp
-      LEFT JOIN products p ON p.id = sp.product_id
+      LEFT JOIN products p ON BINARY p.id = BINARY sp.product_id
       LEFT JOIN (
         SELECT
           sp2.product_id,
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
         IFNULL(i.quantity, 0) * IFNULL(i.cost_price, IFNULL(p.base_price, IFNULL(p.retail_price, 0)))
       ), 0) AS inventory_value
       FROM inventory i
-      LEFT JOIN products p ON p.id = i.product_id
+      LEFT JOIN products p ON BINARY p.id = BINARY i.product_id
     `);
     const inventory = (inventoryRes as any)?.rows?.[0] ?? (Array.isArray(inventoryRes) ? (inventoryRes as any)[0] : undefined) ?? { inventory_value: 0 };
 

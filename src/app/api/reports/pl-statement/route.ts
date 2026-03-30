@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
           COUNT(*) AS total_rows,
           SUM(CASE WHEN sp.total_amount IS NOT NULL OR sp.unit_price IS NOT NULL THEN 1 ELSE 0 END) AS rows_with_amount
         FROM stock_purchases sp
-        LEFT JOIN products p ON p.id = sp.product_id
+        LEFT JOIN products p ON BINARY p.id = BINARY sp.product_id
         LEFT JOIN (
           SELECT
             sp2.product_id,
@@ -130,11 +130,13 @@ export async function GET(request: NextRequest) {
     const computedCogsGstPaid = usingHistoricalCogs
       ? 0
       : (purchaseCOGSExGst > 0 ? purchaseGstPaid : 0);
-    let cogs: any = { 
-      production_costs: computedCOGSExGst, 
-      material_costs: computedCOGSExGst * 0.6, // Estimated breakdown
-      labor_costs: computedCOGSExGst * 0.2, 
-      overhead_costs: computedCOGSExGst * 0.2 
+    // Do not invent cost splits. Keep COGS transparent and deterministic.
+    const cogs: any = {
+      // No itemized BOM split is available in DB reports today; treat total as production/COGS line.
+      production_costs: computedCOGSExGst,
+      material_costs: 0,
+      labor_costs: 0,
+      overhead_costs: 0
     };
 
     // Operating expenses
@@ -149,7 +151,7 @@ export async function GET(request: NextRequest) {
           COALESCE(SUM(CASE WHEN e.category = 'maintenance' THEN e.amount ELSE 0 END), 0) AS maintenance_expenses,
           COALESCE(SUM(CASE WHEN e.category = 'other' THEN e.amount ELSE 0 END), 0) AS other_expenses
         FROM expenses e
-        WHERE e.expense_date >= ${periodStartSql} AND e.expense_date < ${periodEndExclusiveSql}
+        WHERE DATE(e.expense_date) >= ${defaultStart} AND DATE(e.expense_date) <= ${defaultEnd}
       `);
       const opxRow = (opxRes as any)?.rows?.[0] ?? (Array.isArray(opxRes) ? (opxRes as any)[0] : undefined);
       if (opxRow) opx = opxRow;

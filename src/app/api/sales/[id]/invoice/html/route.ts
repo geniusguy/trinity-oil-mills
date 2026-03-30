@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
+import { collectSaleLookupKeys, resolveDynamicRouteId } from '@/lib/saleRouteLookup';
 
 // Function to convert number to words
 function convertNumberToWords(num: number): string {
@@ -64,13 +65,36 @@ function convertPaiseToWords(n: number): string {
   return ones[n];
 }
 
-export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> | { id: string } }
+) {
   try {
-    const { id } = await params;
-    
+    const routeId = await resolveDynamicRouteId(params);
+    if (!routeId) {
+      return NextResponse.json({ error: 'Invalid sale id' }, { status: 400 });
+    }
+
+    const { idKeys, invoiceKeys } = collectSaleLookupKeys(routeId);
+    const whereParts: string[] = [];
+    const whereArgs: unknown[] = [];
+    if (idKeys.length > 0) {
+      whereParts.push(`TRIM(s.id) IN (${idKeys.map(() => '?').join(',')})`);
+      whereArgs.push(...idKeys);
+    }
+    if (invoiceKeys.length > 0) {
+      whereParts.push(`s.invoice_number IN (${invoiceKeys.map(() => '?').join(',')})`);
+      whereArgs.push(...invoiceKeys);
+    }
+    if (whereParts.length === 0) {
+      return NextResponse.json({ error: 'Invalid sale id' }, { status: 400 });
+    }
+    const whereSql = whereParts.join(' OR ');
+
     const connection = await createConnection();
 
-    const [saleRows] = await connection.execute(`
+    const [saleRows] = await connection.execute(
+      `
       SELECT s.*, s.notes as customer_name, u.name as userName,
              ca.canteen_name as canteen_name,
              ca.address as canteenAddress, ca.city as canteenCity, ca.state as canteenState, ca.pincode as canteenPincode,
@@ -80,24 +104,37 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
              ca.delivery_email as delivery_email,
              ca.gst_number as gst_number
       FROM sales s
-      LEFT JOIN users u ON s.user_id = u.id
-      LEFT JOIN canteen_addresses ca ON s.canteen_address_id = ca.id
-      WHERE s.id = ?
-    `, [id]);
-
-    const [itemRows] = await connection.execute(`
-      SELECT si.*, p.name as productName, p.name as product_name, p.unit
-      FROM sale_items si
-      LEFT JOIN products p ON si.product_id = p.id
-      WHERE si.sale_id = ?
-      ORDER BY si.id
-    `, [id]);
-
-    await connection.end();
+      LEFT JOIN users u ON BINARY u.id = BINARY s.user_id
+      LEFT JOIN canteen_addresses ca ON BINARY ca.id = BINARY s.canteen_address_id
+      WHERE ${whereSql}
+      LIMIT 1
+    `,
+      whereArgs
+    );
 
     if (!Array.isArray(saleRows) || saleRows.length === 0) {
+      await connection.end();
       return NextResponse.json({ error: 'Sale not found' }, { status: 404 });
     }
+
+    const canonicalId = String((saleRows[0] as { id?: string }).id ?? '').trim();
+    if (!canonicalId) {
+      await connection.end();
+      return NextResponse.json({ error: 'Sale not found' }, { status: 404 });
+    }
+
+    const [itemRows] = await connection.execute(
+      `
+      SELECT si.*, p.name as productName, p.name as product_name, p.unit
+      FROM sale_items si
+      LEFT JOIN products p ON BINARY p.id = BINARY si.product_id
+      WHERE si.sale_id = ?
+      ORDER BY si.id
+    `,
+      [canonicalId]
+    );
+
+    await connection.end();
 
     const sale = saleRows[0] as any;
     const items = itemRows as any[];
