@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Modal } from '@/components/ui';
 import {
   getFinancialYearLabelForDate,
   isDateInFinancialYear,
@@ -760,46 +759,48 @@ export default function CanteenSalesPage() {
               <h1 className="text-3xl font-bold text-gray-900">Canteen Sales</h1>
               <p className="mt-2 text-gray-600">Manage canteen sales and deliveries</p>
             </div>
-            <div className="flex flex-wrap gap-3 items-center">
-              <Link
-                href="/dashboard/admin/sales/pos?type=canteen"
-                className="w-full sm:w-auto text-center bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                New Canteen Sale
-              </Link>
-              <Link
-                href="/dashboard/admin/canteen-addresses"
-                className="w-full sm:w-auto text-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Manage Addresses
-              </Link>
-              <button
-                onClick={openReserveReservationModal}
-                className="w-full sm:w-auto text-center bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Reserve Dummy Invoice
-              </button>
-              <span className="text-sm text-gray-700">
+            <div className="w-full md:w-auto">
+              <div className="text-sm text-gray-700 mb-2 md:text-right">
                 Welcome, {session.user?.name}
-              </span>
-              <Link
-                href="/dashboard/admin/sales"
-                className="w-full sm:w-auto text-center bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                All Sales
-              </Link>
-              <Link
-                href="/dashboard/admin/sales/retail"
-                className="w-full sm:w-auto text-center bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Retail Sales
-              </Link>
-              <Link
-                href="/dashboard"
-                className="w-full sm:w-auto text-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
-              >
-                Dashboard
-              </Link>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:w-[620px]">
+                <Link
+                  href="/dashboard/admin/sales/pos?type=canteen"
+                  className="text-center bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  New Canteen Sale
+                </Link>
+                <Link
+                  href="/dashboard/admin/canteen-addresses"
+                  className="text-center bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  Manage Addresses
+                </Link>
+                <button
+                  onClick={openReserveReservationModal}
+                  className="text-center bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  Reserve Dummy Invoice
+                </button>
+                <Link
+                  href="/dashboard/admin/sales"
+                  className="text-center bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  All Sales
+                </Link>
+                <Link
+                  href="/dashboard/admin/sales/retail"
+                  className="text-center bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  Retail Sales
+                </Link>
+                <Link
+                  href="/dashboard"
+                  className="text-center bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  Dashboard
+                </Link>
+              </div>
             </div>
           </div>
         </div>
@@ -1306,66 +1307,69 @@ export default function CanteenSalesPage() {
       </div>
 
       {/* Reserve Dummy Invoice Modal */}
-      <Modal
-        isOpen={showReserveReservationModal}
-        onClose={() => setShowReserveReservationModal(false)}
-        title="Reserve Dummy Invoice"
-        size="md"
-      >
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="reserveInvoiceNumber" className="block text-xs font-medium text-gray-700 mb-1">
-              Invoice Number
-            </label>
-            <input
-              id="reserveInvoiceNumber"
-              type="text"
-              value={reserveInvoiceNumber}
-              onChange={(e) => setReserveInvoiceNumber(e.target.value)}
-              placeholder="e.g., C0001/2025-26"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">Reserved invoices are placeholder slots and won’t create any bill amount.</p>
-          </div>
+      {showReserveReservationModal && (
+        <div className="fixed inset-0 bg-gray-700/50 overflow-y-auto z-50">
+          <div className="min-h-full flex items-start justify-center p-3 sm:p-4 md:pt-16">
+            <div className="relative w-full max-w-lg p-4 sm:p-5 border shadow-xl rounded-xl bg-white">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Reserve Dummy Invoice</h3>
 
-          <div>
-            <label htmlFor="reserveReason" className="block text-xs font-medium text-gray-700 mb-1">
-              Reason (optional)
-            </label>
-            <input
-              id="reserveReason"
-              type="text"
-              value={reserveReason}
-              onChange={(e) => setReserveReason(e.target.value)}
-              placeholder="e.g., Pending manual entry"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-            />
-          </div>
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="reserveInvoiceNumber" className="block text-xs font-medium text-gray-700 mb-1">
+                    Invoice Number
+                  </label>
+                  <input
+                    id="reserveInvoiceNumber"
+                    type="text"
+                    value={reserveInvoiceNumber}
+                    onChange={(e) => setReserveInvoiceNumber(e.target.value)}
+                    placeholder="e.g., C0001/2025-26"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Reserved invoices are placeholder slots and won&apos;t create any bill amount.</p>
+                </div>
 
-          {reserveError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
-              {reserveError}
+                <div>
+                  <label htmlFor="reserveReason" className="block text-xs font-medium text-gray-700 mb-1">
+                    Reason (optional)
+                  </label>
+                  <input
+                    id="reserveReason"
+                    type="text"
+                    value={reserveReason}
+                    onChange={(e) => setReserveReason(e.target.value)}
+                    placeholder="e.g., Pending manual entry"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+
+                {reserveError && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
+                    {reserveError}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    onClick={() => setShowReserveReservationModal(false)}
+                    disabled={isReserving}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitReservation}
+                    disabled={isReserving}
+                    className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {isReserving ? 'Reserving...' : 'Reserve'}
+                  </button>
+                </div>
+              </div>
             </div>
-          )}
-
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              onClick={() => setShowReserveReservationModal(false)}
-              disabled={isReserving}
-              className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={submitReservation}
-              disabled={isReserving}
-              className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {isReserving ? 'Reserving...' : 'Reserve'}
-            </button>
           </div>
         </div>
-      </Modal>
+      )}
 
       {/* Edit Sale Modal */}
       {showEditModal && selectedSale && (

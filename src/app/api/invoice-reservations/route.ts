@@ -36,13 +36,25 @@ export async function GET(request: NextRequest) {
 
   try {
     const { searchParams } = new URL(request.url);
-    const saleType = String(searchParams.get('saleType') || 'canteen').trim();
-    const status = String(searchParams.get('status') || 'reserved').trim();
+    const saleType = String(searchParams.get('saleType') || '').trim();
+    const status = String(searchParams.get('status') || '').trim();
     const limit = Math.min(Number(searchParams.get('limit') || 200), 1000);
 
     const connection = await createConnection();
     try {
       await ensureInvoiceReservationsTable(connection);
+      const where: string[] = [];
+      const args: unknown[] = [];
+      if (saleType) {
+        where.push('sale_type = ?');
+        args.push(saleType);
+      }
+      if (status) {
+        where.push('status = ?');
+        args.push(status);
+      }
+      const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
       const [rows] = await connection.query(
         `SELECT id,
                 invoice_number as invoiceNumber,
@@ -55,10 +67,10 @@ export async function GET(request: NextRequest) {
                 created_at as createdAt,
                 updated_at as updatedAt
          FROM invoice_reservations
-         WHERE sale_type = ? AND status = ?
+         ${whereSql}
          ORDER BY created_at DESC
          LIMIT ?`,
-        [saleType, status, limit],
+        [...args, limit],
       );
       return NextResponse.json({ reservations: rows });
     } finally {
@@ -145,7 +157,84 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE /api/invoice-reservations?id=...&saleType=canteen
+// PATCH /api/invoice-reservations
+export async function PATCH(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id || !['admin', 'accountant'].includes(session.user.role || '')) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+    const id = String(body.id || '').trim();
+    const invoiceNumber = String(body.invoiceNumber || '').trim();
+    const reason = body.reason == null ? null : String(body.reason).trim();
+
+    if (!id) return NextResponse.json({ error: 'Missing reservation id' }, { status: 400 });
+    if (!invoiceNumber) return NextResponse.json({ error: 'Invoice number is required' }, { status: 400 });
+    if (!INVOICE_NUMBER_FULL_REGEX.test(invoiceNumber)) {
+      return NextResponse.json({ error: 'Invalid invoice format. Use C0001/2025-26 or R0001/2025-26.' }, { status: 400 });
+    }
+
+    const connection = await createConnection();
+    try {
+      await ensureInvoiceReservationsTable(connection);
+      await connection.beginTransaction();
+
+      const [currentRows]: any = await connection.query(
+        'SELECT id, status FROM invoice_reservations WHERE id = ? LIMIT 1',
+        [id],
+      );
+      if (!Array.isArray(currentRows) || currentRows.length === 0) {
+        await connection.rollback();
+        return NextResponse.json({ error: 'Reservation not found' }, { status: 404 });
+      }
+      if (String(currentRows[0].status || '').toLowerCase() !== 'reserved') {
+        await connection.rollback();
+        return NextResponse.json({ error: 'Only reserved entries can be edited' }, { status: 400 });
+      }
+
+      const [existingSales]: any = await connection.query(
+        'SELECT id FROM sales WHERE invoice_number = ? LIMIT 1',
+        [invoiceNumber],
+      );
+      if (Array.isArray(existingSales) && existingSales.length > 0) {
+        await connection.rollback();
+        return NextResponse.json({ error: 'Invoice number already used in sales.' }, { status: 409 });
+      }
+
+      const [existingReservations]: any = await connection.query(
+        'SELECT id FROM invoice_reservations WHERE invoice_number = ? AND id <> ? LIMIT 1',
+        [invoiceNumber, id],
+      );
+      if (Array.isArray(existingReservations) && existingReservations.length > 0) {
+        await connection.rollback();
+        return NextResponse.json({ error: 'Invoice number already reserved.' }, { status: 409 });
+      }
+
+      const fyLabel = parseFyFromInvoice(invoiceNumber);
+      await connection.execute(
+        `UPDATE invoice_reservations
+         SET invoice_number = ?, fy_label = ?, reason = ?, updated_at = NOW()
+         WHERE id = ?`,
+        [invoiceNumber, fyLabel, reason, id],
+      );
+
+      await connection.commit();
+      return NextResponse.json({ success: true });
+    } catch (e) {
+      try { await connection.rollback(); } catch (_) {}
+      throw e;
+    } finally {
+      await connection.end();
+    }
+  } catch (error) {
+    console.error('invoice-reservations PATCH error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// DELETE /api/invoice-reservations?id=...&saleType=canteen&action=cancel|delete
 export async function DELETE(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id || !['admin', 'accountant'].includes(session.user.role || '')) {
@@ -156,10 +245,14 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
     const saleType = String(searchParams.get('saleType') || 'canteen').trim().toLowerCase();
+    const action = String(searchParams.get('action') || 'cancel').trim().toLowerCase();
 
     if (!id) return NextResponse.json({ error: 'Missing reservation id' }, { status: 400 });
     if (!['canteen', 'retail'].includes(saleType)) {
       return NextResponse.json({ error: 'Invalid sale type' }, { status: 400 });
+    }
+    if (!['cancel', 'delete'].includes(action)) {
+      return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     }
 
     const connection = await createConnection();
@@ -181,15 +274,26 @@ export async function DELETE(request: NextRequest) {
         )
       `);
 
-      const [rows]: any = await connection.query(
-        `UPDATE invoice_reservations
-           SET status = 'cancelled',
-               updated_at = NOW()
-         WHERE id = ?
-           AND sale_type = ?
-           AND status = 'reserved'`,
-        [id, saleType],
-      );
+      let rows: any;
+      if (action === 'delete') {
+        [rows] = await connection.query(
+          `DELETE FROM invoice_reservations
+            WHERE id = ?
+              AND sale_type = ?
+              AND status = 'reserved'`,
+          [id, saleType],
+        );
+      } else {
+        [rows] = await connection.query(
+          `UPDATE invoice_reservations
+             SET status = 'cancelled',
+                 updated_at = NOW()
+           WHERE id = ?
+             AND sale_type = ?
+             AND status = 'reserved'`,
+          [id, saleType],
+        );
+      }
 
       // mysql2 returns an object for execute; but query above uses query so handle both.
       const affected = Number(rows?.affectedRows ?? 0);
