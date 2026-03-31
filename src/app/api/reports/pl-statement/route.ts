@@ -284,7 +284,12 @@ export async function GET(request: NextRequest) {
           COUNT(*) AS total_rows,
           SUM(CASE WHEN sp.total_amount IS NOT NULL OR sp.unit_price IS NOT NULL THEN 1 ELSE 0 END) AS rows_with_amount
         FROM stock_purchases sp
-        LEFT JOIN products p ON p.id = sp.product_id
+        LEFT JOIN products p ON p.id COLLATE utf8mb4_general_ci = (
+          CASE
+            WHEN sp.product_id COLLATE utf8mb4_general_ci IN ('55336', '68539') THEN 'castor-200ml'
+            ELSE sp.product_id
+          END
+        ) COLLATE utf8mb4_general_ci
         WHERE DATE(sp.purchase_date) >= ${defaultStart} AND DATE(sp.purchase_date) <= ${defaultEnd}
       `);
       const stockPurchaseRow =
@@ -362,7 +367,12 @@ export async function GET(request: NextRequest) {
                COUNT(*) AS total_rows,
                SUM(CASE WHEN sp.total_amount IS NOT NULL OR sp.unit_price IS NOT NULL THEN 1 ELSE 0 END) AS rows_with_amount
              FROM stock_purchases sp
-             LEFT JOIN products p ON p.id = sp.product_id
+             LEFT JOIN products p ON p.id COLLATE utf8mb4_general_ci = (
+               CASE
+                 WHEN sp.product_id COLLATE utf8mb4_general_ci IN ('55336', '68539') THEN 'castor-200ml'
+                 ELSE sp.product_id
+               END
+             ) COLLATE utf8mb4_general_ci
              WHERE DATE(sp.purchase_date) >= ? AND DATE(sp.purchase_date) <= ?`,
             [defaultStart, defaultEnd],
           );

@@ -66,8 +66,17 @@ export default function CreditedToAccountPage() {
     creditedDateTo: '',
   });
 
-  const [sortBy, setSortBy] = useState<'invoiceDate' | 'creditedDate' | 'amount'>('invoiceDate');
+  const [sortBy, setSortBy] = useState<'invoiceNumber' | 'invoiceDate' | 'creditedDate' | 'amount'>('invoiceDate');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (field: 'invoiceNumber' | 'invoiceDate' | 'creditedDate' | 'amount') => {
+    if (sortBy === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    setSortBy(field);
+    setSortDir(field === 'invoiceNumber' ? 'asc' : 'desc');
+  };
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -120,7 +129,6 @@ export default function CreditedToAccountPage() {
     const creditedToT = ymdToTime(filters.creditedDateTo);
 
     const filtered = allRows
-      .filter((r) => r.paymentStatus === 'paid')
       .filter((r) => {
         if (!search) return true;
         return (r.invoiceNumber || '').toLowerCase().includes(search);
@@ -147,6 +155,12 @@ export default function CreditedToAccountPage() {
 
     const sorted = [...filtered].sort((a, b) => {
       const dir = sortDir === 'asc' ? 1 : -1;
+
+      if (sortBy === 'invoiceNumber') {
+        const av = String(a.invoiceNumber || '').toLowerCase();
+        const bv = String(b.invoiceNumber || '').toLowerCase();
+        return av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' }) * dir;
+      }
 
       if (sortBy === 'amount') {
         return (Number(a.totalAmount || 0) - Number(b.totalAmount || 0)) * dir;
@@ -243,6 +257,7 @@ export default function CreditedToAccountPage() {
             <div className="flex flex-col sm:flex-row gap-3 lg:items-center">
               <div className="w-full sm:w-56">
                 <Select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
+                  <option value="invoiceNumber">Sort by Invoice number</option>
                   <option value="invoiceDate">Sort by Invoice date</option>
                   <option value="creditedDate">Sort by Credited date</option>
                   <option value="amount">Sort by Credited amount</option>
@@ -265,6 +280,8 @@ export default function CreditedToAccountPage() {
             </div>
             <div className="text-sm text-gray-500">
               Rows: <span className="font-medium text-gray-800">{computed.filtered.length}</span>
+              <span className="mx-2">|</span>
+              Total canteen invoices fetched: <span className="font-medium text-gray-800">{allRows.length}</span>
             </div>
           </div>
 
@@ -272,24 +289,43 @@ export default function CreditedToAccountPage() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Invoice date</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Credited amount</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">Credited date</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                    <button type="button" onClick={() => toggleSort('invoiceNumber')} className="inline-flex items-center gap-1 hover:text-gray-900">
+                      Invoice Number {sortBy === 'invoiceNumber' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                    <button type="button" onClick={() => toggleSort('invoiceDate')} className="inline-flex items-center gap-1 hover:text-gray-900">
+                      Invoice Date {sortBy === 'invoiceDate' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                    <button type="button" onClick={() => toggleSort('amount')} className="inline-flex items-center gap-1 hover:text-gray-900">
+                      Credited Amount {sortBy === 'amount' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                    </button>
+                  </th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
+                    <button type="button" onClick={() => toggleSort('creditedDate')} className="inline-flex items-center gap-1 hover:text-gray-900">
+                      Credited Date {sortBy === 'creditedDate' ? (sortDir === 'asc' ? '↑' : '↓') : ''}
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {computed.filtered.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-6 text-center text-sm text-gray-500" colSpan={3}>
+                    <td className="px-3 py-6 text-center text-sm text-gray-500" colSpan={4}>
                       No credited records match your filters.
                     </td>
                   </tr>
                 ) : (
                   computed.filtered.map((r) => (
                     <tr key={r.id} className="hover:bg-gray-50">
+                      <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                        {r.invoiceNumber || '—'}
+                      </td>
                       <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-700">
-                        <div className="font-medium text-gray-900">{formatYmdToEnGB(r.invoiceDate || r.createdAt)}</div>
-                        <div className="text-xs text-gray-500">{r.invoiceNumber || '—'}</div>
+                        {formatYmdToEnGB(r.invoiceDate || r.createdAt)}
                       </td>
                       <td className="px-3 py-4 whitespace-nowrap text-sm text-gray-900 font-semibold">
                         ₹{Number(r.totalAmount || 0).toFixed(2)}
