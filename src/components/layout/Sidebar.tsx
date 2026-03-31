@@ -74,6 +74,16 @@ const navigationSections: NavSection[] = [
         roles: ['admin', 'accountant', 'retail_staff']
       },
       {
+        name: 'Bulk Invoice Downloader',
+        href: '/dashboard/admin/sales/bulk-invoice-download',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16a2 2 0 002 2h12a2 2 0 002-2M12 4v10m0 0l4-4m-4 4l-4-4" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff']
+      },
+      {
         name: 'Retail Sales',
         href: '/dashboard/admin/sales/retail',
         icon: (

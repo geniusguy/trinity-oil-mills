@@ -431,6 +431,26 @@ async function generateInvoiceNumber(
         `Invoice number already exists. Existing entry: Invoice ${row?.invoiceNumber || formattedNumber}, PO ${po}, Date ${dt}.`
       );
     }
+
+    // Allow using invoice numbers that are explicitly reserved as dummy slots.
+    // But block if reservation is already used/cancelled.
+    try {
+      const [resRows]: any = await connection.query(
+        'SELECT id, status FROM invoice_reservations WHERE invoice_number = ? LIMIT 1',
+        [formattedNumber],
+      );
+      if (Array.isArray(resRows) && resRows.length > 0) {
+        const st = String(resRows[0]?.status || '').toLowerCase();
+        if (st && st !== 'reserved') {
+          throw new Error(`Invoice number reservation exists with status "${st}".`);
+        }
+      }
+    } catch (e: any) {
+      // Ignore only if table does not exist in older DBs
+      if (!String(e?.message || '').toLowerCase().includes('invoice_reservations')) {
+        throw e;
+      }
+    }
     
     return formattedNumber;
   }
@@ -449,6 +469,26 @@ async function generateInvoiceNumber(
     const lastInvoice = rows[0].invoice_number;
     const numberPart = lastInvoice.split('/')[0].substring(1); // Remove prefix
     nextNumber = parseInt(numberPart, 10) + 1;
+  }
+
+  // Also consider reserved invoice numbers so auto-generation never collides with dummy slots.
+  try {
+    const [resRows]: any = await connection.query(
+      'SELECT invoice_number FROM invoice_reservations WHERE sale_type = ? AND invoice_number LIKE ?',
+      [saleType, `${prefix}%/${fySuffix}`],
+    );
+    if (Array.isArray(resRows) && resRows.length > 0) {
+      for (const row of resRows) {
+        const inv = String(row.invoice_number || '');
+        const part = inv.split('/')[0]?.substring(1);
+        const n = Number(part);
+        if (Number.isFinite(n) && n >= nextNumber) nextNumber = n + 1;
+      }
+    }
+  } catch (e: any) {
+    if (!String(e?.message || '').toLowerCase().includes('invoice_reservations')) {
+      throw e;
+    }
   }
   
   // Format as 4 digits with leading zeros (e.g. C0001/2024-25)
@@ -915,6 +955,20 @@ export async function POST(request: NextRequest) {
           `INSERT INTO sales (${insertFields}) VALUES (${insertPlaceholders})`,
           insertValues
         );
+
+    // If this invoice was reserved as a dummy slot, consume it.
+    try {
+      await connection.execute(
+        `UPDATE invoice_reservations
+         SET status = 'used', linked_sale_id = ?, updated_at = NOW()
+         WHERE invoice_number = ? AND sale_type = ? AND status = 'reserved'`,
+        [saleId, invoiceNumber, saleType],
+      );
+    } catch (e: any) {
+      if (!String(e?.message || '').toLowerCase().includes('invoice_reservations')) {
+        throw e;
+      }
+    }
 
     for (const it of preparedItems) {
       const itemId = `${saleId}-${it.productId}`;

@@ -132,6 +132,20 @@ export const sales = mysqlTable('sales', {
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
 });
 
+// Invoice reservations (dummy/placeholder invoice sequence slots)
+export const invoiceReservations = mysqlTable('invoice_reservations', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  invoiceNumber: varchar('invoice_number', { length: 100 }).notNull(),
+  saleType: varchar('sale_type', { length: 50 }).notNull().default('canteen'),
+  fyLabel: varchar('fy_label', { length: 16 }),
+  status: varchar('status', { length: 20 }).notNull().default('reserved'), // reserved | used | cancelled
+  reason: text('reason'),
+  linkedSaleId: varchar('linked_sale_id', { length: 255 }),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
 // Sale Items table
 export const saleItems = mysqlTable('sale_items', {
   id: varchar('id', { length: 255 }).primaryKey(),

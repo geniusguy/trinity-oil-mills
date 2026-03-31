@@ -171,6 +171,25 @@ export async function POST(request: NextRequest) {
     `;
     await connection.execute(dailyTaskRemindersSQL);
 
+    // Invoice reservations (dummy placeholders to keep invoice number sequence)
+    const invoiceReservationsSQL = `
+      CREATE TABLE IF NOT EXISTS invoice_reservations (
+        id VARCHAR(255) PRIMARY KEY,
+        invoice_number VARCHAR(100) NOT NULL,
+        sale_type VARCHAR(50) NOT NULL DEFAULT 'canteen',
+        fy_label VARCHAR(16) NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'reserved',
+        reason TEXT NULL,
+        linked_sale_id VARCHAR(255) NULL,
+        created_by VARCHAR(255) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_invoice_reservations_invoice_number (invoice_number),
+        INDEX idx_invoice_reservations_sale_type_status (sale_type, status)
+      )
+    `;
+    await connection.execute(invoiceReservationsSQL);
+
     const courierExpensesSQL = `
       CREATE TABLE IF NOT EXISTS courier_expenses (
         id VARCHAR(255) PRIMARY KEY,

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Modal } from '@/components/ui';
 import {
   getFinancialYearLabelForDate,
   isDateInFinancialYear,
@@ -40,6 +41,9 @@ interface Sale {
   referencePdfPath?: string | null;
   referencePdfOriginalName?: string | null;
   creditedDate?: string | null;
+  isReservation?: boolean;
+  reservationReason?: string | null;
+  reservationDbId?: string | null;
 }
 
 interface CanteenAddress {
@@ -89,6 +93,14 @@ export default function CanteenSalesPage() {
   const [editReferencePdfError, setEditReferencePdfError] = useState('');
   const [removeExistingReferencePdf, setRemoveExistingReferencePdf] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Dummy invoice reservation modal
+  const [showReserveReservationModal, setShowReserveReservationModal] = useState(false);
+  const [reserveInvoiceNumber, setReserveInvoiceNumber] = useState('');
+  const [reserveReason, setReserveReason] = useState('');
+  const [reserveError, setReserveError] = useState('');
+  const [isReserving, setIsReserving] = useState(false);
+
   const [editForm, setEditForm] = useState({
     paymentStatus: '',
     shipmentStatus: '',
@@ -134,14 +146,41 @@ export default function CanteenSalesPage() {
   const fetchCanteenSales = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch('/api/sales?category=canteen&limit=100');
-      const data = await response.json();
-      
-      if (response.ok) {
-        setSales(data.sales);
-        extractAvailableDates(data.sales);
+      const [salesRes, reservationsRes] = await Promise.all([
+        fetch('/api/sales?category=canteen&limit=1000'),
+        fetch('/api/invoice-reservations?saleType=canteen&status=reserved&limit=1000'),
+      ]);
+
+      const salesData = await salesRes.json();
+      const reservationsData = await reservationsRes.json();
+
+      if (salesRes.ok) {
+        const baseSales: Sale[] = Array.isArray(salesData.sales) ? salesData.sales : [];
+        const reservationRows: Sale[] = Array.isArray(reservationsData.reservations)
+          ? reservationsData.reservations.map((r: any) => ({
+              id: `reservation-${r.id}`,
+              invoiceNumber: r.invoiceNumber,
+              saleType: 'canteen',
+              subtotal: 0,
+              gstAmount: 0,
+              totalAmount: 0,
+              paymentMethod: 'credit',
+              paymentStatus: 'reserved',
+              shipmentStatus: 'pending',
+              createdAt: r.createdAt || new Date().toISOString(),
+              userName: 'Reserved',
+              canteenName: 'Dummy / Reserved',
+              reservationReason: r.reason || null,
+              reservationDbId: r.id || null,
+              isReservation: true,
+            }))
+          : [];
+
+        const merged = [...baseSales, ...reservationRows];
+        setSales(merged);
+        extractAvailableDates(merged);
       } else {
-        setError(data.error || 'Failed to fetch canteen sales');
+        setError(salesData.error || 'Failed to fetch canteen sales');
       }
     } catch (error) {
       setError('Network error. Please try again.');
@@ -259,6 +298,22 @@ export default function CanteenSalesPage() {
     filtered.sort((a, b) => {
       let aValue: any, bValue: any;
 
+      const parseInvoiceSortKey = (s?: string) => {
+        const str = String(s || '').trim();
+        // Examples: C0001/2025-26, R0042/2024-25, legacy C0001/2026
+        const m = str.match(/^[A-Za-z]\s*(\d+)\s*\/\s*(\d{4})(?:\s*-\s*(\d{2}))?$/);
+        if (m) {
+          const seq = Number(m[1] || 0);
+          const fyStart = Number(m[2] || 0);
+          const fyEnd = m[3] ? Number(`${String(fyStart).slice(0, 2)}${m[3]}`) : fyStart;
+          return { fyStart, fyEnd, seq, raw: str };
+        }
+
+        // Fallback for unusual invoice formats
+        const seqFallback = Number((str.match(/\d+/)?.[0] || '-1'));
+        return { fyStart: -1, fyEnd: -1, seq: seqFallback, raw: str };
+      };
+
       const parseInvoiceSequence = (s?: string): number => {
         if (!s) return -1;
         const str = String(s).trim();
@@ -286,9 +341,22 @@ export default function CanteenSalesPage() {
           bValue = b.invoiceNumber.toLowerCase();
           break;
         case 'invoiceNumberNumeric':
-          aValue = parseInvoiceSequence(a.invoiceNumber);
-          bValue = parseInvoiceSequence(b.invoiceNumber);
-          break;
+          {
+            const aKey = parseInvoiceSortKey(a.invoiceNumber);
+            const bKey = parseInvoiceSortKey(b.invoiceNumber);
+
+            // Always group/sort by FY first (newest FY first), then invoice sequence.
+            // This avoids mixing C0001/2024-25 between C0001/2025-26 and C0002/2025-26.
+            if (aKey.fyStart !== bKey.fyStart) return bKey.fyStart - aKey.fyStart;
+            if (aKey.fyEnd !== bKey.fyEnd) return bKey.fyEnd - aKey.fyEnd;
+
+            if (aKey.seq !== bKey.seq) {
+              return sortOrder === 'asc' ? aKey.seq - bKey.seq : bKey.seq - aKey.seq;
+            }
+
+            // Stable fallback
+            return aKey.raw.localeCompare(bKey.raw);
+          }
         case 'canteenName':
           aValue = (a.canteenName || '').toLowerCase();
           bValue = (b.canteenName || '').toLowerCase();
@@ -364,6 +432,79 @@ export default function CanteenSalesPage() {
     } else {
       setSortBy(newSortBy);
       setSortOrder('asc');
+    }
+  };
+
+  const openReserveReservationModal = () => {
+    setReserveInvoiceNumber('');
+    setReserveReason('');
+    setReserveError('');
+    setShowReserveReservationModal(true);
+  };
+
+  const submitReservation = async () => {
+    const invoiceNumber = reserveInvoiceNumber.trim();
+    const reason = reserveReason.trim();
+
+    if (!invoiceNumber) {
+      setReserveError('Invoice number is required');
+      return;
+    }
+
+    try {
+      setIsReserving(true);
+      setReserveError('');
+      setError('');
+      setSuccess('');
+
+      const res = await fetch('/api/invoice-reservations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          invoiceNumber,
+          saleType: 'canteen',
+          reason: reason || null,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setReserveError(data.error || 'Failed to reserve dummy invoice');
+        return;
+      }
+
+      setSuccess(`Dummy invoice reserved: ${invoiceNumber}`);
+      setShowReserveReservationModal(false);
+      setReserveInvoiceNumber('');
+      setReserveReason('');
+      fetchCanteenSales();
+    } catch (_) {
+      setReserveError('Network error. Please try again.');
+    } finally {
+      setIsReserving(false);
+    }
+  };
+
+  const cancelReservation = async (sale: Sale) => {
+    if (!sale.reservationDbId) return;
+    try {
+      setError('');
+      setSuccess('');
+
+      const res = await fetch(
+        `/api/invoice-reservations?id=${encodeURIComponent(sale.reservationDbId)}&saleType=canteen`,
+        { method: 'DELETE' },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to cancel reservation');
+        return;
+      }
+
+      setSuccess('Reservation cancelled');
+      fetchCanteenSales();
+    } catch (_) {
+      setError('Network error. Please try again.');
     }
   };
 
@@ -589,6 +730,26 @@ export default function CanteenSalesPage() {
     );
   }
 
+  const fyInvoiceCount = (() => {
+    if (!filters.year) return sales.length;
+    const fyStart = parseFinancialYearLabelToStartYear(filters.year);
+    if (fyStart === null) return sales.length;
+    return sales.filter((s) => isDateInFinancialYear(anchorDate(s), fyStart)).length;
+  })();
+
+  const fyBreakupText = (() => {
+    const counts: Record<string, number> = {};
+    sales.forEach((s) => {
+      const label = getFinancialYearLabelForDate(anchorDate(s));
+      counts[label] = (counts[label] || 0) + 1;
+    });
+
+    return Object.entries(counts)
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([fy, count]) => `${fy}: ${count}`)
+      .join(' | ');
+  })();
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -612,6 +773,12 @@ export default function CanteenSalesPage() {
               >
                 Manage Addresses
               </Link>
+              <button
+                onClick={openReserveReservationModal}
+                className="w-full sm:w-auto text-center bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+              >
+                Reserve Dummy Invoice
+              </button>
               <span className="text-sm text-gray-700">
                 Welcome, {session.user?.name}
               </span>
@@ -818,6 +985,15 @@ export default function CanteenSalesPage() {
                     .reduce((sum, s) => sum + Number(s.totalAmount || 0), 0)
                     .toFixed(2)}
                 </span>
+                {' • '}
+                FY Invoice Count ({filters.year || 'All FY'}):{' '}
+                <span className="font-semibold text-gray-900">{fyInvoiceCount}</span>
+                {!filters.year && fyBreakupText ? (
+                  <>
+                    {' • '}
+                    <span className="text-gray-500">Breakup: {fyBreakupText}</span>
+                  </>
+                ) : null}
               </div>
             </div>
           </div>
@@ -917,6 +1093,9 @@ export default function CanteenSalesPage() {
                         <div className="text-xs text-gray-500">
                           {new Date((sale.invoiceDate || sale.createdAt) as any).toLocaleDateString('en-GB')}
                         </div>
+                        {sale.isReservation && (
+                          <div className="text-xs text-amber-700 font-medium">Dummy reservation</div>
+                        )}
                       </div>
                     </td>
                     
@@ -936,7 +1115,11 @@ export default function CanteenSalesPage() {
                     
                     {/* Total Amount */}
                     <td className="px-3 py-4 whitespace-nowrap text-sm">
-                      <div className="font-semibold text-gray-900">₹{Number(sale.totalAmount).toFixed(2)}</div>
+                      {sale.isReservation ? (
+                        <div className="font-semibold text-gray-500">—</div>
+                      ) : (
+                        <div className="font-semibold text-gray-900">₹{Number(sale.totalAmount).toFixed(2)}</div>
+                      )}
                     </td>
                     
                     {/* Payment Combined */}
@@ -957,14 +1140,20 @@ export default function CanteenSalesPage() {
                         </span>
                         <div>
                           <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                            sale.paymentStatus === 'reserved' ? 'bg-amber-100 text-amber-800' :
                             sale.paymentStatus === 'paid' ? 'bg-green-100 text-green-800' :
                             sale.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                             'bg-red-100 text-red-800'
                           }`}>
-                            {sale.paymentStatus === 'paid'
+                            {sale.paymentStatus === 'reserved'
+                              ? 'Reserved (Dummy)'
+                              : sale.paymentStatus === 'paid'
                               ? 'Credited to our account'
                               : sale.paymentStatus}
                           </span>
+                          {sale.isReservation && sale.reservationReason ? (
+                            <div className="text-xs text-gray-500 mt-1">Reason: {sale.reservationReason}</div>
+                          ) : null}
                           {sale.paymentStatus === 'paid' && (
                             <div className="text-xs text-gray-500 mt-1">
                               Credited Date:{' '}
@@ -1063,13 +1252,15 @@ export default function CanteenSalesPage() {
                     {/* Actions */}
                     <td className="px-3 py-4 whitespace-nowrap text-sm">
                       <div className="flex flex-col space-y-1">
-                        <a 
-                          href={`/api/sales/${sale.id}/invoice/html`} 
-                          target="_blank" 
-                          className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
-                        >
-                          📄 Invoice
-                        </a>
+                        {!sale.isReservation && (
+                          <a 
+                            href={`/api/sales/${sale.id}/invoice/html`} 
+                            target="_blank" 
+                            className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
+                          >
+                            📄 Invoice
+                          </a>
+                        )}
                         {sale.referencePdfPath && (
                           <a
                             href={`/api/uploads/inline?path=${encodeURIComponent(sale.referencePdfPath)}`}
@@ -1080,18 +1271,30 @@ export default function CanteenSalesPage() {
                             📎 View PDF
                           </a>
                         )}
-                        <button 
-                          onClick={() => handleEditSale(sale)} 
-                          className="text-blue-600 hover:text-blue-900 text-xs font-medium text-left"
-                        >
-                          ✏️ Edit
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteSale(sale)} 
-                          className="text-red-600 hover:text-red-900 text-xs font-medium text-left"
-                        >
-                          🗑️ Delete
-                        </button>
+                        {sale.isReservation && (
+                          <button
+                            onClick={() => cancelReservation(sale)}
+                            className="text-amber-700 hover:text-amber-900 text-xs font-medium text-left"
+                          >
+                            🧾 Cancel Reservation
+                          </button>
+                        )}
+                        {!sale.isReservation && (
+                          <>
+                            <button 
+                              onClick={() => handleEditSale(sale)} 
+                              className="text-blue-600 hover:text-blue-900 text-xs font-medium text-left"
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteSale(sale)} 
+                              className="text-red-600 hover:text-red-900 text-xs font-medium text-left"
+                            >
+                              🗑️ Delete
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1101,6 +1304,68 @@ export default function CanteenSalesPage() {
           </div>
         </div>
       </div>
+
+      {/* Reserve Dummy Invoice Modal */}
+      <Modal
+        isOpen={showReserveReservationModal}
+        onClose={() => setShowReserveReservationModal(false)}
+        title="Reserve Dummy Invoice"
+        size="md"
+      >
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="reserveInvoiceNumber" className="block text-xs font-medium text-gray-700 mb-1">
+              Invoice Number
+            </label>
+            <input
+              id="reserveInvoiceNumber"
+              type="text"
+              value={reserveInvoiceNumber}
+              onChange={(e) => setReserveInvoiceNumber(e.target.value)}
+              placeholder="e.g., C0001/2025-26"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">Reserved invoices are placeholder slots and won’t create any bill amount.</p>
+          </div>
+
+          <div>
+            <label htmlFor="reserveReason" className="block text-xs font-medium text-gray-700 mb-1">
+              Reason (optional)
+            </label>
+            <input
+              id="reserveReason"
+              type="text"
+              value={reserveReason}
+              onChange={(e) => setReserveReason(e.target.value)}
+              placeholder="e.g., Pending manual entry"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+            />
+          </div>
+
+          {reserveError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
+              {reserveError}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={() => setShowReserveReservationModal(false)}
+              disabled={isReserving}
+              className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submitReservation}
+              disabled={isReserving}
+              className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isReserving ? 'Reserving...' : 'Reserve'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Edit Sale Modal */}
       {showEditModal && selectedSale && (
