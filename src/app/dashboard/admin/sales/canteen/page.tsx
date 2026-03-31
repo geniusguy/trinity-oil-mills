@@ -43,6 +43,7 @@ interface Sale {
   isReservation?: boolean;
   reservationReason?: string | null;
   reservationDbId?: string | null;
+  reservationFyLabel?: string | null;
 }
 
 interface CanteenAddress {
@@ -171,6 +172,7 @@ export default function CanteenSalesPage() {
               canteenName: 'Dummy / Reserved',
               reservationReason: r.reason || null,
               reservationDbId: r.id || null,
+              reservationFyLabel: r.fyLabel || null,
               isReservation: true,
             }))
           : [];
@@ -198,9 +200,22 @@ export default function CanteenSalesPage() {
     }
   };
 
-  // Anchor date for FY: invoice date, else PO date, else created
-  const anchorDate = (sale: Sale) =>
-    new Date(sale.invoiceDate || sale.poDate || sale.createdAt);
+  // Anchor date for FY:
+  // - normal sales: invoice date, else PO date, else created_at
+  // - dummy reservations: derive from reservation FY label (e.g. "2024-25" -> 2024-04-01)
+  const anchorDate = (sale: Sale) => {
+    if (sale.isReservation && sale.reservationFyLabel) {
+      const fy = String(sale.reservationFyLabel).trim();
+      const m = fy.match(/^(\d{4})(?:-\d{2})?$/);
+      if (m?.[1]) {
+        const startYear = Number(m[1]);
+        if (Number.isFinite(startYear)) {
+          return new Date(startYear, 3, 1); // Apr 1 of FY start year
+        }
+      }
+    }
+    return new Date(sale.invoiceDate || sale.poDate || sale.createdAt);
+  };
 
   // Extract available months and years from sales data
   const extractAvailableDates = (salesData: Sale[]) => {
