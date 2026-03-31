@@ -114,6 +114,16 @@ const navigationSections: NavSection[] = [
         roles: ['admin', 'accountant', 'retail_staff']
       },
       {
+        name: 'Canteen Sales Register',
+        href: '/dashboard/admin/sales/canteen-register',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h18M3 10h18M3 15h18M3 20h18" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff']
+      },
+      {
         name: 'Canteen-wise Sales',
         href: '/dashboard/admin/sales/canteen-wise',
         icon: (

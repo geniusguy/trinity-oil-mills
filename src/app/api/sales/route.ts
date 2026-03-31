@@ -332,6 +332,19 @@ export async function GET(request: NextRequest) {
       if (Array.isArray(cCols) && cCols.length > 0) creditedDateField = ', s.credited_date as creditedDate';
     } catch (_) {}
 
+    // total_tins (optional supply metric for canteen)
+    let totalBottlesField = ', NULL as totalBottles';
+    try {
+      const [bCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "total_bottles"');
+      if (Array.isArray(bCols) && bCols.length > 0) totalBottlesField = ', s.total_bottles as totalBottles';
+    } catch (_) {}
+
+    let totalTinsField = ', NULL as totalTins';
+    try {
+      const [tCols] = await connection.query('SHOW COLUMNS FROM sales LIKE "total_tins"');
+      if (Array.isArray(tCols) && tCols.length > 0) totalTinsField = ', s.total_tins as totalTins';
+    } catch (_) {}
+
     // Optional reference PDF attachment fields (from canteen POS / courier bills)
     let referencePdfPathField = ', NULL as referencePdfPath';
     let referencePdfOriginalNameField = ', NULL as referencePdfOriginalName';
@@ -350,7 +363,7 @@ export async function GET(request: NextRequest) {
     } catch (_) {}
 
     let query = `SELECT s.id, s.invoice_number as invoiceNumber, s.sale_type as saleType, s.subtotal, s.gst_amount as gstAmount, s.total_amount as totalAmount,
-                        s.payment_method as paymentMethod, s.payment_status as paymentStatus, s.shipment_status as shipmentStatus, s.notes${poNumberField}${poDateField}${invoiceDateField}${modeOfSalesField}${keptOnDisplayField}${courierField}${mailSentField}${creditedDateField}${referencePdfPathField}${referencePdfOriginalNameField}, s.created_at as createdAt,
+                        s.payment_method as paymentMethod, s.payment_status as paymentStatus, s.shipment_status as shipmentStatus, s.notes${poNumberField}${poDateField}${invoiceDateField}${modeOfSalesField}${keptOnDisplayField}${courierField}${mailSentField}${creditedDateField}${totalBottlesField}${totalTinsField}${referencePdfPathField}${referencePdfOriginalNameField}, s.created_at as createdAt,
                         s.canteen_address_id as canteenAddressId, u.name as userName, s.notes as customerName, ca.canteen_name as canteenName, ca.address as canteenAddress,
                         ca.contact_person as canteenContact, ca.mobile_number as canteenMobile
                  FROM sales s
