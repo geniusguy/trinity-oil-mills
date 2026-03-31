@@ -246,6 +246,14 @@ export default function StockPurchasesPage() {
     [purchases]
   );
 
+  const grandTotals = useMemo(() => {
+    const totalAmount = purchases.reduce((acc, p) => acc + (Number(p.totalAmount) || 0), 0);
+    const totalQty = purchases.reduce((acc, p) => acc + (Number(p.quantity) || 0), 0);
+    const totalTins = purchasesWithTins.reduce((acc, p: any) => acc + (Number(p.tinsDisplay) || 0), 0);
+
+    return { totalAmount, totalQty, totalTins };
+  }, [purchases, purchasesWithTins]);
+
   const handleSort = (key: typeof sortBy) => {
     if (sortBy === key) setSortOrder((p) => (p === 'asc' ? 'desc' : 'asc'));
     else {
@@ -868,6 +876,24 @@ export default function StockPurchasesPage() {
                 >
                   Clear
                 </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Grand totals (filtered) */}
+          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-md border border-gray-200 p-3 bg-white">
+                <div className="text-xs text-gray-500">Grand Total Amount (₹)</div>
+                <div className="text-lg font-semibold text-gray-900">{formatCurrency(grandTotals.totalAmount)}</div>
+              </div>
+              <div className="rounded-md border border-gray-200 p-3 bg-white">
+                <div className="text-xs text-gray-500">Grand Total Quantity</div>
+                <div className="text-lg font-semibold text-gray-900">{grandTotals.totalQty.toFixed(2)}</div>
+              </div>
+              <div className="rounded-md border border-gray-200 p-3 bg-white">
+                <div className="text-xs text-gray-500">Grand Total Tin (where applicable)</div>
+                <div className="text-lg font-semibold text-gray-900">{grandTotals.totalTins.toFixed(2)}</div>
               </div>
             </div>
           </div>

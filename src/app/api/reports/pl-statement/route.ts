@@ -1,17 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db/db';
 import { sql } from 'drizzle-orm';
-import { HistoricalPNLCalculator } from '@/lib/priceHistory';
+import { createConnection } from '@/lib/database';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    const fyStartYearParam = searchParams.get('fyStartYear');
 
     const now = new Date();
-    const defaultStart = startDate || new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    const defaultEnd = endDate || new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+    const isAllFy = String(fyStartYearParam || '').toLowerCase() === 'all';
+    const parsedFyStart = fyStartYearParam && /^\d{4}$/.test(fyStartYearParam) ? Number(fyStartYearParam) : null;
+    const defaultStart = startDate || (isAllFy
+      ? '2000-04-01'
+      : parsedFyStart != null
+      ? `${parsedFyStart}-04-01`
+      : new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10));
+    const defaultEnd = endDate || (isAllFy
+      ? new Date().toISOString().slice(0, 10)
+      : parsedFyStart != null
+      ? `${parsedFyStart + 1}-03-31`
+      : new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10));
     const toNum = (v: any) => (v === null || v === undefined ? 0 : Number(v));
 
     // Build an inclusive date range [start, end] by using an exclusive end boundary.
@@ -22,16 +33,14 @@ export async function GET(request: NextRequest) {
     const toSqlDateTime = (d: Date) => d.toISOString().slice(0, 19).replace('T', ' ');
     const periodStartSql = toSqlDateTime(periodStart);
     const periodEndExclusiveSql = toSqlDateTime(periodEndExclusive);
+    const queryWarnings: string[] = [];
 
-    // Use historical P&L calculation for accurate costs
-    const historicalPNL = await HistoricalPNLCalculator.calculatePNLForPeriod(
-      periodStart,
-      periodEndInclusive,
-      { paidOnly: true }
-    );
-
-    // Also get traditional revenue data for consistency
+    // Revenue from live invoices (same business view as Sales pages):
+    // - include paid + pending invoices
+    // - use invoice_date when present, otherwise created_at
     let revenue: any = { gross_revenue: 0, gst_collected: 0, total_revenue: 0 };
+    let revenuePaid: any = { gross_revenue_paid: 0, gst_collected_paid: 0, total_revenue_paid: 0 };
+    let revenuePending: any = { gross_revenue_pending: 0, gst_collected_pending: 0, total_revenue_pending: 0 };
     try {
       const revenueRes = await db.execute(sql`
         SELECT 
@@ -39,17 +48,155 @@ export async function GET(request: NextRequest) {
           COALESCE(SUM(s.gst_amount), 0) AS gst_collected,
           COALESCE(SUM(s.total_amount), 0) AS total_revenue
         FROM sales s
-        WHERE s.created_at >= ${periodStartSql} AND s.created_at < ${periodEndExclusiveSql}
-          AND s.payment_status = 'paid'
+        WHERE COALESCE(s.invoice_date, DATE(s.created_at)) >= ${defaultStart}
+          AND COALESCE(s.invoice_date, DATE(s.created_at)) <= ${defaultEnd}
       `);
       const revenueRow = (revenueRes as any)?.rows?.[0] ?? (Array.isArray(revenueRes) ? (revenueRes as any)[0] : undefined);
       if (revenueRow) revenue = revenueRow;
+
+      const revenuePaidRes = await db.execute(sql`
+        SELECT
+          COALESCE(SUM(s.subtotal), 0) AS gross_revenue_paid,
+          COALESCE(SUM(s.gst_amount), 0) AS gst_collected_paid,
+          COALESCE(SUM(s.total_amount), 0) AS total_revenue_paid
+        FROM sales s
+        WHERE COALESCE(s.invoice_date, DATE(s.created_at)) >= ${defaultStart}
+          AND COALESCE(s.invoice_date, DATE(s.created_at)) <= ${defaultEnd}
+          AND s.payment_status = 'paid'
+      `);
+      const paidRow = (revenuePaidRes as any)?.rows?.[0] ?? (Array.isArray(revenuePaidRes) ? (revenuePaidRes as any)[0] : undefined);
+      if (paidRow) revenuePaid = paidRow;
+
+      const revenuePendingRes = await db.execute(sql`
+        SELECT
+          COALESCE(SUM(s.subtotal), 0) AS gross_revenue_pending,
+          COALESCE(SUM(s.gst_amount), 0) AS gst_collected_pending,
+          COALESCE(SUM(s.total_amount), 0) AS total_revenue_pending
+        FROM sales s
+        WHERE COALESCE(s.invoice_date, DATE(s.created_at)) >= ${defaultStart}
+          AND COALESCE(s.invoice_date, DATE(s.created_at)) <= ${defaultEnd}
+          AND s.payment_status <> 'paid'
+      `);
+      const pendingRow = (revenuePendingRes as any)?.rows?.[0] ?? (Array.isArray(revenuePendingRes) ? (revenuePendingRes as any)[0] : undefined);
+      if (pendingRow) revenuePending = pendingRow;
     } catch (e) {
       console.warn('pl-statement revenue query failed, defaulting to 0s');
     }
 
-    // Historical COGS from sale-items/recipes.
-    const historicalCOGS = toNum(historicalPNL?.summary?.totalCost);
+    // Revenue/GST connection fallback (same DB path as sales module).
+    // Also derive GST from total-subtotal when gst_amount is missing/zero.
+    try {
+      if (toNum(revenue.gross_revenue) <= 0 || toNum(revenue.gst_collected) <= 0) {
+        const connection = await createConnection();
+        try {
+          const [rowsAll]: any = await connection.query(
+            `SELECT
+               COALESCE(SUM(COALESCE(s.subtotal, 0)), 0) AS gross_revenue,
+               COALESCE(SUM(
+                 CASE
+                   WHEN COALESCE(s.gst_amount, 0) > 0 THEN s.gst_amount
+                   WHEN COALESCE(s.total_amount, 0) > COALESCE(s.subtotal, 0) THEN (s.total_amount - s.subtotal)
+                   ELSE 0
+                 END
+               ), 0) AS gst_collected,
+               COALESCE(SUM(
+                 CASE
+                   WHEN COALESCE(s.total_amount, 0) > 0 THEN s.total_amount
+                   ELSE COALESCE(s.subtotal, 0) + (
+                     CASE
+                       WHEN COALESCE(s.gst_amount, 0) > 0 THEN s.gst_amount
+                       WHEN COALESCE(s.total_amount, 0) > COALESCE(s.subtotal, 0) THEN (s.total_amount - s.subtotal)
+                       ELSE 0
+                     END
+                   )
+                 END
+               ), 0) AS total_revenue
+             FROM sales s
+             WHERE COALESCE(s.invoice_date, DATE(s.created_at)) >= ?
+               AND COALESCE(s.invoice_date, DATE(s.created_at)) <= ?`,
+            [defaultStart, defaultEnd],
+          );
+          const allRow = Array.isArray(rowsAll) ? rowsAll[0] : null;
+          if (allRow && (toNum(allRow.gross_revenue) > 0 || toNum(allRow.gst_collected) > 0)) {
+            revenue = allRow;
+            queryWarnings.push('using sales connection fallback (all invoices)');
+          }
+        } finally {
+          await connection.end();
+        }
+      }
+    } catch {
+      queryWarnings.push('sales revenue/gst connection fallback failed');
+    }
+
+    // Ensure paid/pending split is also derived from live connection path.
+    try {
+      if (toNum(revenuePaid.total_revenue_paid) <= 0 && toNum(revenuePending.total_revenue_pending) <= 0) {
+        const connection = await createConnection();
+        try {
+          const [paidRows]: any = await connection.query(
+            `SELECT
+               COALESCE(SUM(s.subtotal), 0) AS gross_revenue_paid,
+               COALESCE(SUM(s.gst_amount), 0) AS gst_collected_paid,
+               COALESCE(SUM(s.total_amount), 0) AS total_revenue_paid
+             FROM sales s
+             WHERE COALESCE(s.invoice_date, DATE(s.created_at)) >= ?
+               AND COALESCE(s.invoice_date, DATE(s.created_at)) <= ?
+               AND s.payment_status = 'paid'`,
+            [defaultStart, defaultEnd],
+          );
+          const paidRow = Array.isArray(paidRows) ? paidRows[0] : null;
+          if (paidRow) revenuePaid = paidRow;
+
+          const [pendingRows]: any = await connection.query(
+            `SELECT
+               COALESCE(SUM(s.subtotal), 0) AS gross_revenue_pending,
+               COALESCE(SUM(s.gst_amount), 0) AS gst_collected_pending,
+               COALESCE(SUM(s.total_amount), 0) AS total_revenue_pending
+             FROM sales s
+             WHERE COALESCE(s.invoice_date, DATE(s.created_at)) >= ?
+               AND COALESCE(s.invoice_date, DATE(s.created_at)) <= ?
+               AND s.payment_status <> 'paid'`,
+            [defaultStart, defaultEnd],
+          );
+          const pendingRow = Array.isArray(pendingRows) ? pendingRows[0] : null;
+          if (pendingRow) revenuePending = pendingRow;
+          queryWarnings.push('using revenue paid/pending connection fallback');
+        } finally {
+          await connection.end();
+        }
+      }
+    } catch {
+      queryWarnings.push('revenue paid/pending connection fallback failed');
+    }
+
+    // Sales returns / expiry adjustments
+    let returnsRevenueReversalExGst = 0;
+    let returnsRevenueReversalGst = 0;
+    let expiryWriteoffExGst = 0;
+    try {
+      const returnsRes = await db.execute(sql`
+        SELECT
+          COALESCE(SUM(CASE WHEN accounting_impact IN ('revenue_reversal', 'both') THEN return_amount_ex_gst ELSE 0 END), 0) AS return_reversal_ex_gst,
+          COALESCE(SUM(CASE WHEN accounting_impact IN ('revenue_reversal', 'both') THEN return_gst_amount ELSE 0 END), 0) AS return_reversal_gst,
+          COALESCE(SUM(CASE WHEN accounting_impact IN ('expense_writeoff', 'both') AND return_nature = 'expiry' THEN return_amount_ex_gst ELSE 0 END), 0) AS expiry_writeoff_ex_gst
+        FROM sales_returns
+        WHERE return_date >= ${defaultStart} AND return_date <= ${defaultEnd}
+      `);
+      const returnsRow =
+        (returnsRes as any)?.rows?.[0] ??
+        (Array.isArray(returnsRes) ? (returnsRes as any)[0] : undefined);
+      if (returnsRow) {
+        returnsRevenueReversalExGst = toNum((returnsRow as any).return_reversal_ex_gst);
+        returnsRevenueReversalGst = toNum((returnsRow as any).return_reversal_gst);
+        expiryWriteoffExGst = toNum((returnsRow as any).expiry_writeoff_ex_gst);
+      }
+    } catch (e) {
+      console.warn('pl-statement sales_returns query failed (table may be missing)');
+    }
+
+    // Strict live-source mode: do not use historical simulated costing in P&L.
+    const historicalCOGS = 0;
     // Fallback COGS from raw material purchases for deployments where historical sale-item
     // costing is not fully wired yet.
     let purchaseCOGSExGst = 0;
@@ -71,6 +218,7 @@ export async function GET(request: NextRequest) {
       }
     } catch (e) {
       console.warn('pl-statement raw_material_purchases query failed, fallback COGS unavailable');
+      queryWarnings.push('raw_material_purchases query failed');
     }
 
     // Secondary fallback for setups using stock_purchases screen instead of raw_material_purchases.
@@ -84,30 +232,12 @@ export async function GET(request: NextRequest) {
             CASE
               WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
               WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
-              WHEN ap.avg_unit_cost IS NOT NULL AND sp.quantity IS NOT NULL THEN ap.avg_unit_cost * sp.quantity
-              WHEN p.base_price IS NOT NULL AND sp.quantity IS NOT NULL THEN p.base_price * sp.quantity
-              WHEN p.retail_price IS NOT NULL AND sp.quantity IS NOT NULL THEN p.retail_price * sp.quantity
               ELSE 0
             END
           ), 0) AS total_stock_purchase_cost,
           COUNT(*) AS total_rows,
           SUM(CASE WHEN sp.total_amount IS NOT NULL OR sp.unit_price IS NOT NULL THEN 1 ELSE 0 END) AS rows_with_amount
         FROM stock_purchases sp
-        LEFT JOIN products p ON BINARY p.id = BINARY sp.product_id
-        LEFT JOIN (
-          SELECT
-            sp2.product_id,
-            AVG(
-              CASE
-                WHEN sp2.unit_price IS NOT NULL THEN sp2.unit_price
-                WHEN sp2.total_amount IS NOT NULL AND sp2.quantity IS NOT NULL AND sp2.quantity > 0
-                  THEN sp2.total_amount / sp2.quantity
-                ELSE NULL
-              END
-            ) AS avg_unit_cost
-          FROM stock_purchases sp2
-          GROUP BY sp2.product_id
-        ) ap ON ap.product_id = sp.product_id
         WHERE DATE(sp.purchase_date) >= ${defaultStart} AND DATE(sp.purchase_date) <= ${defaultEnd}
       `);
       const stockPurchaseRow =
@@ -118,15 +248,70 @@ export async function GET(request: NextRequest) {
         stockPurchaseRows = toNum((stockPurchaseRow as any).total_rows);
         stockPurchaseRowsWithAmount = toNum((stockPurchaseRow as any).rows_with_amount);
       }
+
+      // No all-time fallback in live-source mode (strictly selected period only).
     } catch (e) {
       console.warn('pl-statement stock_purchases query failed, secondary fallback COGS unavailable');
+      queryWarnings.push('stock_purchases query failed');
     }
 
-    const usingHistoricalCogs = historicalCOGS > 0;
-    const usingRawMaterialPurchasesFallback = !usingHistoricalCogs && purchaseCOGSExGst > 0;
+    // Connection-level fallback (same DB path as stock-purchases module) to avoid pool/env mismatch.
+    try {
+      if (stockPurchaseCost <= 0 || stockPurchaseRows <= 0) {
+        const connection = await createConnection();
+        try {
+          const [rows]: any = await connection.query(
+            `SELECT
+               COALESCE(SUM(
+                 CASE
+                   WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
+                   WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+                   ELSE 0
+                 END
+               ), 0) AS total_stock_purchase_cost,
+               COUNT(*) AS total_rows,
+               SUM(CASE WHEN sp.total_amount IS NOT NULL OR sp.unit_price IS NOT NULL THEN 1 ELSE 0 END) AS rows_with_amount
+             FROM stock_purchases sp
+             WHERE DATE(sp.purchase_date) >= ? AND DATE(sp.purchase_date) <= ?`,
+            [defaultStart, defaultEnd],
+          );
+          const row = Array.isArray(rows) ? rows[0] : null;
+          if (row && toNum(row.total_stock_purchase_cost) > 0) {
+            stockPurchaseCost = toNum(row.total_stock_purchase_cost);
+            stockPurchaseRows = toNum(row.total_rows);
+            stockPurchaseRowsWithAmount = toNum(row.rows_with_amount);
+            queryWarnings.push('using stock_purchases connection fallback (period)');
+          }
+
+          // No all-time connection fallback in live-source mode.
+        } finally {
+          await connection.end();
+        }
+      }
+    } catch {
+      queryWarnings.push('stock_purchases connection fallback failed');
+    }
+
+    // Prefer the most complete COGS source:
+    // 1) stock_purchases / raw_material_purchases are treated as authoritative when they exceed historical
+      // 2) historical is disabled in live-source mode
+    const purchaseBackedCogs = purchaseCOGSExGst > 0 ? purchaseCOGSExGst : stockPurchaseCost;
+    const shouldPreferPurchaseBackedCogs =
+      purchaseBackedCogs > 0 &&
+      (historicalCOGS <= 0 || purchaseBackedCogs > historicalCOGS);
+
+    if (shouldPreferPurchaseBackedCogs) {
+      queryWarnings.push('using purchase-backed COGS over historical');
+    }
+
+    const usingHistoricalCogs = !shouldPreferPurchaseBackedCogs && historicalCOGS > 0;
+    const usingRawMaterialPurchasesFallback =
+      !usingHistoricalCogs && purchaseCOGSExGst > 0;
+
     const computedCOGSExGst = usingHistoricalCogs
       ? historicalCOGS
-      : (purchaseCOGSExGst > 0 ? purchaseCOGSExGst : stockPurchaseCost);
+      : purchaseBackedCogs;
+
     const computedCogsGstPaid = usingHistoricalCogs
       ? 0
       : (purchaseCOGSExGst > 0 ? purchaseGstPaid : 0);
@@ -149,7 +334,7 @@ export async function GET(request: NextRequest) {
           COALESCE(SUM(CASE WHEN e.category = 'administrative' THEN e.amount ELSE 0 END), 0) AS admin_expenses,
           COALESCE(SUM(CASE WHEN e.category = 'utilities' THEN e.amount ELSE 0 END), 0) AS utility_expenses,
           COALESCE(SUM(CASE WHEN e.category = 'maintenance' THEN e.amount ELSE 0 END), 0) AS maintenance_expenses,
-          COALESCE(SUM(CASE WHEN e.category = 'other' THEN e.amount ELSE 0 END), 0) AS other_expenses
+          COALESCE(SUM(CASE WHEN e.category IN ('other', 'transportation') THEN e.amount ELSE 0 END), 0) AS other_expenses
         FROM expenses e
         WHERE DATE(e.expense_date) >= ${defaultStart} AND DATE(e.expense_date) <= ${defaultEnd}
       `);
@@ -157,15 +342,50 @@ export async function GET(request: NextRequest) {
       if (opxRow) opx = opxRow;
     } catch (e) {
       console.warn('pl-statement operating expenses query failed, defaulting to 0s');
+      queryWarnings.push('expenses query failed');
     }
 
-    // Courier expenses (canteen shipping — separate table)
+    // No all-time expense fallback in live-source mode.
+
+    // Connection-level fallback (same DB path as Expenses module)
+    try {
+      if (toNum(opx.total_expenses) <= 0) {
+        const connection = await createConnection();
+        try {
+          const [rows]: any = await connection.query(
+            `SELECT
+               COALESCE(SUM(e.amount), 0) AS total_expenses,
+               COALESCE(SUM(CASE WHEN e.category = 'marketing' THEN e.amount ELSE 0 END), 0) AS marketing_expenses,
+               COALESCE(SUM(CASE WHEN e.category = 'administrative' THEN e.amount ELSE 0 END), 0) AS admin_expenses,
+               COALESCE(SUM(CASE WHEN e.category = 'utilities' THEN e.amount ELSE 0 END), 0) AS utility_expenses,
+               COALESCE(SUM(CASE WHEN e.category = 'maintenance' THEN e.amount ELSE 0 END), 0) AS maintenance_expenses,
+               COALESCE(SUM(CASE WHEN e.category IN ('other','transportation') THEN e.amount ELSE 0 END), 0) AS other_expenses
+             FROM expenses e
+             WHERE DATE(e.expense_date) >= ? AND DATE(e.expense_date) <= ?`,
+            [defaultStart, defaultEnd],
+          );
+          const row = Array.isArray(rows) ? rows[0] : null;
+          if (row && toNum(row.total_expenses) > 0) {
+            opx = row;
+            queryWarnings.push('using expenses connection fallback (period)');
+          }
+
+          // No all-time connection fallback in live-source mode.
+        } finally {
+          await connection.end();
+        }
+      }
+    } catch {
+      queryWarnings.push('expenses connection fallback failed');
+    }
+
+    // Courier expenses (canteen shipping — Courier Expenses module totals)
     let courierShippingExGst = 0;
     let courierGstPaid = 0;
     try {
       const courierRes = await db.execute(sql`
         SELECT
-          COALESCE(SUM(cost), 0) AS total_courier_ex_gst,
+          COALESCE(SUM(cost + IFNULL(gst_amount, 0)), 0) AS total_courier_ex_gst,
           COALESCE(SUM(gst_amount), 0) AS total_courier_gst
         FROM courier_expenses
         WHERE courier_date >= ${defaultStart} AND courier_date <= ${defaultEnd}
@@ -179,6 +399,35 @@ export async function GET(request: NextRequest) {
       }
     } catch (e) {
       console.warn('pl-statement courier_expenses query failed (table may be missing)');
+    }
+
+    // Connection fallback using same DB path as courier module.
+    try {
+      if (courierShippingExGst <= 0 && courierGstPaid <= 0) {
+        const connection = await createConnection();
+        try {
+          const [rows]: any = await connection.query(
+            `SELECT
+               COALESCE(SUM(cost + IFNULL(gst_amount, 0)), 0) AS total_courier_ex_gst,
+               COALESCE(SUM(gst_amount), 0) AS total_courier_gst
+             FROM courier_expenses
+             WHERE DATE(courier_date) >= ? AND DATE(courier_date) <= ?`,
+            [defaultStart, defaultEnd],
+          );
+          const row = Array.isArray(rows) ? rows[0] : null;
+          if (row) {
+            courierShippingExGst = toNum((row as any).total_courier_ex_gst);
+            courierGstPaid = toNum((row as any).total_courier_gst);
+            if (courierShippingExGst > 0 || courierGstPaid > 0) {
+              queryWarnings.push('using courier_expenses connection fallback');
+            }
+          }
+        } finally {
+          await connection.end();
+        }
+      }
+    } catch {
+      queryWarnings.push('courier_expenses connection fallback failed');
     }
 
     // Loan payments (interest expense + principal payment tracking)
@@ -200,21 +449,23 @@ export async function GET(request: NextRequest) {
       console.warn('pl-statement loan payments query failed, defaulting to 0s');
     }
 
-    // Use historical P&L data for accurate calculations
+    // Live-source totals only
     const grossRevenueExGst = toNum(revenue.gross_revenue);
     const totalInvoiceRevenue = toNum(revenue.total_revenue);
     const gstCollected = toNum(revenue.gst_collected);
-    const fallbackRevenue = historicalPNL.summary.totalRevenue || totalInvoiceRevenue;
-    const totalRevenue = totalInvoiceRevenue > 0 ? totalInvoiceRevenue : fallbackRevenue;
+    const adjustedGrossRevenueExGst = Math.max(0, grossRevenueExGst - returnsRevenueReversalExGst);
+    const adjustedGstCollected = gstCollected - returnsRevenueReversalGst;
+    const adjustedTotalInvoiceRevenue = adjustedGrossRevenueExGst + adjustedGstCollected;
+    const totalRevenue = adjustedTotalInvoiceRevenue;
     const totalCOGS = computedCOGSExGst;
     const totalOpExBase = toNum(opx.total_expenses);
-    const totalOpEx = totalOpExBase + courierShippingExGst;
+    const totalOpEx = totalOpExBase + courierShippingExGst + expiryWriteoffExGst;
     const loanInterestExpense = toNum(loanData.interest_expense);
     const gstPaidToGovernment = computedCogsGstPaid + courierGstPaid;
-    const netGstPayable = gstCollected - gstPaidToGovernment;
+    const netGstPayable = adjustedGstCollected - gstPaidToGovernment;
 
     // Business profitability is calculated EX GST.
-    const revenueForProfit = grossRevenueExGst > 0 ? grossRevenueExGst : (totalRevenue - gstCollected);
+    const revenueForProfit = adjustedGrossRevenueExGst > 0 ? adjustedGrossRevenueExGst : (totalRevenue - adjustedGstCollected);
     const grossProfit = revenueForProfit - totalCOGS;
     const operatingProfit = grossProfit - totalOpEx;
     const netProfit = operatingProfit - loanInterestExpense; // Interest is deducted after operating profit
@@ -224,27 +475,42 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        period: { startDate: defaultStart, endDate: defaultEnd, generatedAt: new Date().toISOString() },
+        period: {
+          startDate: defaultStart,
+          endDate: defaultEnd,
+          generatedAt: new Date().toISOString(),
+          fyStartYear: isAllFy ? 'all' : (parsedFyStart != null ? parsedFyStart : null),
+        },
         revenue: {
           grossRevenue: revenueForProfit,
-          gstCollected,
-          totalRevenue
+          gstCollected: adjustedGstCollected,
+          totalRevenue,
+          grossRevenuePaid: toNum(revenuePaid.gross_revenue_paid),
+          gstCollectedPaid: toNum(revenuePaid.gst_collected_paid),
+          totalRevenuePaid: toNum(revenuePaid.total_revenue_paid),
+          grossRevenuePending: toNum(revenuePending.gross_revenue_pending),
+          gstCollectedPending: toNum(revenuePending.gst_collected_pending),
+          totalRevenuePending: toNum(revenuePending.total_revenue_pending),
         },
         taxes: {
-          gstCollected,
+          gstCollected: adjustedGstCollected,
           gstPaidToGovernment,
           netGstPayable
         },
+        returnsAndExpiry: {
+          salesReturnReversalExGst: returnsRevenueReversalExGst,
+          salesReturnGstReversal: returnsRevenueReversalGst,
+          expiryWriteoffExGst,
+        },
         dataSource: {
-          cogs:
-            usingHistoricalCogs
-              ? 'historical-sales-costing'
-              : (usingRawMaterialPurchasesFallback ? 'raw_material_purchases' : 'stock_purchases')
+          cogs: usingRawMaterialPurchasesFallback ? 'raw_material_purchases' : 'stock_purchases',
+          mode: 'live-source',
         },
         diagnostics: {
           stockPurchaseRows,
           stockPurchaseRowsWithAmount,
-          derivedStockCost: stockPurchaseCost
+          derivedStockCost: stockPurchaseCost,
+          queryWarnings
         },
         costOfGoodsSold: {
           productionCosts: toNum(cogs.production_costs),
@@ -261,6 +527,7 @@ export async function GET(request: NextRequest) {
           maintenance: toNum(opx.maintenance_expenses),
           other: toNum(opx.other_expenses),
           courierShipping: courierShippingExGst,
+          expiryWriteoff: expiryWriteoffExGst,
           totalOperatingExpenses: totalOpEx
         },
         operatingProfit: { amount: operatingProfit, margin: pct(operatingProfit) },

@@ -190,6 +190,35 @@ export async function POST(request: NextRequest) {
     `;
     await connection.execute(invoiceReservationsSQL);
 
+    // Sales returns / expiry write-off register
+    const salesReturnsSQL = `
+      CREATE TABLE IF NOT EXISTS sales_returns (
+        id VARCHAR(255) PRIMARY KEY,
+        sale_id VARCHAR(255) NULL,
+        sale_type VARCHAR(50) NOT NULL DEFAULT 'canteen',
+        canteen_name VARCHAR(255) NULL,
+        product_name VARCHAR(255) NOT NULL,
+        unit VARCHAR(50) NOT NULL DEFAULT 'pcs',
+        quantity DECIMAL(12,2) NOT NULL,
+        unit_price_ex_gst DECIMAL(12,2) NOT NULL,
+        gst_rate DECIMAL(5,2) NOT NULL DEFAULT 5.00,
+        return_amount_ex_gst DECIMAL(12,2) NOT NULL,
+        return_gst_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+        return_total_amount DECIMAL(12,2) NOT NULL,
+        return_nature VARCHAR(30) NOT NULL DEFAULT 'sales_return',
+        accounting_impact VARCHAR(30) NOT NULL DEFAULT 'revenue_reversal',
+        reason TEXT NULL,
+        return_date DATE NOT NULL,
+        created_by VARCHAR(255) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_sales_returns_date (return_date),
+        INDEX idx_sales_returns_sale_id (sale_id),
+        INDEX idx_sales_returns_nature_impact (return_nature, accounting_impact)
+      )
+    `;
+    await connection.execute(salesReturnsSQL);
+
     const courierExpensesSQL = `
       CREATE TABLE IF NOT EXISTS courier_expenses (
         id VARCHAR(255) PRIMARY KEY,

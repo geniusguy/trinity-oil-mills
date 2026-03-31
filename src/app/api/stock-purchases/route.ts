@@ -22,8 +22,15 @@ export async function GET(request: NextRequest) {
     const where: string[] = [];
     const params: any[] = [];
     if (productId) {
-      where.push('sp.product_id COLLATE utf8mb4_general_ci = ?');
-      params.push(productId);
+      const pid = String(productId).trim();
+      const castor200Aliases = ['castor-200ml', '55336', '68539'];
+      if (castor200Aliases.includes(pid)) {
+        where.push('sp.product_id COLLATE utf8mb4_general_ci IN (?, ?, ?)');
+        params.push(...castor200Aliases);
+      } else {
+        where.push('sp.product_id COLLATE utf8mb4_general_ci = ?');
+        params.push(pid);
+      }
     }
     if (supplier) {
       where.push('sp.supplier_name LIKE ?');
@@ -39,14 +46,20 @@ export async function GET(request: NextRequest) {
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    // Use COLLATE so join works when stock_purchases and products have different collations (e.g. utf8mb4_general_ci vs utf8mb4_0900_ai_ci)
+    // Use COLLATE so join works when stock_purchases and products have different collations.
+    // Also remap legacy Castor 200ml product IDs to canonical castor-200ml for display/filter consistency.
     const [rows] = await connection.query(
       `SELECT sp.id, sp.product_id as productId, p.name as productName, p.unit as unit,
               sp.quantity, sp.supplier_name as supplierName, sp.purchase_date as purchaseDate,
               sp.unit_price as unitPrice, sp.total_amount as totalAmount,
               sp.invoice_number as invoiceNumber, sp.notes, sp.created_at as createdAt
        FROM stock_purchases sp
-       JOIN products p ON p.id COLLATE utf8mb4_general_ci = sp.product_id COLLATE utf8mb4_general_ci
+       JOIN products p ON p.id COLLATE utf8mb4_general_ci = (
+         CASE
+           WHEN sp.product_id COLLATE utf8mb4_general_ci IN ('55336', '68539') THEN 'castor-200ml'
+           ELSE sp.product_id
+         END
+       ) COLLATE utf8mb4_general_ci
        ${whereSql}
        ORDER BY sp.purchase_date DESC, sp.created_at DESC
        LIMIT ?`,

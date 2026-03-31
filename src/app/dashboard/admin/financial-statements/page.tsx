@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   getCurrentFinancialYearBounds,
   getCurrentFinancialYearQuarterBounds,
@@ -15,16 +16,28 @@ interface PLStatement {
     startDate: string;
     endDate: string;
     generatedAt: string;
+    fyStartYear?: number | string | null;
   };
   revenue: {
     grossRevenue: number;
     gstCollected: number;
     totalRevenue: number;
+    grossRevenuePaid?: number;
+    gstCollectedPaid?: number;
+    totalRevenuePaid?: number;
+    grossRevenuePending?: number;
+    gstCollectedPending?: number;
+    totalRevenuePending?: number;
   };
   taxes?: {
     gstCollected: number;
     gstPaidToGovernment: number;
     netGstPayable: number;
+  };
+  returnsAndExpiry?: {
+    salesReturnReversalExGst: number;
+    salesReturnGstReversal: number;
+    expiryWriteoffExGst: number;
   };
   dataSource?: {
     cogs?: string;
@@ -47,6 +60,7 @@ interface PLStatement {
     maintenance: number;
     other: number;
     courierShipping?: number;
+    expiryWriteoff?: number;
     totalOperatingExpenses: number;
   };
   operatingProfit: {
@@ -163,6 +177,7 @@ const FinancialStatementsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'pl' | 'balance' | 'cashflow'>('pl');
+  const [fyFilter, setFyFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState(() => {
     const fy = getCurrentFinancialYearBounds();
     const today = new Date().toISOString().split('T')[0];
@@ -182,8 +197,14 @@ const FinancialStatementsPage: React.FC = () => {
       setLoading(true);
       setError(null);
 
+      const plParams = new URLSearchParams({
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+      });
+      if (fyFilter) plParams.set('fyStartYear', fyFilter);
+
       // Fetch P&L Statement
-      const plResponse = await fetch(`/api/reports/pl-statement?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`);
+      const plResponse = await fetch(`/api/reports/pl-statement?${plParams.toString()}`);
       const plData = await plResponse.json();
       if (plData.success) {
         setPlStatement(plData.data);
@@ -323,6 +344,8 @@ const FinancialStatementsPage: React.FC = () => {
     return `${value.toFixed(2)}%`;
   };
 
+  const rangeQs = `startDate=${encodeURIComponent(dateRange.startDate)}&endDate=${encodeURIComponent(dateRange.endDate)}`;
+
   const exportToPDF = async (type: string) => {
     try {
       let url = '';
@@ -422,6 +445,43 @@ const FinancialStatementsPage: React.FC = () => {
                 <option value="this-quarter">This FY quarter (Apr–Mar basis)</option>
                 <option value="this-year">This financial year (Apr–Mar)</option>
                 <option value="last-fy">Last financial year (full)</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">FY:</label>
+              <select
+                value={fyFilter}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setFyFilter(v);
+                  if (v === 'all') {
+                    const today = new Date().toISOString().split('T')[0];
+                    setDateRange((prev) => ({ ...prev, startDate: '2000-04-01', endDate: today, asOfDate: today }));
+                    return;
+                  }
+                  if (/^\d{4}$/.test(v)) {
+                    const y = Number(v);
+                    setDateRange((prev) => ({
+                      ...prev,
+                      startDate: `${y}-04-01`,
+                      endDate: `${y + 1}-03-31`,
+                      asOfDate: `${y + 1}-03-31`,
+                    }));
+                  }
+                }}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              >
+                <option value="all">All FY</option>
+                {Array.from({ length: 8 }).map((_, i) => {
+                  const current = new Date().getFullYear();
+                  const y = current - i;
+                  return (
+                    <option key={y} value={String(y)}>
+                      {y}-{String(y + 1).slice(-2)}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -543,16 +603,42 @@ const FinancialStatementsPage: React.FC = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">Revenue</h3>
                 <div className="space-y-2">
                   <div className="flex justify-between">
-                    <span>Gross Revenue (ex GST)</span>
+                    <Link href={`/dashboard/admin/sales?${rangeQs}`} className="text-blue-700 hover:underline">
+                      Gross Revenue (ex GST)
+                    </Link>
                     <span className="font-semibold">{formatCurrency(plStatement.revenue.grossRevenue)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>GST Collected</span>
+                    <Link href={`/dashboard/admin/gst-collection?${rangeQs}`} className="text-blue-700 hover:underline">
+                      GST Collected
+                    </Link>
                     <span>{formatCurrency(plStatement.revenue.gstCollected)}</span>
                   </div>
+                  {(plStatement.returnsAndExpiry?.salesReturnReversalExGst ?? 0) > 0 && (
+                    <div className="flex justify-between text-red-700">
+                      <span>Less: Sales Returns / Credit Notes (ex GST)</span>
+                      <span>-{formatCurrency(plStatement.returnsAndExpiry?.salesReturnReversalExGst ?? 0)}</span>
+                    </div>
+                  )}
+                  {(plStatement.returnsAndExpiry?.salesReturnGstReversal ?? 0) > 0 && (
+                    <div className="flex justify-between text-red-700">
+                      <span>Less: GST Reversal on Returns</span>
+                      <span>-{formatCurrency(plStatement.returnsAndExpiry?.salesReturnGstReversal ?? 0)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between border-t pt-2">
                     <span className="font-semibold">Invoice Revenue (incl GST)</span>
                     <span className="font-semibold text-green-600">{formatCurrency(plStatement.revenue.totalRevenue)}</span>
+                  </div>
+                  <div className="text-xs text-gray-600 pt-2 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Paid invoices (incl GST)</span>
+                      <span>{formatCurrency(plStatement.revenue.totalRevenuePaid ?? 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Pending invoices (incl GST)</span>
+                      <span>{formatCurrency(plStatement.revenue.totalRevenuePending ?? 0)}</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -561,11 +647,15 @@ const FinancialStatementsPage: React.FC = () => {
                 <h3 className="text-sm font-semibold text-amber-900 mb-2">GST Position</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span>GST Collected (Output)</span>
+                    <Link href={`/dashboard/admin/gst-collection?${rangeQs}`} className="text-blue-700 hover:underline">
+                      GST Collected (Output)
+                    </Link>
                     <span className="font-medium">{formatCurrency(plStatement.taxes?.gstCollected ?? plStatement.revenue.gstCollected)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>GST Paid (Input)</span>
+                    <Link href={`/dashboard/admin/purchases?${rangeQs}`} className="text-blue-700 hover:underline">
+                      GST Paid (Input)
+                    </Link>
                     <span className="font-medium">{formatCurrency(plStatement.taxes?.gstPaidToGovernment ?? 0)}</span>
                   </div>
                   <div className="flex justify-between border-t border-amber-200 pt-2">
@@ -582,7 +672,9 @@ const FinancialStatementsPage: React.FC = () => {
                 </p>
                 <div className="space-y-2">
                   <div className="flex justify-between">
-                    <span>Production Costs</span>
+                    <Link href={`/dashboard/admin/purchases?${rangeQs}`} className="text-blue-700 hover:underline">
+                      Production Costs
+                    </Link>
                     <span>{formatCurrency(plStatement.costOfGoodsSold.productionCosts)}</span>
                   </div>
                   <div className="flex justify-between">
@@ -618,29 +710,47 @@ const FinancialStatementsPage: React.FC = () => {
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">Operating Expenses</h3>
                 <div className="space-y-2">
                   <div className="flex justify-between">
-                    <span>Marketing</span>
+                    <Link href={`/dashboard/admin/expenses?category=marketing&${rangeQs}`} className="text-blue-700 hover:underline">
+                      Marketing
+                    </Link>
                     <span>{formatCurrency(plStatement.operatingExpenses.marketing)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Administrative</span>
+                    <Link href={`/dashboard/admin/expenses?category=administrative&${rangeQs}`} className="text-blue-700 hover:underline">
+                      Administrative
+                    </Link>
                     <span>{formatCurrency(plStatement.operatingExpenses.administrative)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Utilities</span>
+                    <Link href={`/dashboard/admin/expenses?category=utilities&${rangeQs}`} className="text-blue-700 hover:underline">
+                      Utilities
+                    </Link>
                     <span>{formatCurrency(plStatement.operatingExpenses.utilities)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Maintenance</span>
+                    <Link href={`/dashboard/admin/expenses?category=maintenance&${rangeQs}`} className="text-blue-700 hover:underline">
+                      Maintenance
+                    </Link>
                     <span>{formatCurrency(plStatement.operatingExpenses.maintenance)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Other</span>
+                    <Link href={`/dashboard/admin/expenses?category=other&${rangeQs}`} className="text-blue-700 hover:underline">
+                      Other
+                    </Link>
                     <span>{formatCurrency(plStatement.operatingExpenses.other)}</span>
                   </div>
                   <div className="flex justify-between text-indigo-800">
-                    <span>Courier (canteen) — Courier Expenses module</span>
+                    <Link href={`/dashboard/admin/courier-expenses?${rangeQs}`} className="text-blue-700 hover:underline">
+                      Courier (canteen) — Courier Expenses module
+                    </Link>
                     <span>{formatCurrency(plStatement.operatingExpenses.courierShipping ?? 0)}</span>
                   </div>
+                  {(plStatement.operatingExpenses.expiryWriteoff ?? 0) > 0 && (
+                    <div className="flex justify-between text-red-700">
+                      <span>Expiry / Wastage write-off</span>
+                      <span>{formatCurrency(plStatement.operatingExpenses.expiryWriteoff ?? 0)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between border-t pt-2">
                     <span className="font-semibold">Total Operating Expenses</span>
                     <span className="font-semibold text-red-600">{formatCurrency(plStatement.operatingExpenses.totalOperatingExpenses)}</span>
@@ -679,7 +789,9 @@ const FinancialStatementsPage: React.FC = () => {
               {(plStatement.loanPayments?.interestExpense ?? 0) > 0 && (
                 <div className="mb-4">
                   <div className="flex justify-between text-sm">
-                    <span>Loan interest expense</span>
+                    <Link href={`/dashboard/admin/loan-management?${rangeQs}`} className="text-blue-700 hover:underline">
+                      Loan interest expense
+                    </Link>
                     <span className="text-red-600">
                       −{formatCurrency(plStatement.loanPayments?.interestExpense ?? 0)}
                     </span>

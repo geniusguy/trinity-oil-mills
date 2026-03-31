@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db/db';
-import { inventory, products, sales, saleItems, expenses } from '@/db/schema';
-import { gte, lte, and, sum, count, eq, desc } from 'drizzle-orm';
+import { inventory, products, sales, saleItems } from '@/db/schema';
+import { gte, lte, and, eq } from 'drizzle-orm';
 
 interface ReorderCalculation {
   productId: string;
@@ -162,7 +162,7 @@ function calculateSmartReorderPoint(inventoryItem: any, salesHistory: any[], ana
   const inventory = inventoryItem.inventory;
   
   const currentStock = parseFloat(inventory.quantity?.toString() || '0');
-  const productName = product.name || 'Unknown Product';
+  const productName = String(product.name || inventory.productId);
 
   // Calculate demand patterns
   const totalSold = salesHistory.reduce((sum, sale) => sum + parseFloat(sale.quantity?.toString() || '0'), 0);
@@ -183,7 +183,7 @@ function calculateSmartReorderPoint(inventoryItem: any, salesHistory: any[], ana
   // Economic Order Quantity (EOQ) calculation
   const orderCost = 500; // Fixed cost per order
   const holdingCostRate = 0.25; // 25% annually
-  const unitCost = parseFloat(product.price?.toString() || '100');
+  const unitCost = parseFloat(product.basePrice?.toString() || product.retailPrice?.toString() || '0');
   const annualDemand = avgDailyUsage * 365;
 
   const eoq = Math.sqrt((2 * annualDemand * orderCost) / (unitCost * holdingCostRate));
@@ -206,9 +206,8 @@ function calculateSmartReorderPoint(inventoryItem: any, salesHistory: any[], ana
     optimalCost: Math.max(0, (currentStock - reorderPoint) * unitCost * holdingCostRate / 365 * 30)
   };
 
-  // Supplier assignment
-  const suppliers = ['Premium Oil Suppliers', 'ABC Trading Co.', 'Local Farmers Coop', 'Industrial Supply Corp.'];
-  const supplier = suppliers[Math.floor(Math.random() * suppliers.length)];
+  // Deterministic supplier grouping by category/type.
+  const supplier = getPrimarySupplierName(String(product.category || '').toLowerCase());
 
   // Next reorder date prediction
   let nextReorderDate: string | undefined;
@@ -235,7 +234,7 @@ function calculateSmartReorderPoint(inventoryItem: any, salesHistory: any[], ana
 }
 
 function calculateDemandVariability(salesHistory: any[]): number {
-  if (salesHistory.length < 7) return 1.5; // Default high variability for insufficient data
+  if (salesHistory.length < 2) return 1.0;
 
   // Calculate daily demands
   const dailyDemands = new Map<string, number>();
@@ -268,6 +267,17 @@ function getSupplierLeadTime(category: string): number {
   return leadTimes[category] || leadTimes.default;
 }
 
+function getPrimarySupplierName(category: string): string {
+  const byCategory: Record<string, string> = {
+    oil: 'Primary Oil Supplier',
+    packaging: 'Primary Packaging Supplier',
+    raw_materials: 'Primary Raw Material Supplier',
+    equipment: 'Primary Equipment Supplier',
+    default: 'Primary Supplier',
+  };
+  return byCategory[category] || byCategory.default;
+}
+
 function getSeasonalFactor(month: number): number {
   // Seasonal factors for oil business (higher during festival seasons)
   const seasonalFactors = [1.0, 1.0, 1.2, 1.1, 1.0, 0.9, 0.9, 1.0, 1.3, 1.4, 1.2, 1.1];
@@ -282,36 +292,25 @@ function generateAutomationRecommendations(reorderCalculations: ReorderCalculati
   const overstockItems = reorderCalculations.filter(r => r.status === 'overstock').length;
 
   if (criticalItems > 0) {
-    recommendations.push(`🚨 URGENT: ${criticalItems} items are critically low - enable emergency reorder automation`);
+    recommendations.push(`Critical shortage detected for ${criticalItems} item(s). Trigger emergency reorder.`);
   }
-
-  if (lowStockItems > 3) {
-    recommendations.push(`⚠️ ${lowStockItems} items approaching reorder point - consider bulk ordering discounts`);
+  if (lowStockItems > 0) {
+    recommendations.push(`${lowStockItems} item(s) are below reorder point. Raise planned purchase requests.`);
   }
-
   if (overstockItems > 0) {
-    recommendations.push(`📦 ${overstockItems} items are overstocked - implement promotional campaigns`);
+    recommendations.push(`${overstockItems} item(s) are overstocked. Pause reorder for these SKUs.`);
   }
-
-  recommendations.push('🤖 Enable automatic reorder triggers for top 80% of products by volume');
-  recommendations.push('📊 Set up daily inventory monitoring with SMS/email alerts');
-  recommendations.push('🔄 Implement weekly reorder point optimization based on sales trends');
-  recommendations.push('📈 Consider dynamic safety stock adjustment during peak seasons');
+  if (recommendations.length === 0) {
+    recommendations.push('All items are within acceptable stock thresholds.');
+  }
 
   return recommendations;
 }
 
 function calculateConfidenceScore(reorderCalculations: ReorderCalculation[]): number {
-  // Base confidence on data quality and calculation reliability
-  const avgDataPoints = reorderCalculations.length;
-  const hasRecentSales = reorderCalculations.some(r => r.avgDailyUsage > 0);
-  
-  let confidence = 60; // Base confidence
-  
-  if (avgDataPoints >= 5) confidence += 15;
-  if (avgDataPoints >= 10) confidence += 10;
-  if (hasRecentSales) confidence += 15;
-  
-  return Math.min(95, confidence);
+  if (reorderCalculations.length === 0) return 0;
+  const withSalesSignal = reorderCalculations.filter((r) => r.avgDailyUsage > 0).length;
+  const salesCoverage = withSalesSignal / reorderCalculations.length;
+  return Math.round(40 + salesCoverage * 60);
 }
 

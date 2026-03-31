@@ -76,6 +76,17 @@ function toYmd(d: Date) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+function round2(n: number) {
+  return Math.round((Number.isFinite(n) ? n : 0) * 100) / 100;
+}
+
+function computeGstAmountFromCostAndRate(costRaw: string, rateRaw: string) {
+  const costNum = Number(costRaw);
+  const rateNum = Number(rateRaw);
+  if (!Number.isFinite(costNum) || costNum < 0 || !Number.isFinite(rateNum) || rateNum < 0) return 0;
+  return round2((costNum * rateNum) / 100);
+}
+
 const PAYMENT_METHODS = [
   { id: 'cash', name: 'Cash' },
   { id: 'bank_transfer', name: 'Bank transfer' },
@@ -331,7 +342,7 @@ export default function CourierExpensesPage() {
     const courierDate = String(form.courierDate || '').trim();
     const qty = Number(form.quantity);
     const costNum = Number(form.cost);
-    const gstAmountNum = Number(form.gstAmount);
+    const gstAmountNum = formGstAmountComputed;
     const paymentMethod = String(form.paymentMethod || '').trim();
     const cantId = String(form.canteenAddressId || '').trim();
     const dest = String(form.destinationNote || '').trim();
@@ -340,8 +351,8 @@ export default function CourierExpensesPage() {
     if (!courierDate) errors.courierDate = 'Courier date is required';
     if (Number.isNaN(qty) || qty <= 0) errors.quantity = 'Quantity must be greater than 0';
     if (Number.isNaN(costNum) || costNum <= 0) errors.cost = 'Cost must be greater than 0';
-    if (String(form.gstAmount ?? '').trim() === '' || Number.isNaN(gstAmountNum) || gstAmountNum < 0) {
-      errors.gstAmount = 'GST amount is required and must be zero or more';
+    if (Number.isNaN(gstAmountNum) || gstAmountNum < 0) {
+      errors.gstAmount = 'GST amount must be zero or more';
     }
     if (!paymentMethod) errors.paymentMethod = 'Payment is required';
     if (!cantId && !dest) errors.destinationNote = 'Select canteen or enter destination / address note';
@@ -381,7 +392,7 @@ export default function CourierExpensesPage() {
       quantity: String(qty),
       cost: String(costNum),
       gstRate: String(form.gstRate ?? '18'),
-      gstAmount: String(form.gstAmount ?? ''),
+      gstAmount: String(formGstAmountComputed),
       canteenAddressId: cantId,
       destinationNote: dest,
       notes: form.notes ?? '',
@@ -419,8 +430,6 @@ export default function CourierExpensesPage() {
     return (Number.isFinite(costNum) ? costNum : 0) + gstAmt;
   };
 
-  const round2 = (n: number) => Math.round(n * 100) / 100;
-
   const calcDraftCgstAmount = (line: CourierDraftLine) => {
     const gstAmt = calcDraftGstAmount(line);
     return round2(gstAmt / 2);
@@ -457,6 +466,26 @@ export default function CourierExpensesPage() {
       total: Math.round(acc.total * 100) / 100,
     };
   }, [draftLines]);
+
+  const formGstAmountComputed = useMemo(
+    () => computeGstAmountFromCostAndRate(form.cost, form.gstRate),
+    [form.cost, form.gstRate],
+  );
+  const formCgstAmountComputed = useMemo(() => round2(formGstAmountComputed / 2), [formGstAmountComputed]);
+  const formSgstAmountComputed = useMemo(
+    () => round2(formGstAmountComputed - formCgstAmountComputed),
+    [formGstAmountComputed, formCgstAmountComputed],
+  );
+  const formRoundOffComputed = useMemo(() => {
+    const base = Number(form.cost) || 0;
+    const exact = base + formGstAmountComputed;
+    return round2(Math.round(exact) - exact);
+  }, [form.cost, formGstAmountComputed]);
+  const formNetPayableComputed = useMemo(() => {
+    const base = Number(form.cost) || 0;
+    const exact = base + formGstAmountComputed;
+    return round2(exact + formRoundOffComputed);
+  }, [form.cost, formGstAmountComputed, formRoundOffComputed]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -556,7 +585,7 @@ export default function CourierExpensesPage() {
                 quantity: String(form.quantity ?? '1'),
                 cost: String(form.cost ?? ''),
                 gstRate: String(form.gstRate ?? '18'),
-                gstAmount: String(form.gstAmount ?? ''),
+                gstAmount: String(formGstAmountComputed),
                 canteenAddressId: String(form.canteenAddressId ?? ''),
                 destinationNote: String(form.destinationNote ?? ''),
                 notes: String(form.notes ?? ''),
@@ -572,11 +601,13 @@ export default function CourierExpensesPage() {
       for (const line of linesToSave) {
         const qty = Number(line.quantity);
         const costNum = Number(line.cost);
-        const gstAmountNum = Number(line.gstAmount);
+        const gstAmountNum = String(line.gstAmount ?? '').trim() === ''
+          ? computeGstAmountFromCostAndRate(String(line.cost ?? ''), String(line.gstRate ?? '0'))
+          : Number(line.gstAmount);
         if (Number.isNaN(qty) || qty < 0) throw new Error('Quantity must be zero or positive for each line');
         if (Number.isNaN(costNum) || costNum <= 0) throw new Error('Cost must be greater than 0 for each line');
-        if (String(line.gstAmount ?? '').trim() === '' || Number.isNaN(gstAmountNum) || gstAmountNum < 0) {
-          throw new Error('GST amount is required and must be zero or more for each line');
+        if (Number.isNaN(gstAmountNum) || gstAmountNum < 0) {
+          throw new Error('GST amount must be zero or more for each line');
         }
 
         const cantId = line.canteenAddressId && String(line.canteenAddressId).trim() ? String(line.canteenAddressId).trim() : null;
@@ -588,7 +619,7 @@ export default function CourierExpensesPage() {
           quantity: line.quantity,
           cost: line.cost,
           gstRate: line.gstRate,
-          gstAmount: line.gstAmount,
+          gstAmount: String(gstAmountNum),
           canteenAddressId: cantId,
           destinationNote: dest,
           notes: line.notes,
@@ -1024,37 +1055,88 @@ export default function CourierExpensesPage() {
                   value={form.cost}
                   onChange={(e) => {
                     setFieldErrors((prev) => ({ ...prev, cost: '' }));
-                    setForm((f) => ({ ...f, cost: e.target.value }));
+                    setForm((f) => ({
+                      ...f,
+                      cost: e.target.value,
+                      gstAmount: String(computeGstAmountFromCostAndRate(e.target.value, f.gstRate)),
+                    }));
                   }}
                 />
                 {fieldErrors.cost && <p className="text-xs text-red-600 mt-1">{fieldErrors.cost}</p>}
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">GST rate (%)</label>
+                <label className="block text-xs font-medium text-slate-700 mb-1">GST rate (%) *</label>
                 <input
                   type="number"
                   min={0}
                   step="0.01"
                   className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm"
                   value={form.gstRate}
-                  onChange={(e) => setForm((f) => ({ ...f, gstRate: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      gstRate: e.target.value,
+                      gstAmount: String(computeGstAmountFromCostAndRate(f.cost, e.target.value)),
+                    }))
+                  }
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">GST amount (₹) *</label>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Sub Total (₹)</label>
                 <input
-                  ref={gstAmountRef}
                   type="number"
                   min={0}
                   step="0.01"
-                  required
-                  className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm"
-                  value={form.gstAmount}
-                  onChange={(e) => {
-                    setFieldErrors((prev) => ({ ...prev, gstAmount: '' }));
-                    setForm((f) => ({ ...f, gstAmount: e.target.value }));
-                  }}
-                  placeholder="Enter GST amount"
+                  readOnly
+                  className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-slate-50"
+                  value={round2(Number(form.cost) || 0)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  CGST @ {(Number(form.gstRate || 0) / 2).toFixed(2)}%
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  readOnly
+                  className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-slate-50"
+                  value={formCgstAmountComputed}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  SGST @ {(Number(form.gstRate || 0) / 2).toFixed(2)}%
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  readOnly
+                  className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-slate-50"
+                  value={formSgstAmountComputed}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Round Off (₹) (auto)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  readOnly
+                  className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-slate-50"
+                  value={formRoundOffComputed}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Nett Amount Payable (₹)</label>
+                <input
+                  ref={gstAmountRef}
+                  type="number"
+                  step="0.01"
+                  readOnly
+                  className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm bg-slate-50"
+                  value={formNetPayableComputed}
                 />
                 {fieldErrors.gstAmount && <p className="text-xs text-red-600 mt-1">{fieldErrors.gstAmount}</p>}
               </div>
@@ -1342,7 +1424,7 @@ export default function CourierExpensesPage() {
                         ₹{(r.sgstAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-3 py-3 text-right font-medium">
-                        ₹{((r.cost ?? 0) + (r.gstAmount ?? 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{round2(Math.round((r.cost ?? 0) + (r.gstAmount ?? 0))).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-3 py-3 text-xs text-slate-600 max-w-[120px] truncate" title={r.referenceNo}>
                         {r.referenceNo || '—'}

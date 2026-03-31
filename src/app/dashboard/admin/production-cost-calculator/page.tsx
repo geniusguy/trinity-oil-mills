@@ -117,50 +117,80 @@ export default function ProductionCostCalculatorPage() {
   }, [calculatorForm, rawMaterials]);
 
   const fetchRawMaterials = async () => {
-    const mockMaterials: RawMaterial[] = [
-      { id: 'rm-groundnuts', name: 'Groundnuts (Raw)', category: 'seeds', costPerUnit: 80, unit: 'kg', currentStock: 2500 },
-      { id: 'rm-sesame', name: 'Sesame Seeds', category: 'seeds', costPerUnit: 120, unit: 'kg', currentStock: 800 },
-      { id: 'rm-coconut', name: 'Coconut (Copra)', category: 'seeds', costPerUnit: 40, unit: 'kg', currentStock: 1200 },
-      { id: 'rm-pet-1l', name: 'PET Bottle 1L', category: 'packaging', costPerUnit: 12, unit: 'pieces', currentStock: 500 },
-      { id: 'rm-pet-500ml', name: 'PET Bottle 500ml', category: 'packaging', costPerUnit: 8, unit: 'pieces', currentStock: 300 },
-      { id: 'rm-caps', name: 'Bottle Caps', category: 'packaging', costPerUnit: 2, unit: 'pieces', currentStock: 800 },
-      { id: 'rm-labels-groundnut', name: 'Groundnut Oil Labels', category: 'packaging', costPerUnit: 1.5, unit: 'pieces', currentStock: 1000 },
-      { id: 'rm-labels-gingelly', name: 'Gingelly Oil Labels', category: 'packaging', costPerUnit: 1.5, unit: 'pieces', currentStock: 800 },
-      { id: 'rm-labels-coconut', name: 'Coconut Oil Labels', category: 'packaging', costPerUnit: 1.5, unit: 'pieces', currentStock: 600 },
-      { id: 'rm-cardboard', name: 'Cardboard Boxes', category: 'packaging', costPerUnit: 25, unit: 'pieces', currentStock: 150 },
-    ];
-
     const parseProductCost = (p: any) => {
       const n = Number(p?.basePrice ?? p?.retailPrice ?? 0);
       return Number.isFinite(n) && n > 0 ? n : 0;
     };
 
     try {
-      // Primary source: products API (raw-material endpoint not present in this repo).
-      const response = await fetch('/api/products');
-      const data = await response.json();
-      const products = Array.isArray(data?.products) ? data.products : [];
+      // Live source: products + inventory endpoints.
+      const [productsRes, inventoryRes] = await Promise.all([
+        fetch('/api/products'),
+        fetch('/api/inventory'),
+      ]);
+      const productsJson = await productsRes.json();
+      const inventoryJson = await inventoryRes.json();
+      const products = Array.isArray(productsJson?.products) ? productsJson.products : [];
+      const inventory = Array.isArray(inventoryJson?.inventory) ? inventoryJson.inventory : [];
 
-      // Build seed cost hints from live product pricing where possible.
-      const groundnut = products.find((p: any) => String(p?.name || '').toLowerCase().includes('groundnut'));
-      const gingelly = products.find((p: any) => String(p?.name || '').toLowerCase().includes('gingelly'));
-      const coconut = products.find((p: any) => String(p?.name || '').toLowerCase().includes('coconut'));
+      const invByProductId = new Map<string, number>();
+      for (const row of inventory) {
+        invByProductId.set(String(row.productId), Number(row.quantity || 0));
+      }
 
-      const merged = mockMaterials.map((m) => {
-        if (m.id === 'rm-groundnuts' && groundnut) return { ...m, costPerUnit: parseProductCost(groundnut) || m.costPerUnit };
-        if (m.id === 'rm-sesame' && gingelly) return { ...m, costPerUnit: parseProductCost(gingelly) || m.costPerUnit };
-        if (m.id === 'rm-coconut' && coconut) return { ...m, costPerUnit: parseProductCost(coconut) || m.costPerUnit };
-        return m;
-      });
+      const mapped: RawMaterial[] = products
+        .map((p: any) => {
+          const name = String(p?.name || '');
+          const lower = name.toLowerCase();
+          const unit = String(p?.unit || 'pieces');
+          const cost = parseProductCost(p);
+          if (!cost) return null;
+          const isSeed = lower.includes('groundnut') || lower.includes('gingelly') || lower.includes('sesame') || lower.includes('coconut') || lower.includes('copra');
+          const isPackaging = lower.includes('bottle') || lower.includes('cap') || lower.includes('label') || lower.includes('box') || lower.includes('carton');
+          if (!isSeed && !isPackaging) return null;
+          return {
+            id: String(p.id),
+            name,
+            category: isSeed ? 'seeds' : 'packaging',
+            costPerUnit: cost,
+            unit,
+            currentStock: Number(invByProductId.get(String(p.id)) || 0),
+          } as RawMaterial;
+        })
+        .filter(Boolean) as RawMaterial[];
 
-      setRawMaterials(merged);
-      setDataSourceLabel(products.length > 0 ? 'Live pricing (products API)' : 'Default pricing');
+      setRawMaterials(mapped);
+      const seedGroundnut = mapped.find((m) => m.category === 'seeds' && m.name.toLowerCase().includes('groundnut'));
+      const seedGingelly = mapped.find((m) => m.category === 'seeds' && (m.name.toLowerCase().includes('gingelly') || m.name.toLowerCase().includes('sesame')));
+      const seedCoconut = mapped.find((m) => m.category === 'seeds' && (m.name.toLowerCase().includes('coconut') || m.name.toLowerCase().includes('copra')));
+      const bottle = mapped.find((m) => m.category === 'packaging' && m.name.toLowerCase().includes('bottle'));
+      const cap = mapped.find((m) => m.category === 'packaging' && m.name.toLowerCase().includes('cap'));
+      const label = mapped.find((m) => m.category === 'packaging' && m.name.toLowerCase().includes('label'));
+      const box = mapped.find((m) => m.category === 'packaging' && (m.name.toLowerCase().includes('box') || m.name.toLowerCase().includes('carton')));
+
+      setCalculatorForm((prev) => ({
+        ...prev,
+        seedCostPerKg:
+          prev.productType === 'groundnut'
+            ? Number(seedGroundnut?.costPerUnit || prev.seedCostPerKg)
+            : prev.productType === 'gingelly'
+            ? Number(seedGingelly?.costPerUnit || prev.seedCostPerKg)
+            : Number(seedCoconut?.costPerUnit || prev.seedCostPerKg),
+        bottleCost: Number(bottle?.costPerUnit || prev.bottleCost),
+        capCost: Number(cap?.costPerUnit || prev.capCost),
+        labelCost: Number(label?.costPerUnit || prev.labelCost),
+        boxCost: Number(box?.costPerUnit || prev.boxCost),
+      }));
+
+      if (mapped.length === 0) {
+        throw new Error('No live material mapping found');
+      }
+      setDataSourceLabel('Live pricing (products + inventory API)');
       setError('');
     } catch (err) {
-      // Silent fallback to defaults for uninterrupted calculator usage.
-      setRawMaterials(mockMaterials);
-      setDataSourceLabel('Default pricing');
-      setError('');
+      setRawMaterials([]);
+      setDataSourceLabel('Live pricing unavailable');
+      setError('Failed to load live material pricing');
     }
   };
 
@@ -174,15 +204,15 @@ export default function ProductionCostCalculatorPage() {
     switch (form.productType) {
       case 'groundnut':
         seedType = 'Groundnuts';
-        seedCostPerKg = rawMaterials.find(m => m.id === 'rm-groundnuts')?.costPerUnit || 80;
+        seedCostPerKg = rawMaterials.find(m => m.id === 'rm-groundnuts')?.costPerUnit ?? 0;
         break;
       case 'gingelly':
         seedType = 'Sesame Seeds';
-        seedCostPerKg = rawMaterials.find(m => m.id === 'rm-sesame')?.costPerUnit || 120;
+        seedCostPerKg = rawMaterials.find(m => m.id === 'rm-sesame')?.costPerUnit ?? 0;
         break;
       case 'coconut':
         seedType = 'Coconut (Copra)';
-        seedCostPerKg = rawMaterials.find(m => m.id === 'rm-coconut')?.costPerUnit || 40;
+        seedCostPerKg = rawMaterials.find(m => m.id === 'rm-coconut')?.costPerUnit ?? 0;
         break;
     }
 

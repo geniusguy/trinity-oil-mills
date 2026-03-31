@@ -111,7 +111,7 @@ export default function RawMaterialsPage() {
     selectedOils: [] as string[], // Array of oil types
     bottleSize: '5l',
     quantity: 0,
-    supplier: 'Print Solutions Ltd.',
+    supplier: '',
     costPerLabel: 0,
     notes: ''
   });
@@ -139,595 +139,59 @@ export default function RawMaterialsPage() {
   const fetchData = async () => {
     try {
       setLoading(true);
-      // Organized Raw Materials for Trinity Oil Mills
-      const mockMaterials: RawMaterial[] = [
-        // =================== PET BOTTLES ===================
-        {
-          id: 'rm-pet-5l',
-          name: '🍶 PET Bottle 5 Liter',
-          category: 'packaging',
-          type: 'bottle',
-          description: '5 liter PET bottles for bulk oil packaging',
-          unit: 'pieces',
-          costPerUnit: 25.00,
-          supplier: 'ABC Packaging Co.',
-          minimumStock: 50,
-          currentStock: 120,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-pet-1l',
-          name: '🍶 PET Bottle 1 Liter',
-          category: 'packaging',
-          type: 'bottle',
-          description: '1 liter PET bottles for oil packaging',
-          unit: 'pieces',
-          costPerUnit: 12.00,
-          supplier: 'ABC Packaging Co.',
-          minimumStock: 100,
-          currentStock: 500,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-pet-500ml',
-          name: '🍶 PET Bottle 500ml',
-          category: 'packaging',
-          type: 'bottle',
-          description: '500ml PET bottles for oil packaging',
-          unit: 'pieces',
-          costPerUnit: 8.00,
-          supplier: 'ABC Packaging Co.',
-          minimumStock: 100,
-          currentStock: 300,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-pet-200ml',
-          name: '🍶 PET Bottle 200ml',
-          category: 'packaging',
-          type: 'bottle',
-          description: '200ml PET bottles for oil packaging',
-          unit: 'pieces',
-          costPerUnit: 5.00,
-          supplier: 'ABC Packaging Co.',
-          minimumStock: 50,
-          currentStock: 200,
-          gstRate: 18.00,
-          isActive: true
-        },
+      // Live source: products + inventory APIs
+      try {
+        const [productsRes, inventoryRes] = await Promise.all([
+          fetch('/api/products'),
+          fetch('/api/inventory'),
+        ]);
+        const productsJson = await productsRes.json();
+        const inventoryJson = await inventoryRes.json();
+        const products = Array.isArray(productsJson?.products) ? productsJson.products : [];
+        const inventory = Array.isArray(inventoryJson?.inventory) ? inventoryJson.inventory : [];
 
-        // =================== BOTTLE CAPS (Size-specific) ===================
-        {
-          id: 'rm-caps-5l',
-          name: '🧢 Bottle Caps (5L)',
-          category: 'packaging',
-          type: 'cap',
-          description: 'Large plastic caps for 5L bottles',
-          unit: 'pieces',
-          costPerUnit: 5.00,
-          supplier: 'ABC Packaging Co.',
-          minimumStock: 50,
-          currentStock: 150,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-caps-1l',
-          name: '🧢 Bottle Caps (1L)',
-          category: 'packaging',
-          type: 'cap',
-          description: 'Medium plastic caps for 1L bottles',
-          unit: 'pieces',
-          costPerUnit: 3.00,
-          supplier: 'ABC Packaging Co.',
-          minimumStock: 100,
-          currentStock: 600,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-caps-500ml',
-          name: '🧢 Bottle Caps (500ml)',
-          category: 'packaging',
-          type: 'cap',
-          description: 'Standard plastic caps for 500ml bottles',
-          unit: 'pieces',
-          costPerUnit: 2.50,
-          supplier: 'ABC Packaging Co.',
-          minimumStock: 100,
-          currentStock: 400,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-caps-200ml',
-          name: '🧢 Bottle Caps (200ml)',
-          category: 'packaging',
-          type: 'cap',
-          description: 'Small plastic caps for 200ml bottles',
-          unit: 'pieces',
-          costPerUnit: 2.00,
-          supplier: 'ABC Packaging Co.',
-          minimumStock: 50,
-          currentStock: 250,
-          gstRate: 18.00,
-          isActive: true
-        },
-
-        // =================== CARDBOARD BOXES ===================
-        {
-          id: 'rm-cardboard',
-          name: '📦 Cardboard Boxes',
-          category: 'packaging',
-          type: 'box',
-          description: 'Cardboard boxes for canteen orders (1 box per canteen order)',
-          unit: 'pieces',
-          costPerUnit: 25.00,
-          supplier: 'Box Makers Inc.',
-          minimumStock: 50,
-          currentStock: 150,
-          gstRate: 18.00,
-          isActive: true
-        },
-        // =================== LABELS (Oil Type + Size Specific) ===================
-        
-        // GROUNDNUT OIL LABELS
-        {
-          id: 'rm-labels-groundnut-5l',
-          name: '🏷️ Groundnut Oil Labels (5L)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 5L Groundnut Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 2.50,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 50,
-          currentStock: 200,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-groundnut-1l',
-          name: '🏷️ Groundnut Oil Labels (1L)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 1L Groundnut Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.50,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 200,
-          currentStock: 1000,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-groundnut-500ml',
-          name: '🏷️ Groundnut Oil Labels (500ml)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 500ml Groundnut Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.20,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 200,
-          currentStock: 800,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-groundnut-200ml',
-          name: '🏷️ Groundnut Oil Labels (200ml)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 200ml Groundnut Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.00,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 100,
-          currentStock: 400,
-          gstRate: 18.00,
-          isActive: true
-        },
-
-        // GINGELLY OIL LABELS
-        {
-          id: 'rm-labels-gingelly-5l',
-          name: '🏷️ Gingelly Oil Labels (5L)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 5L Gingelly Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 2.50,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 50,
-          currentStock: 150,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-gingelly-1l',
-          name: '🏷️ Gingelly Oil Labels (1L)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 1L Gingelly Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.50,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 150,
-          currentStock: 600,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-gingelly-500ml',
-          name: '🏷️ Gingelly Oil Labels (500ml)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 500ml Gingelly Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.20,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 150,
-          currentStock: 500,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-gingelly-200ml',
-          name: '🏷️ Gingelly Oil Labels (200ml)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 200ml Gingelly Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.00,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 100,
-          currentStock: 300,
-          gstRate: 18.00,
-          isActive: true
-        },
-
-        // COCONUT OIL LABELS
-        {
-          id: 'rm-labels-coconut-5l',
-          name: '🏷️ Coconut Oil Labels (5L)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 5L Coconut Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 2.50,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 30,
-          currentStock: 100,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-coconut-1l',
-          name: '🏷️ Coconut Oil Labels (1L)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 1L Coconut Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.50,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 100,
-          currentStock: 400,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-coconut-500ml',
-          name: '🏷️ Coconut Oil Labels (500ml)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 500ml Coconut Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.20,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 100,
-          currentStock: 300,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-coconut-200ml',
-          name: '🏷️ Coconut Oil Labels (200ml)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 200ml Coconut Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.00,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 50,
-          currentStock: 200,
-          gstRate: 18.00,
-          isActive: true
-        },
-
-        // DEEPAM OIL LABELS
-        {
-          id: 'rm-labels-deepam-5l',
-          name: '🏷️ Deepam Oil Labels (5L)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 5L Deepam Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 2.50,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 20,
-          currentStock: 80,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-deepam-1l',
-          name: '🏷️ Deepam Oil Labels (1L)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 1L Deepam Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.50,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 100,
-          currentStock: 350,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-deepam-500ml',
-          name: '🏷️ Deepam Oil Labels (500ml)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 500ml Deepam Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.20,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 80,
-          currentStock: 250,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-deepam-200ml',
-          name: '🏷️ Deepam Oil Labels (200ml)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 200ml Deepam Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.00,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 50,
-          currentStock: 150,
-          gstRate: 18.00,
-          isActive: true
-        },
-
-        // CASTOR OIL LABELS
-        {
-          id: 'rm-labels-castor-5l',
-          name: '🏷️ Castor Oil Labels (5L)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 5L Castor Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 2.50,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 15,
-          currentStock: 60,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-castor-1l',
-          name: '🏷️ Castor Oil Labels (1L)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 1L Castor Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.50,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 80,
-          currentStock: 200,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-castor-500ml',
-          name: '🏷️ Castor Oil Labels (500ml)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 500ml Castor Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.20,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 60,
-          currentStock: 180,
-          gstRate: 18.00,
-          isActive: true
-        },
-        {
-          id: 'rm-labels-castor-200ml',
-          name: '🏷️ Castor Oil Labels (200ml)',
-          category: 'packaging',
-          type: 'label',
-          description: 'Labels for 200ml Castor Oil bottles',
-          unit: 'pieces',
-          costPerUnit: 1.00,
-          supplier: 'Print Solutions Ltd.',
-          minimumStock: 40,
-          currentStock: 120,
-          gstRate: 18.00,
-          isActive: true
-        },
-
-        // =================== OIL TINS (16 LITERS) ===================
-        {
-          id: 'rm-groundnut-oil-tin',
-          name: '🛢️ Groundnut Oil TIN (16L)',
-          category: 'oil_tins',
-          type: 'groundnut_tin',
-          description: 'Groundnut oil purchased in 16-liter TINs from suppliers',
-          unit: 'tins',
-          costPerUnit: 2200.00,
-          supplier: 'Groundnut Oil Suppliers Ltd.',
-          minimumStock: 15,
-          currentStock: 30,
-          gstRate: 5.00,
-          isActive: true
-        },
-        {
-          id: 'rm-gingelly-oil-tin',
-          name: '🛢️ Gingelly Oil TIN (16L)',
-          category: 'oil_tins',
-          type: 'gingelly_tin',
-          description: 'Gingelly oil purchased in 16-liter TINs from suppliers',
-          unit: 'tins',
-          costPerUnit: 2600.00,
-          supplier: 'Gingelly Oil Suppliers Ltd.',
-          minimumStock: 12,
-          currentStock: 25,
-          gstRate: 5.00,
-          isActive: true
-        },
-        {
-          id: 'rm-coconut-oil-tin',
-          name: '🛢️ Coconut Oil TIN (16L)',
-          category: 'oil_tins',
-          type: 'coconut_tin',
-          description: 'Coconut oil purchased in 16-liter TINs from suppliers',
-          unit: 'tins',
-          costPerUnit: 2000.00,
-          supplier: 'Coconut Oil Suppliers Ltd.',
-          minimumStock: 10,
-          currentStock: 20,
-          gstRate: 5.00,
-          isActive: true
-        },
-        {
-          id: 'rm-deepam-oil-tin',
-          name: '🛢️ Deepam Oil TIN (16L)',
-          category: 'oil_tins',
-          type: 'deepam_tin',
-          description: 'Deepam oil purchased in 16-liter TINs from suppliers',
-          unit: 'tins',
-          costPerUnit: 2400.00,
-          supplier: 'Deepam Oil Suppliers Ltd.',
-          minimumStock: 10,
-          currentStock: 25,
-          gstRate: 5.00,
-          isActive: true
-        },
-        {
-          id: 'rm-castor-oil-tin',
-          name: '🛢️ Castor Oil TIN (16L)',
-          category: 'oil_tins',
-          type: 'castor_tin',
-          description: 'Castor oil purchased in 16-liter TINs from suppliers',
-          unit: 'tins',
-          costPerUnit: 2800.00,
-          supplier: 'Castor Oil Suppliers Ltd.',
-          minimumStock: 8,
-          currentStock: 15,
-          gstRate: 5.00,
-          isActive: true
-        },
-
-        // =================== RAW MATERIALS FOR OIL PRODUCTION ===================
-        {
-          id: 'rm-groundnuts',
-          name: '🥜 Groundnuts (Raw)',
-          category: 'seeds',
-          type: 'groundnut',
-          description: 'Premium quality raw groundnuts for oil extraction',
-          unit: 'kg',
-          costPerUnit: 80.00,
-          supplier: 'Local Farmers Cooperative',
-          minimumStock: 1000,
-          currentStock: 2500,
-          gstRate: 5.00,
-          isActive: true
-        },
-        {
-          id: 'rm-sesame',
-          name: '🌰 Sesame Seeds',
-          category: 'seeds',
-          type: 'sesame',
-          description: 'High quality sesame seeds for gingelly oil production',
-          unit: 'kg',
-          costPerUnit: 120.00,
-          supplier: 'Seed Traders Ltd.',
-          minimumStock: 500,
-          currentStock: 800,
-          gstRate: 5.00,
-          isActive: true
-        },
-        {
-          id: 'rm-coconut',
-          name: '🥥 Coconut (Copra)',
-          category: 'seeds',
-          type: 'coconut',
-          description: 'Dried coconut copra for coconut oil extraction',
-          unit: 'kg',
-          costPerUnit: 60.00,
-          supplier: 'Coconut Farmers Union',
-          minimumStock: 800,
-          currentStock: 1200,
-          gstRate: 5.00,
-          isActive: true
-        },
-        {
-          id: 'rm-deepam-seeds',
-          name: '🌱 Deepam Seeds',
-          category: 'seeds',
-          type: 'deepam',
-          description: 'Premium deepam seeds for deepam oil extraction',
-          unit: 'kg',
-          costPerUnit: 90.00,
-          supplier: 'Specialty Seeds Co.',
-          minimumStock: 300,
-          currentStock: 600,
-          gstRate: 5.00,
-          isActive: true
-        },
-        {
-          id: 'rm-castor-seeds',
-          name: '🌿 Castor Seeds',
-          category: 'seeds',
-          type: 'castor',
-          description: 'High quality castor seeds for castor oil production',
-          unit: 'kg',
-          costPerUnit: 75.00,
-          supplier: 'Castor Growers Association',
-          minimumStock: 400,
-          currentStock: 800,
-          gstRate: 5.00,
-          isActive: true
-        },
-
-        // =================== OTHER MATERIALS ===================
-        {
-          id: 'rm-packing-tape',
-          name: '📦 Packing Tape',
-          category: 'packaging',
-          type: 'tape',
-          description: 'Strong packing tape for sealing cardboard boxes (1 roll per 4 canteen orders)',
-          unit: 'rolls',
-          costPerUnit: 45.00,
-          supplier: 'Packaging Supplies Co.',
-          minimumStock: 20,
-          currentStock: 50,
-          gstRate: 18.00,
-          isActive: true
+        const invByProductId = new Map<string, number>();
+        for (const row of inventory) {
+          invByProductId.set(String(row.productId), Number(row.quantity || 0));
         }
-      ];
 
-      setRawMaterials(mockMaterials.filter(m => m.category === 'seeds'));
+        const liveMaterials = products
+          .map((p: any) => {
+            const name = String(p?.name || '');
+            const lower = name.toLowerCase();
+            const unit = String(p?.unit || 'pieces');
+            const cost = Number(p?.basePrice ?? p?.retailPrice ?? 0);
+            if (!Number.isFinite(cost) || cost <= 0) return null;
+            const isSeed = lower.includes('groundnut') || lower.includes('gingelly') || lower.includes('sesame') || lower.includes('coconut') || lower.includes('copra') || lower.includes('castor');
+            const isPackaging = lower.includes('bottle') || lower.includes('cap') || lower.includes('label') || lower.includes('box') || lower.includes('carton') || lower.includes('tape');
+            if (!isSeed && !isPackaging) return null;
+            return {
+              id: String(p.id),
+              name,
+              category: isSeed ? 'seeds' : 'packaging',
+              type: isSeed ? 'seed' : 'packaging',
+              description: String(p?.description || ''),
+              unit,
+              costPerUnit: cost,
+              supplier: 'Live product source',
+              minimumStock: Number(invByProductId.get(String(p.id)) || 0) > 0 ? Math.max(1, Math.floor(Number(invByProductId.get(String(p.id)) || 0) * 0.2)) : 0,
+              currentStock: Number(invByProductId.get(String(p.id)) || 0),
+              gstRate: Number(p?.gstRate ?? 18),
+              isActive: Boolean(p?.isActive ?? true),
+            } as RawMaterial;
+          })
+          .filter(Boolean) as RawMaterial[];
+
+        if (liveMaterials.length > 0) {
+          setRawMaterials(liveMaterials);
+          return;
+        }
+      } catch (_) {}
+
+      throw new Error('Live raw material mapping not found');
     } catch (err) {
-      setError('Failed to fetch raw materials data');
+      setRawMaterials([]);
+      setError('Failed to fetch live raw materials data');
     } finally {
       setLoading(false);
     }
@@ -1190,7 +654,7 @@ export default function RawMaterialsPage() {
         selectedOils: [],
         bottleSize: '5l',
         quantity: 0,
-        supplier: 'Print Solutions Ltd.',
+        supplier: '',
         costPerLabel: 0,
         notes: ''
       });

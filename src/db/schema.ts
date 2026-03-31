@@ -146,6 +146,29 @@ export const invoiceReservations = mysqlTable('invoice_reservations', {
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
 });
 
+// Sales Returns / Expiry Write-offs
+export const salesReturns = mysqlTable('sales_returns', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  saleId: varchar('sale_id', { length: 255 }),
+  saleType: varchar('sale_type', { length: 50 }).notNull().default('canteen'), // canteen, retail
+  canteenName: varchar('canteen_name', { length: 255 }),
+  productName: varchar('product_name', { length: 255 }).notNull(),
+  unit: varchar('unit', { length: 50 }).notNull().default('pcs'),
+  quantity: decimal('quantity', { precision: 12, scale: 2 }).notNull(),
+  unitPriceExGst: decimal('unit_price_ex_gst', { precision: 12, scale: 2 }).notNull(),
+  gstRate: decimal('gst_rate', { precision: 5, scale: 2 }).notNull().default('5.00'),
+  returnAmountExGst: decimal('return_amount_ex_gst', { precision: 12, scale: 2 }).notNull(),
+  returnGstAmount: decimal('return_gst_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+  returnTotalAmount: decimal('return_total_amount', { precision: 12, scale: 2 }).notNull(),
+  returnNature: varchar('return_nature', { length: 30 }).notNull().default('sales_return'), // sales_return, expiry
+  accountingImpact: varchar('accounting_impact', { length: 30 }).notNull().default('revenue_reversal'), // revenue_reversal, expense_writeoff, both
+  reason: text('reason'),
+  returnDate: date('return_date', { mode: 'string' }).notNull(),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
 // Sale Items table
 export const saleItems = mysqlTable('sale_items', {
   id: varchar('id', { length: 255 }).primaryKey(),

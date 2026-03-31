@@ -82,8 +82,12 @@ const SavingsInvestmentsPage: React.FC = () => {
     e.preventDefault();
     
     try {
-      const response = await fetch('/api/savings-investments', {
-        method: 'POST',
+      const isEdit = Boolean(editingItem?.id);
+      const url = isEdit ? `/api/savings-investments/${editingItem?.id}` : '/api/savings-investments';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
         headers: {
           'Content-Type': 'application/json',
         },
@@ -93,15 +97,69 @@ const SavingsInvestmentsPage: React.FC = () => {
       const data = await response.json();
 
       if (data.success) {
-        setSavingsInvestments([data.data, ...savingsInvestments]);
+        if (isEdit && editingItem) {
+          setSavingsInvestments((prev) =>
+            prev.map((item) =>
+              item.id === editingItem.id
+                ? {
+                    ...item,
+                    ...formData,
+                    amount: formData.amount,
+                    currentValue: formData.currentValue || null,
+                    interestRate: formData.interestRate || null,
+                    maturityDate: formData.maturityDate || null,
+                  }
+                : item,
+            ),
+          );
+        } else {
+          setSavingsInvestments([data.data, ...savingsInvestments]);
+        }
         resetForm();
         setShowForm(false);
       } else {
-        setError('Failed to create savings/investment');
+        setError(`Failed to ${isEdit ? 'update' : 'create'} savings/investment`);
       }
     } catch (err) {
-      console.error('Error creating savings/investment:', err);
-      setError('Failed to create savings/investment');
+      console.error('Error saving savings/investment:', err);
+      setError('Failed to save savings/investment');
+    }
+  };
+
+  const handleEdit = (investment: SavingsInvestment) => {
+    setEditingItem(investment);
+    setFormData({
+      type: investment.type || '',
+      title: investment.title || '',
+      description: investment.description || '',
+      amount: String(investment.amount ?? ''),
+      currentValue: investment.currentValue != null ? String(investment.currentValue) : '',
+      investmentDate: investment.investmentDate ? new Date(investment.investmentDate).toISOString().slice(0, 10) : '',
+      maturityDate: investment.maturityDate ? new Date(investment.maturityDate).toISOString().slice(0, 10) : '',
+      interestRate: investment.interestRate != null ? String(investment.interestRate) : '',
+      institution: investment.institution || '',
+      accountNumber: investment.accountNumber || '',
+      status: investment.status || 'active',
+    });
+    setShowForm(true);
+    setError(null);
+  };
+
+  const handleDelete = async (id: string) => {
+    const ok = window.confirm('Delete this savings/investment entry?');
+    if (!ok) return;
+
+    try {
+      const response = await fetch(`/api/savings-investments/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setError('Failed to delete savings/investment');
+        return;
+      }
+      setSavingsInvestments((prev) => prev.filter((item) => item.id !== id));
+    } catch (err) {
+      console.error('Error deleting savings/investment:', err);
+      setError('Failed to delete savings/investment');
     }
   };
 
@@ -335,6 +393,21 @@ const SavingsInvestmentsPage: React.FC = () => {
                 />
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                  <Select
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                  >
+                    <option value="active">Active</option>
+                    <option value="matured">Matured</option>
+                    <option value="closed">Closed</option>
+                    <option value="sold">Sold</option>
+                  </Select>
+                </div>
+              </div>
+
               <div className="flex gap-3">
                 <Button type="submit" variant="primary">
                   {editingItem ? 'Update Investment' : 'Add Investment'}
@@ -342,6 +415,18 @@ const SavingsInvestmentsPage: React.FC = () => {
                 <Button type="button" variant="secondary" onClick={resetForm}>
                   Reset
                 </Button>
+                {editingItem && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      resetForm();
+                      setShowForm(false);
+                    }}
+                  >
+                    Cancel Edit
+                  </Button>
+                )}
               </div>
             </form>
           </div>
@@ -414,6 +499,23 @@ const SavingsInvestmentsPage: React.FC = () => {
                     <p className="text-sm text-gray-600">{investment.description}</p>
                   </div>
                 )}
+
+                <div className="mt-4 pt-3 border-t border-gray-200 flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleEdit(investment)}
+                    className="text-sm"
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleDelete(investment.id)}
+                    className="text-sm text-red-600 border-red-200 hover:bg-red-50"
+                  >
+                    Delete
+                  </Button>
+                </div>
               </div>
             </Card>
           );

@@ -276,6 +276,17 @@ const navigationSections: NavSection[] = [
         description: 'Payments credited to account'
       },
       {
+        name: 'Sales Returns / Expiry',
+        href: '/dashboard/admin/sales-returns',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h7V3m0 0l-4 4m4-4l4 4M21 14h-7v7m0 0l4-4m-4 4l-4-4" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant'],
+        description: 'Returns, expiry write-off, P&L adjustment'
+      },
+      {
         name: 'Loan Management',
         href: '/dashboard/admin/loan-management',
         icon: (

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/db/db';
 import { inventory, products, sales, saleItems, production } from '@/db/schema';
-import { gte, lte, and, sum, count, eq, desc } from 'drizzle-orm';
+import { gte, lte, and, eq } from 'drizzle-orm';
 
 interface ProductionPlan {
   id: string;
@@ -184,24 +184,49 @@ export async function POST(request: NextRequest) {
 }
 
 function calculateProductionCapacity(productionHistory: any[]): ProductionCapacity {
-  // Calculate based on historical production data
-  const totalProduced = productionHistory.reduce((sum, prod) => 
-    sum + parseFloat(prod.quantityProduced?.toString() || '0'), 0);
-  
-  const productionDays = Math.max(1, productionHistory.length / 7); // Assume weekly production
-  const dailyCapacity = totalProduced / productionDays || 200; // Default 200 units/day
+  const dailyTotals = new Map<string, number>();
+  let current30DayProduction = 0;
+  let qualityChecks = 0;
+  let qualityPassed = 0;
+  const now = Date.now();
+  const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
 
-  // Simulate capacity metrics
-  const totalCapacity = dailyCapacity * 30; // Monthly capacity
-  const currentUtilization = 0.75; // 75% current utilization
-  const availableCapacity = totalCapacity * (1 - currentUtilization);
+  for (const prod of productionHistory) {
+    const qty = parseFloat(prod.quantity?.toString() || '0');
+    const dateObj = prod.productionDate ? new Date(prod.productionDate) : null;
+    const dayKey = dateObj ? dateObj.toISOString().slice(0, 10) : '';
+    if (dayKey) {
+      dailyTotals.set(dayKey, (dailyTotals.get(dayKey) || 0) + qty);
+    }
+    if (dateObj && dateObj.getTime() >= thirtyDaysAgo) {
+      current30DayProduction += qty;
+    }
+    if (typeof prod.qualityCheck === 'boolean') {
+      qualityChecks += 1;
+      if (prod.qualityCheck) qualityPassed += 1;
+    }
+  }
+
+  const dailyValues = Array.from(dailyTotals.values());
+  const avgDaily = dailyValues.length ? dailyValues.reduce((a, b) => a + b, 0) / dailyValues.length : 0;
+  const peakDaily = dailyValues.length ? Math.max(...dailyValues) : 0;
+  const totalCapacity = Math.max(1, Math.round((peakDaily || avgDaily || 0) * 30));
+  const utilization = totalCapacity > 0 ? (current30DayProduction / totalCapacity) * 100 : 0;
+  const currentUtilization = Math.max(0, Math.min(100, Math.round(utilization)));
+  const availableCapacity = Math.max(0, Math.round(totalCapacity - current30DayProduction));
+  const efficiency = qualityChecks > 0 ? Math.round((qualityPassed / qualityChecks) * 100) : 0;
+
+  const bottlenecks: string[] = [];
+  if (currentUtilization >= 85) bottlenecks.push('Capacity nearing full utilization');
+  if (efficiency > 0 && efficiency < 95) bottlenecks.push('Quality pass rate below target');
+  if (bottlenecks.length === 0) bottlenecks.push('No active bottleneck detected');
 
   return {
-    totalCapacity: Math.round(totalCapacity),
-    currentUtilization: Math.round(currentUtilization * 100),
-    availableCapacity: Math.round(availableCapacity),
-    bottlenecks: ['Oil extraction machine maintenance', 'Packaging line speed'],
-    efficiency: 85 // 85% efficiency
+    totalCapacity,
+    currentUtilization,
+    availableCapacity,
+    bottlenecks,
+    efficiency,
   };
 }
 
@@ -276,7 +301,7 @@ function createProductionPlan(
 ): ProductionPlan {
   
   // Calculate required raw materials (simplified)
-  const rawMaterials = generateRawMaterialRequirements(productName, plannedQuantity);
+  const rawMaterials = generateRawMaterialRequirements();
   
   // Calculate production timeline
   const dailyProductionRate = capacity.totalCapacity / 30; // Daily production capacity
@@ -289,10 +314,11 @@ function createProductionPlan(
   estimatedCompletionDate.setDate(estimatedCompletionDate.getDate() + productionDays);
   
   // Calculate costs and profitability
-  const unitProductionCost = parseFloat(product.price?.toString() || '100') * 0.6; // 60% of selling price
+  const sellPrice = parseFloat(product.basePrice?.toString() || product.retailPrice?.toString() || '0');
+  const unitProductionCost = sellPrice > 0 ? sellPrice * 0.6 : 0;
   const estimatedCost = plannedQuantity * unitProductionCost;
-  const expectedRevenue = plannedQuantity * parseFloat(product.price?.toString() || '100');
-  const profitability = ((expectedRevenue - estimatedCost) / estimatedCost) * 100;
+  const expectedRevenue = plannedQuantity * sellPrice;
+  const profitability = estimatedCost > 0 ? ((expectedRevenue - estimatedCost) / estimatedCost) * 100 : 0;
   
   // Determine priority
   let priority: 'high' | 'medium' | 'low' = 'medium';
@@ -317,50 +343,21 @@ function createProductionPlan(
     estimatedCost: Math.round(estimatedCost),
     expectedRevenue: Math.round(expectedRevenue),
     profitability: Math.round(profitability * 100) / 100,
-    capacityUtilization: Math.round((plannedQuantity / capacity.availableCapacity) * 100),
+    capacityUtilization: capacity.availableCapacity > 0
+      ? Math.round((plannedQuantity / capacity.availableCapacity) * 100)
+      : 0,
     automationTrigger
   };
 }
 
-function generateRawMaterialRequirements(productName: string, quantity: number) {
-  const materialTemplates: Record<string, any[]> = {
-    'Groundnut Oil': [
-      { material: 'Groundnuts', ratio: 1.2, cost: 80 },
-      { material: 'PET Bottles 1L', ratio: 1.0, cost: 12 },
-      { material: 'Labels', ratio: 1.0, cost: 2 }
-    ],
-    'Gingelly Oil': [
-      { material: 'Sesame Seeds', ratio: 1.3, cost: 120 },
-      { material: 'PET Bottles 500ml', ratio: 1.0, cost: 8 },
-      { material: 'Labels', ratio: 1.0, cost: 2 }
-    ],
-    'Coconut Oil': [
-      { material: 'Coconuts', ratio: 2.0, cost: 40 },
-      { material: 'PET Bottles 500ml', ratio: 1.0, cost: 8 },
-      { material: 'Labels', ratio: 1.0, cost: 2 }
-    ]
-  };
-
-  const template = materialTemplates[productName] || materialTemplates['Groundnut Oil'];
-  
-  return template.map((material, index) => {
-    const required = Math.round(quantity * material.ratio);
-    const available = Math.round(required * (0.6 + Math.random() * 0.8)); // 60-140% availability
-    const shortage = Math.max(0, required - available);
-    
-    return {
-      materialId: `material-${index}`,
-      material: material.material,
-      required,
-      available,
-      shortage,
-      cost: material.cost
-    };
-  });
+function generateRawMaterialRequirements() {
+  // Live raw-material recipe mapping is not available in DB yet.
+  // Return empty list rather than static template assumptions.
+  return [];
 }
 
 function calculateDemandForecast(salesHistory: any[]): number {
-  if (salesHistory.length === 0) return 5; // Default demand
+  if (salesHistory.length === 0) return 0;
 
   const totalSold = salesHistory.reduce((sum, sale) => 
     sum + parseFloat(sale.quantity?.toString() || '0'), 0);
@@ -379,6 +376,7 @@ function calculateOptimizationMetrics(plans: ProductionPlan[], capacity: Product
     ? plans.reduce((sum, plan) => sum + plan.profitability, 0) / plans.length 
     : 0;
 
+  const forecastMargin = Math.max(0, totalExpectedRevenue - totalEstimatedCost);
   return {
     totalPlannedProduction: totalPlannedQuantity,
     capacityUtilization: Math.round((totalPlannedQuantity / capacity.availableCapacity) * 100),
@@ -386,8 +384,8 @@ function calculateOptimizationMetrics(plans: ProductionPlan[], capacity: Product
     expectedReturn: totalExpectedRevenue,
     avgProfitMargin: Math.round(avgProfitability * 100) / 100,
     efficiency: capacity.efficiency,
-    costSavings: Math.round(totalEstimatedCost * 0.15), // 15% savings through automation
-    timeReduction: 25 // 25% time reduction through automation
+    costSavings: Math.round(forecastMargin),
+    timeReduction: Math.max(0, Math.round((capacity.efficiency / 100) * 20))
   };
 }
 
@@ -398,38 +396,31 @@ function generateProductionRecommendations(plans: ProductionPlan[], capacity: Pr
   const totalCapacityNeeded = plans.reduce((sum, plan) => sum + plan.capacityUtilization, 0);
   
   if (highPriorityPlans > 0) {
-    recommendations.push(`🚨 ${highPriorityPlans} high-priority production plans require immediate attention`);
+    recommendations.push(`${highPriorityPlans} high-priority production plan(s) need immediate scheduling.`);
   }
-  
   if (totalCapacityNeeded > 80) {
-    recommendations.push('⚠️ Production capacity utilization > 80% - consider additional shifts or equipment');
+    recommendations.push('Planned load exceeds 80% of available capacity.');
   }
-  
-  if (capacity.efficiency < 90) {
-    recommendations.push('📈 Production efficiency below 90% - implement process optimization');
+  if (capacity.efficiency > 0 && capacity.efficiency < 90) {
+    recommendations.push(`Quality efficiency is ${capacity.efficiency}%. Improve process stability.`);
   }
-  
-  const materialShortages = plans.some(plan => 
-    plan.requiredRawMaterials.some(material => material.shortage > 0));
-  
+  const materialShortages = plans.some((plan) =>
+    plan.requiredRawMaterials.some((material) => material.shortage > 0),
+  );
   if (materialShortages) {
-    recommendations.push('📦 Raw material shortages detected - trigger automated procurement');
+    recommendations.push('Material shortages detected in planned batches. Raise purchase requests.');
   }
-  
-  recommendations.push('🤖 Enable automated production scheduling based on demand forecasts');
-  recommendations.push('📊 Implement real-time production monitoring with IoT sensors');
-  recommendations.push('🔄 Set up automatic raw material reordering when production is scheduled');
+  if (recommendations.length === 0) {
+    recommendations.push('No production risk detected for the selected planning window.');
+  }
   
   return recommendations;
 }
 
 function calculatePlanningConfidence(plans: ProductionPlan[]): number {
-  let confidence = 70; // Base confidence
-  
-  if (plans.length >= 3) confidence += 10;
-  if (plans.some(p => p.profitability > 20)) confidence += 10;
-  if (plans.every(p => p.requiredRawMaterials.every(m => m.shortage === 0))) confidence += 10;
-  
-  return Math.min(95, confidence);
+  if (plans.length === 0) return 0;
+  const noShortage = plans.filter((p) => p.requiredRawMaterials.every((m) => m.shortage === 0)).length;
+  const shortageCoverage = noShortage / plans.length;
+  return Math.round(40 + shortageCoverage * 60);
 }
 

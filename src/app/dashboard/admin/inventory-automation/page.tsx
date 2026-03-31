@@ -69,6 +69,7 @@ export default function InventoryAutomationPage() {
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
   const [automationEnabled, setAutomationEnabled] = useState(true);
+  const [actionNotice, setActionNotice] = useState('');
 
   useEffect(() => {
     fetchAutomationData();
@@ -78,20 +79,27 @@ export default function InventoryAutomationPage() {
     try {
       setLoading(true);
       setError('');
+      setActionNotice('');
 
-      // Fetch data from multiple endpoints
-      const [inventoryRes, salesRes, productionRes] = await Promise.all([
-        fetch('/api/reports/inventory'),
-        fetch('/api/reports/sales?startDate=2024-11-01&endDate=2024-12-31'),
-        fetch('/api/products')
+      // Fetch live automation outputs from dedicated APIs.
+      const [reorderRes, productionRes] = await Promise.all([
+        fetch('/api/automation/smart-reorder?window=90'),
+        fetch('/api/automation/production-planning?window=30'),
       ]);
 
-      const inventoryData = await inventoryRes.json();
-      const salesData = await salesRes.json();
+      const reorderData = await reorderRes.json();
       const productionData = await productionRes.json();
 
+      if (!reorderData?.success || !productionData?.success) {
+        throw new Error(
+          reorderData?.error ||
+            productionData?.error ||
+            'Failed to fetch live automation data',
+        );
+      }
+
       // Process automation data
-      const processedData = processAutomationData(inventoryData, salesData, productionData);
+      const processedData = processAutomationData(reorderData.data, productionData.data);
       setAutomationData(processedData);
 
     } catch (err) {
@@ -102,126 +110,84 @@ export default function InventoryAutomationPage() {
     }
   };
 
-  const processAutomationData = (inventory: any, sales: any, production: any): InventoryAutomationData => {
-    const inventoryItems = inventory.success ? inventory.data.inventory : [];
-    const salesItems = sales.success ? sales.data.sales : [];
+  const processAutomationData = (reorder: any, production: any): InventoryAutomationData => {
+    const reorderPoints = Array.isArray(reorder?.reorderPoints) ? reorder.reorderPoints : [];
+    const recommendations = Array.isArray(reorder?.automationRecommendations) ? reorder.automationRecommendations : [];
+    const productionPlansApi = Array.isArray(production?.productionPlans) ? production.productionPlans : [];
 
-    // Generate automation rules
-    const automationRules: AutomationRule[] = [
-      {
-        id: '1',
-        name: 'Low Stock Alert - Groundnut Oil',
-        type: 'alert',
-        status: 'active',
-        trigger: 'Stock < 50 units',
-        action: 'Send email notification',
-        lastTriggered: '2024-12-15',
-        triggerCount: 3
-      },
-      {
-        id: '2',
-        name: 'Auto Reorder - Gingelly Oil',
-        type: 'reorder',
-        status: 'active',
-        trigger: 'Stock < reorder point',
-        action: 'Create purchase order',
-        triggerCount: 5
-      },
-      {
-        id: '3',
-        name: 'Production Planning - Coconut Oil',
-        type: 'production',
-        status: 'active',
-        trigger: 'Forecast demand > current + planned',
-        action: 'Schedule production batch',
-        triggerCount: 2
-      },
-      {
-        id: '4',
-        name: 'Supplier Performance Alert',
-        type: 'supplier',
-        status: 'active',
-        trigger: 'Delivery delay > 3 days',
-        action: 'Escalate to procurement team',
-        triggerCount: 1
-      }
-    ];
+    const automationRules: AutomationRule[] = recommendations.slice(0, 8).map((rec: string, idx: number) => ({
+      id: `rule-${idx + 1}`,
+      name: rec.replace(/^[^\w]+/, '').slice(0, 90),
+      type: rec.toLowerCase().includes('reorder')
+        ? 'reorder'
+        : rec.toLowerCase().includes('production')
+        ? 'production'
+        : rec.toLowerCase().includes('supplier')
+        ? 'supplier'
+        : 'alert',
+      status: 'active',
+      trigger: 'Live analytics condition',
+      action: rec,
+      triggerCount: 0,
+    }));
 
-    // Generate smart reorder points
-    const smartReorderPoints: SmartReorderPoint[] = inventoryItems.map((item: any, index: number) => {
-      const avgDailyUsage = 5 + Math.random() * 15; // Simplified calculation
-      const leadTime = 3 + Math.random() * 7; // 3-10 days
-      const safetyStock = avgDailyUsage * 2; // 2 days safety stock
-      const reorderPoint = (avgDailyUsage * leadTime) + safetyStock;
-      const currentStock = parseFloat(item.quantity?.toString() || '0');
-      
-      let status: 'optimal' | 'low' | 'critical' | 'overstock' = 'optimal';
-      if (currentStock < reorderPoint * 0.5) status = 'critical';
-      else if (currentStock < reorderPoint) status = 'low';
-      else if (currentStock > reorderPoint * 3) status = 'overstock';
+    const smartReorderPoints: SmartReorderPoint[] = reorderPoints.map((r: any) => ({
+      productId: String(r.productId || ''),
+      productName: String(r.productName || 'Unknown Product'),
+      currentStock: Number(r.currentStock || 0),
+      reorderPoint: Number(r.reorderPoint || 0),
+      maxStock: Number(r.maxStock || 0),
+      leadTime: Number(r.leadTime || 0),
+      avgDailyUsage: Number(r.avgDailyUsage || 0),
+      safetyStock: Number(r.safetyStock || 0),
+      recommendedOrderQty: Number(r.recommendedOrderQty || 0),
+      status: (r.status || 'optimal') as SmartReorderPoint['status'],
+      nextReorderDate: r.nextReorderDate || undefined,
+      supplier: String(r.supplier || 'Primary supplier'),
+    }));
 
-      return {
-        productId: item.productId || `product-${index}`,
-        productName: item.productName || `Product ${index + 1}`,
-        currentStock,
-        reorderPoint: Math.round(reorderPoint),
-        maxStock: Math.round(reorderPoint * 3),
-        leadTime: Math.round(leadTime),
-        avgDailyUsage: Math.round(avgDailyUsage * 10) / 10,
-        safetyStock: Math.round(safetyStock),
-        recommendedOrderQty: Math.round(reorderPoint * 1.5),
-        status,
-        nextReorderDate: status === 'low' || status === 'critical' 
-          ? new Date(Date.now() + Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-          : undefined,
-        supplier: ['ABC Suppliers', 'XYZ Trading', 'Premium Oil Co.', 'Local Farmers'][Math.floor(Math.random() * 4)]
-      };
-    });
+    const productionPlans: ProductionPlan[] = productionPlansApi.map((p: any) => ({
+      id: String(p.id || ''),
+      productName: String(p.productName || 'Unknown Product'),
+      plannedQuantity: Number(p.plannedQuantity || 0),
+      requiredRawMaterials: Array.isArray(p.requiredRawMaterials)
+        ? p.requiredRawMaterials.map((m: any) => ({
+            material: String(m.material || 'Raw material'),
+            required: Number(m.required || 0),
+            available: Number(m.available || 0),
+            shortage: Number(m.shortage || 0),
+          }))
+        : [],
+      scheduledDate: String(p.scheduledStartDate || p.estimatedCompletionDate || new Date().toISOString().slice(0, 10)),
+      priority: (p.priority || 'medium') as ProductionPlan['priority'],
+      status: (p.status || 'scheduled') as ProductionPlan['status'],
+    }));
 
-    // Generate production plans
-    const productionPlans: ProductionPlan[] = [
-      {
-        id: '1',
-        productName: 'Groundnut Oil',
-        plannedQuantity: 500,
-        requiredRawMaterials: [
-          { material: 'Groundnuts', required: 600, available: 400, shortage: 200 },
-          { material: 'PET Bottles 1L', required: 500, available: 300, shortage: 200 }
-        ],
-        scheduledDate: '2024-12-20',
-        priority: 'high',
-        status: 'scheduled'
-      },
-      {
-        id: '2',
-        productName: 'Gingelly Oil',
-        plannedQuantity: 300,
-        requiredRawMaterials: [
-          { material: 'Sesame Seeds', required: 350, available: 350, shortage: 0 },
-          { material: 'PET Bottles 500ml', required: 300, available: 250, shortage: 50 }
-        ],
-        scheduledDate: '2024-12-18',
-        priority: 'medium',
-        status: 'in-progress'
-      }
-    ];
+    const totalProducts = Number(reorder?.summary?.totalProducts || smartReorderPoints.length || 1);
+    const critical = Number(reorder?.summary?.criticalItems || 0);
+    const low = Number(reorder?.summary?.lowStockItems || 0);
+    const overstock = Number(reorder?.summary?.overstockItems || 0);
+
+    const stockoutPrevention = Math.max(0, Math.min(100, Math.round(((totalProducts - critical) / totalProducts) * 100)));
+    const overstockReduction = Math.max(0, Math.min(100, Math.round((overstock / totalProducts) * 100)));
+    const efficiency = Number(production?.capacity?.efficiency || 0);
 
     return {
       automationRules,
       smartReorderPoints,
       productionPlans,
       aiOptimizations: {
-        costSavings: 15000,
-        stockoutPrevention: 95,
-        overstock_reduction: 30,
-        efficiency_improvement: 40
+        costSavings: Number(reorder?.summary?.totalCostSavings || production?.optimization?.costSavings || 0),
+        stockoutPrevention,
+        overstock_reduction: overstockReduction,
+        efficiency_improvement: efficiency,
       },
       warehouseMetrics: {
-        totalLocations: 48,
-        utilizationRate: 78,
-        pickingEfficiency: 92,
-        cycleCountAccuracy: 99.5
-      }
+        totalLocations: Number(reorder?.summary?.totalProducts || 0),
+        utilizationRate: Number(production?.capacity?.currentUtilization || 0),
+        pickingEfficiency: efficiency,
+        cycleCountAccuracy: Number(reorder?.metadata?.confidence || 0),
+      },
     };
   };
 
@@ -246,8 +212,21 @@ export default function InventoryAutomationPage() {
   };
 
   const triggerManualReorder = async (productId: string) => {
-    // Simulate manual reorder trigger
-    alert(`Manual reorder triggered for product ${productId}`);
+    try {
+      const res = await fetch('/api/automation/smart-reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'trigger_reorder', productId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        setActionNotice(data?.error || 'Failed to trigger reorder');
+        return;
+      }
+      setActionNotice(data?.data?.message || 'Reorder triggered');
+    } catch {
+      setActionNotice('Failed to trigger reorder');
+    }
   };
 
   if (loading) {
@@ -300,6 +279,11 @@ export default function InventoryAutomationPage() {
             </Button>
           </div>
         </div>
+        {actionNotice && (
+          <div className="mt-3 text-sm rounded-md border border-blue-200 bg-blue-50 text-blue-800 px-3 py-2">
+            {actionNotice}
+          </div>
+        )}
       </div>
 
       {/* Automation Status Cards */}
