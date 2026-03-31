@@ -31,6 +31,9 @@ interface PLStatement {
   };
   taxes?: {
     gstCollected: number;
+    gstPaidFromRawMaterialPurchases?: number;
+    gstPaidFromStockPurchasesDerived?: number;
+    gstPaidFromCourier?: number;
     gstPaidToGovernment: number;
     netGstPayable: number;
   };
@@ -657,6 +660,20 @@ const FinancialStatementsPage: React.FC = () => {
                       GST Paid (Input)
                     </Link>
                     <span className="font-medium">{formatCurrency(plStatement.taxes?.gstPaidToGovernment ?? 0)}</span>
+                  </div>
+                  <div className="ml-4 mt-1 space-y-1 text-xs text-amber-900">
+                    <div className="flex justify-between">
+                      <span>Input from Raw Material Purchases</span>
+                      <span>{formatCurrency(plStatement.taxes?.gstPaidFromRawMaterialPurchases ?? 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Input from Stock Purchases (derived)</span>
+                      <span>{formatCurrency(plStatement.taxes?.gstPaidFromStockPurchasesDerived ?? 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Input from Courier Expenses</span>
+                      <span>{formatCurrency(plStatement.taxes?.gstPaidFromCourier ?? 0)}</span>
+                    </div>
                   </div>
                   <div className="flex justify-between border-t border-amber-200 pt-2">
                     <span className="font-semibold">Net GST Payable</span>

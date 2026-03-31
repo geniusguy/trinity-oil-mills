@@ -223,6 +223,7 @@ export async function GET(request: NextRequest) {
 
     // Secondary fallback for setups using stock_purchases screen instead of raw_material_purchases.
     let stockPurchaseCost = 0;
+    let stockPurchaseDerivedGst = 0;
     let stockPurchaseRows = 0;
     let stockPurchaseRowsWithAmount = 0;
     try {
@@ -235,9 +236,55 @@ export async function GET(request: NextRequest) {
               ELSE 0
             END
           ), 0) AS total_stock_purchase_cost,
+          COALESCE(SUM(
+            CASE
+              -- Prefer explicit GST difference when total and base are both available
+              WHEN sp.total_amount IS NOT NULL
+                   AND sp.unit_price IS NOT NULL
+                   AND sp.quantity IS NOT NULL
+                   AND sp.total_amount > (sp.unit_price * sp.quantity)
+                THEN (sp.total_amount - (sp.unit_price * sp.quantity))
+              ELSE
+                CASE
+                  -- If GST is included in stored amount, back-calculate GST component
+                  WHEN IFNULL(p.gst_included, 0) = 1
+                    THEN (
+                      COALESCE(
+                        CASE
+                          WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
+                          WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+                          ELSE 0
+                        END,
+                        0
+                      ) - (
+                        COALESCE(
+                          CASE
+                            WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
+                            WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+                            ELSE 0
+                          END,
+                          0
+                        ) * 100 / (100 + IFNULL(p.gst_rate, 0))
+                      )
+                    )
+                  -- Otherwise treat amount as ex-GST and apply product GST rate
+                  ELSE (
+                    COALESCE(
+                      CASE
+                        WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
+                        WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+                        ELSE 0
+                      END,
+                      0
+                    ) * IFNULL(p.gst_rate, 0) / 100
+                  )
+                END
+            END
+          ), 0) AS total_stock_purchase_gst_derived,
           COUNT(*) AS total_rows,
           SUM(CASE WHEN sp.total_amount IS NOT NULL OR sp.unit_price IS NOT NULL THEN 1 ELSE 0 END) AS rows_with_amount
         FROM stock_purchases sp
+        LEFT JOIN products p ON p.id = sp.product_id
         WHERE DATE(sp.purchase_date) >= ${defaultStart} AND DATE(sp.purchase_date) <= ${defaultEnd}
       `);
       const stockPurchaseRow =
@@ -245,6 +292,7 @@ export async function GET(request: NextRequest) {
         (Array.isArray(stockPurchaseRes) ? (stockPurchaseRes as any)[0] : undefined);
       if (stockPurchaseRow) {
         stockPurchaseCost = toNum((stockPurchaseRow as any).total_stock_purchase_cost);
+        stockPurchaseDerivedGst = toNum((stockPurchaseRow as any).total_stock_purchase_gst_derived);
         stockPurchaseRows = toNum((stockPurchaseRow as any).total_rows);
         stockPurchaseRowsWithAmount = toNum((stockPurchaseRow as any).rows_with_amount);
       }
@@ -269,15 +317,59 @@ export async function GET(request: NextRequest) {
                    ELSE 0
                  END
                ), 0) AS total_stock_purchase_cost,
+               COALESCE(SUM(
+                 CASE
+                   WHEN sp.total_amount IS NOT NULL
+                        AND sp.unit_price IS NOT NULL
+                        AND sp.quantity IS NOT NULL
+                        AND sp.total_amount > (sp.unit_price * sp.quantity)
+                     THEN (sp.total_amount - (sp.unit_price * sp.quantity))
+                   ELSE
+                     CASE
+                       WHEN IFNULL(p.gst_included, 0) = 1
+                         THEN (
+                           COALESCE(
+                             CASE
+                               WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
+                               WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+                               ELSE 0
+                             END,
+                             0
+                           ) - (
+                             COALESCE(
+                               CASE
+                                 WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
+                                 WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+                                 ELSE 0
+                               END,
+                               0
+                             ) * 100 / (100 + IFNULL(p.gst_rate, 0))
+                           )
+                         )
+                       ELSE (
+                         COALESCE(
+                           CASE
+                             WHEN sp.total_amount IS NOT NULL THEN sp.total_amount
+                             WHEN sp.unit_price IS NOT NULL AND sp.quantity IS NOT NULL THEN sp.unit_price * sp.quantity
+                             ELSE 0
+                           END,
+                           0
+                         ) * IFNULL(p.gst_rate, 0) / 100
+                       )
+                     END
+                 END
+               ), 0) AS total_stock_purchase_gst_derived,
                COUNT(*) AS total_rows,
                SUM(CASE WHEN sp.total_amount IS NOT NULL OR sp.unit_price IS NOT NULL THEN 1 ELSE 0 END) AS rows_with_amount
              FROM stock_purchases sp
+             LEFT JOIN products p ON p.id = sp.product_id
              WHERE DATE(sp.purchase_date) >= ? AND DATE(sp.purchase_date) <= ?`,
             [defaultStart, defaultEnd],
           );
           const row = Array.isArray(rows) ? rows[0] : null;
           if (row && toNum(row.total_stock_purchase_cost) > 0) {
             stockPurchaseCost = toNum(row.total_stock_purchase_cost);
+            stockPurchaseDerivedGst = toNum(row.total_stock_purchase_gst_derived);
             stockPurchaseRows = toNum(row.total_rows);
             stockPurchaseRowsWithAmount = toNum(row.rows_with_amount);
             queryWarnings.push('using stock_purchases connection fallback (period)');
@@ -314,7 +406,7 @@ export async function GET(request: NextRequest) {
 
     const computedCogsGstPaid = usingHistoricalCogs
       ? 0
-      : (purchaseCOGSExGst > 0 ? purchaseGstPaid : 0);
+      : (purchaseCOGSExGst > 0 ? purchaseGstPaid : stockPurchaseDerivedGst);
     // Do not invent cost splits. Keep COGS transparent and deterministic.
     const cogs: any = {
       // No itemized BOM split is available in DB reports today; treat total as production/COGS line.
@@ -494,6 +586,9 @@ export async function GET(request: NextRequest) {
         },
         taxes: {
           gstCollected: adjustedGstCollected,
+          gstPaidFromRawMaterialPurchases: purchaseGstPaid,
+          gstPaidFromStockPurchasesDerived: purchaseCOGSExGst > 0 ? 0 : stockPurchaseDerivedGst,
+          gstPaidFromCourier: courierGstPaid,
           gstPaidToGovernment,
           netGstPayable
         },
@@ -510,6 +605,7 @@ export async function GET(request: NextRequest) {
           stockPurchaseRows,
           stockPurchaseRowsWithAmount,
           derivedStockCost: stockPurchaseCost,
+          derivedStockPurchaseGst: stockPurchaseDerivedGst,
           queryWarnings
         },
         costOfGoodsSold: {
