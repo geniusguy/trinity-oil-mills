@@ -64,6 +64,7 @@ export default function CreditedToAccountPage() {
     invoiceDateTo: '',
     creditedDateFrom: '',
     creditedDateTo: '',
+    statusView: 'all' as 'all' | 'credited' | 'pending',
   });
 
   const [sortBy, setSortBy] = useState<'invoiceNumber' | 'invoiceDate' | 'creditedDate' | 'amount'>('invoiceDate');
@@ -152,8 +153,20 @@ export default function CreditedToAccountPage() {
       });
 
     const totalCreditedAmount = filtered.reduce((acc, r) => acc + Number(r.totalAmount || 0), 0);
+    const isPaid = (r: CreditedRow) => String(r.paymentStatus || '').trim().toLowerCase() === 'paid';
+    const creditedRows = filtered.filter((r) => isPaid(r) || !!toYmdLocal(r.creditedDate || null));
+    const pendingRows = filtered.filter((r) => !creditedRows.includes(r));
+    const pendingAmount = pendingRows.reduce((acc, r) => acc + Number(r.totalAmount || 0), 0);
+    const creditedAmount = creditedRows.reduce((acc, r) => acc + Number(r.totalAmount || 0), 0);
 
-    const sorted = [...filtered].sort((a, b) => {
+    const visibleRows =
+      filters.statusView === 'credited'
+        ? creditedRows
+        : filters.statusView === 'pending'
+        ? pendingRows
+        : filtered;
+
+    const sorted = [...visibleRows].sort((a, b) => {
       const dir = sortDir === 'asc' ? 1 : -1;
 
       if (sortBy === 'invoiceNumber') {
@@ -182,7 +195,15 @@ export default function CreditedToAccountPage() {
       return (aT - bT) * dir;
     });
 
-    return { filtered: sorted, totalCreditedAmount };
+    return {
+      filtered: sorted,
+      totalCreditedAmount,
+      sentCount: filtered.length,
+      pendingCount: pendingRows.length,
+      pendingAmount,
+      creditedCount: creditedRows.length,
+      creditedAmount,
+    };
   }, [allRows, filters, sortBy, sortDir]);
 
   if (status === 'loading' || loading) {
@@ -252,6 +273,23 @@ export default function CreditedToAccountPage() {
                 value={filters.creditedDateTo}
                 onChange={(e) => setFilters({ ...filters, creditedDateTo: e.target.value })}
               />
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Table view</label>
+                <Select
+                  value={filters.statusView}
+                  onChange={(e) =>
+                    setFilters({
+                      ...filters,
+                      statusView: e.target.value as 'all' | 'credited' | 'pending',
+                    })
+                  }
+                >
+                  <option value="all">All invoices</option>
+                  <option value="credited">Only credited invoices</option>
+                  <option value="pending">Only pending invoices</option>
+                </Select>
+              </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3 lg:items-center">
@@ -270,6 +308,23 @@ export default function CreditedToAccountPage() {
                   <option value="asc">Ascending</option>
                 </Select>
               </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+              <div className="text-xs text-blue-700 font-medium uppercase tracking-wide">Total No Invoices Sent</div>
+              <div className="mt-1 text-2xl font-bold text-blue-900">{computed.sentCount}</div>
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <div className="text-xs text-amber-700 font-medium uppercase tracking-wide">Pending Invoices</div>
+              <div className="mt-1 text-2xl font-bold text-amber-900">{computed.pendingCount}</div>
+              <div className="text-sm text-amber-800">Amount: ₹{computed.pendingAmount.toFixed(2)}</div>
+            </div>
+            <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+              <div className="text-xs text-green-700 font-medium uppercase tracking-wide">Credited Invoices</div>
+              <div className="mt-1 text-2xl font-bold text-green-900">{computed.creditedCount}</div>
+              <div className="text-sm text-green-800">Amount: ₹{computed.creditedAmount.toFixed(2)}</div>
             </div>
           </div>
 
