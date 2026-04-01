@@ -1173,9 +1173,14 @@ export default function CanteenSalesPage() {
                           {sale.paymentStatus === 'paid' && (
                             <div className="text-xs text-gray-500 mt-1">
                               Credited Date:{' '}
-                              {sale.creditedDate
-                                ? new Date(`${sale.creditedDate}T00:00:00`).toLocaleDateString('en-GB')
-                                : '—'}
+                              {(() => {
+                                const v = String(sale.creditedDate || '').trim();
+                                if (!v) return '—';
+                                const dt = /^\d{4}-\d{2}-\d{2}$/.test(v)
+                                  ? new Date(`${v}T00:00:00`)
+                                  : new Date(v);
+                                return Number.isNaN(dt.getTime()) ? '—' : dt.toLocaleDateString('en-GB');
+                              })()}
                             </div>
                           )}
                         </div>
