@@ -43,6 +43,14 @@ export async function GET(request: NextRequest) {
     const inventoryData = await inventoryQuery;
 
     // Get historical sales data for demand calculation
+    const salesWhere = productId
+      ? and(
+          gte(sales.createdAt, startDate),
+          lte(sales.createdAt, endDate),
+          eq(saleItems.productId, productId),
+        )
+      : and(gte(sales.createdAt, startDate), lte(sales.createdAt, endDate));
+
     const salesData = await db
       .select({
         productId: saleItems.productId,
@@ -51,13 +59,7 @@ export async function GET(request: NextRequest) {
       })
       .from(saleItems)
       .innerJoin(sales, eq(saleItems.saleId, sales.id))
-      .where(
-        and(
-          gte(sales.createdAt, startDate),
-          lte(sales.createdAt, endDate),
-          productId ? eq(saleItems.productId, productId) : undefined
-        ).filter(Boolean)
-      );
+      .where(salesWhere);
 
     // Calculate smart reorder points for each product
     const reorderCalculations: ReorderCalculation[] = [];
@@ -91,7 +93,12 @@ export async function GET(request: NextRequest) {
           lowStockItems: reorderCalculations.filter(r => r.status === 'low').length,
           overstockItems: reorderCalculations.filter(r => r.status === 'overstock').length,
           totalCostSavings: Math.round(totalCostSavings),
-          avgLeadTime: Math.round(reorderCalculations.reduce((sum, r) => sum + r.leadTime, 0) / reorderCalculations.length)
+          avgLeadTime:
+            reorderCalculations.length > 0
+              ? Math.round(
+                  reorderCalculations.reduce((sum, r) => sum + r.leadTime, 0) / reorderCalculations.length,
+                )
+              : 0,
         },
         automationRecommendations,
         metadata: {
