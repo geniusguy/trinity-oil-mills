@@ -184,6 +184,16 @@ const navigationSections: NavSection[] = [
         roles: ['admin', 'accountant', 'retail_staff']
       },
       {
+        name: 'Stock Audit (Temp)',
+        href: '/dashboard/admin/inventory-stock-audit',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff']
+      },
+      {
         name: 'Add Stock / Purchases',
         href: '/dashboard/admin/purchases',
         icon: (
