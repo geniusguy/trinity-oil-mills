@@ -53,65 +53,92 @@ export async function POST(
       // This matches what the user sees on `/invoice/html`.
       const htmlUrl = `${baseUrl}/api/sales/${encodeURIComponent(routeId)}/invoice/html`;
 
-      let chromium: any = null;
-      let browser: any = null;
+      let pdfBuffer: Buffer | null = null;
+      let usedFallback = false;
+
+      // Attempt HTML->PDF via Playwright.
       try {
-        ({ chromium } = await import('playwright'));
-      } catch (e) {
-        return NextResponse.json(
-          {
-            error: 'Playwright not available for HTML invoice PDF generation.',
-            details: 'Run: npx playwright install chromium',
-          },
-          { status: 500 },
-        );
-      }
+        const playwright = await import('playwright');
+        const { chromium } = playwright as unknown as { chromium: any };
 
-      try {
-        browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-        const page = await browser.newPage();
-        page.setDefaultTimeout(60_000);
-        await page.goto(htmlUrl, { waitUntil: 'networkidle' });
-        const pdfBytes = await page.pdf({ format: 'A4', printBackground: true });
-        const pdfBuffer = Buffer.from(pdfBytes);
+        const browser = await chromium.launch({
+          headless: true,
+          args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        });
 
-        const emailResult = await sendInvoicePdfEmail(
-          toEmail,
-          String(sale.invoiceNumber || 'invoice'),
-          pdfBuffer,
-        );
-
-        if (!emailResult?.success) {
-          return NextResponse.json(
-            { error: 'Failed to send email', details: emailResult?.error || null },
-            { status: 500 },
-          );
-        }
-
-        // Mark mailed-on date (best effort).
         try {
-          await connection.execute('UPDATE sales SET mail_sent_ho_date = CURDATE() WHERE id = ?', [routeId]);
-        } catch {
-          // ignore if column doesn't exist on some DBs
-        }
-
-        return NextResponse.json(
-          {
-            success: true,
-            message: 'Successfully email sent',
-            accepted: emailResult.accepted,
-            rejected: emailResult.rejected,
-            messageId: emailResult.messageId,
-          },
-          { status: 200 },
-        );
-      } finally {
-        if (browser) {
+          const page = await browser.newPage();
+          page.setDefaultTimeout(60_000);
+          await page.goto(htmlUrl, { waitUntil: 'networkidle' });
+          const pdfBytes = await page.pdf({ format: 'A4', printBackground: true });
+          pdfBuffer = Buffer.from(pdfBytes);
+        } finally {
           try {
             await browser.close();
           } catch (_) {}
         }
+      } catch (e: any) {
+        // Typical server-side failure: missing Linux shared libraries for Chromium.
+        // Example in your log: `error while loading shared libraries: libatk-1.0.so.0`.
+        console.error('HTML invoice PDF (Playwright) failed:', e?.message || e);
       }
+
+      // If Playwright failed, fall back to legacy jsPDF endpoint so the email still goes out.
+      // (This may produce older PDF formatting until server dependencies are installed.)
+      if (!pdfBuffer) {
+        usedFallback = true;
+        const pdfUrl = `${baseUrl}/api/sales/${encodeURIComponent(routeId)}/invoice/pdf?format=${encodeURIComponent(
+          sale.saleType || 'canteen',
+        )}`;
+
+        const pdfRes = await fetch(pdfUrl, { cache: 'no-store' });
+        if (!pdfRes.ok) {
+          return NextResponse.json(
+            {
+              error: 'Failed to generate invoice PDF',
+              details: `HTML->PDF failed (and fallback failed) HTTP ${pdfRes.status}`,
+            },
+            { status: 500 },
+          );
+        }
+
+        const ab = await pdfRes.arrayBuffer();
+        pdfBuffer = Buffer.from(ab);
+      }
+
+      const emailResult = await sendInvoicePdfEmail(
+        toEmail,
+        String(sale.invoiceNumber || 'invoice'),
+        pdfBuffer,
+      );
+
+      if (!emailResult?.success) {
+        return NextResponse.json(
+          { error: 'Failed to send email', details: emailResult?.error || null },
+          { status: 500 },
+        );
+      }
+
+      // Mark mailed-on date (best effort).
+      try {
+        await connection.execute('UPDATE sales SET mail_sent_ho_date = CURDATE() WHERE id = ?', [routeId]);
+      } catch {
+        // ignore if column doesn't exist on some DBs
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          message: usedFallback
+            ? 'Email sent (HTML->PDF fallback used)'
+            : 'Successfully email sent',
+          accepted: emailResult.accepted,
+          rejected: emailResult.rejected,
+          messageId: emailResult.messageId,
+          usedFallback,
+        },
+        { status: 200 },
+      );
 
     } finally {
       await connection.end();
