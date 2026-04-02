@@ -52,6 +52,8 @@ interface CanteenAddress {
   address: string;
   contactPerson: string;
   mobileNumber: string;
+  deliveryEmail?: string | null;
+  billingEmail?: string | null;
   city?: string;
   state?: string;
   pincode?: string;
@@ -87,6 +89,10 @@ export default function CanteenSalesPage() {
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [emailInvoiceSale, setEmailInvoiceSale] = useState<Sale | null>(null);
+  const [emailInvoiceTo, setEmailInvoiceTo] = useState<string>('trinityoilmills@gmail.com');
+  const [isEmailInvoiceSending, setIsEmailInvoiceSending] = useState(false);
+  const [emailInvoiceStatus, setEmailInvoiceStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [editReferencePdfFile, setEditReferencePdfFile] = useState<File | null>(null);
@@ -666,6 +672,67 @@ export default function CanteenSalesPage() {
       setError('Network error. Please try again.');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const openEmailInvoiceModal = (sale: Sale) => {
+    setEmailInvoiceSale(sale);
+    const defaultEmail = 'trinityoilmills@gmail.com';
+    const addr = canteenAddresses.find((a) => String(a.id) === String(sale.canteenAddressId || ''));
+    const prefill =
+      String(addr?.deliveryEmail || '').trim() ||
+      String(addr?.billingEmail || '').trim() ||
+      defaultEmail;
+    setEmailInvoiceTo(prefill);
+    setEmailInvoiceStatus(null);
+  };
+
+  const closeEmailInvoiceModal = () => {
+    setEmailInvoiceSale(null);
+    setEmailInvoiceStatus(null);
+    setIsEmailInvoiceSending(false);
+  };
+
+  const sendInvoicePdfEmail = async () => {
+    if (!emailInvoiceSale || !emailInvoiceSale.id) return;
+    if (!emailInvoiceTo.trim()) {
+      setEmailInvoiceStatus({ type: 'error', message: 'Please enter recipient email.' });
+      return;
+    }
+
+    try {
+      setIsEmailInvoiceSending(true);
+      setEmailInvoiceStatus(null);
+
+      const res = await fetch(`/api/sales/${encodeURIComponent(emailInvoiceSale.id)}/invoice/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ toEmail: emailInvoiceTo }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setEmailInvoiceStatus({
+          type: 'error',
+          message: data?.error || 'Failed to send email.',
+        });
+        return;
+      }
+
+      const accepted = Array.isArray(data?.accepted) ? data.accepted : [];
+      const rejected = Array.isArray(data?.rejected) ? data.rejected : [];
+      const acceptedText = accepted.length ? `Accepted: ${accepted.join(', ')}` : 'Accepted: —';
+      const rejectedText = rejected.length ? `Rejected: ${rejected.join(', ')}` : 'Rejected: —';
+
+      setEmailInvoiceStatus({
+        type: 'success',
+        message: `Successfully email sent to ${emailInvoiceTo}. ${acceptedText}. ${rejectedText}.`,
+      });
+      fetchCanteenSales();
+    } catch (e: any) {
+      setEmailInvoiceStatus({ type: 'error', message: e?.message || 'Network error. Please try again.' });
+    } finally {
+      setIsEmailInvoiceSending(false);
     }
   };
 
@@ -1282,6 +1349,13 @@ export default function CanteenSalesPage() {
                             📄 Invoice
                           </a>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => openEmailInvoiceModal(sale)}
+                          className="text-indigo-600 hover:text-indigo-900 text-xs font-medium text-left"
+                        >
+                          Email Invoice PDF
+                        </button>
                         {sale.referencePdfPath && (
                           <a
                             href={`/api/uploads/inline?path=${encodeURIComponent(sale.referencePdfPath)}`}
@@ -1383,6 +1457,67 @@ export default function CanteenSalesPage() {
                     className="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {isReserving ? 'Reserving...' : 'Reserve'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email Invoice Modal */}
+      {emailInvoiceSale && !emailInvoiceSale.isReservation && (
+        <div className="fixed inset-0 bg-gray-700/50 overflow-y-auto z-50">
+          <div className="min-h-full flex items-start justify-center p-3 sm:p-4 md:pt-16">
+            <div className="relative w-full max-w-lg p-4 sm:p-5 border shadow-xl rounded-xl bg-white">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
+                Email Invoice PDF - {emailInvoiceSale.invoiceNumber}
+              </h3>
+
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="invoiceEmailTo" className="block text-xs font-medium text-gray-700 mb-1">
+                    To (Email)
+                  </label>
+                  <input
+                    id="invoiceEmailTo"
+                    type="email"
+                    value={emailInvoiceTo}
+                    onChange={(e) => setEmailInvoiceTo(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="recipient@example.com"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Default: trinityoilmills@gmail.com</p>
+                </div>
+
+                {emailInvoiceStatus && (
+                  <div
+                    className={`px-3 py-2 rounded-md text-sm border ${
+                      emailInvoiceStatus.type === 'success'
+                        ? 'bg-green-50 border-green-200 text-green-700'
+                        : 'bg-red-50 border-red-200 text-red-700'
+                    }`}
+                  >
+                    {emailInvoiceStatus.message}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={closeEmailInvoiceModal}
+                    disabled={isEmailInvoiceSending}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={sendInvoicePdfEmail}
+                    disabled={isEmailInvoiceSending}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {isEmailInvoiceSending ? 'Sending...' : 'Send Email'}
                   </button>
                 </div>
               </div>

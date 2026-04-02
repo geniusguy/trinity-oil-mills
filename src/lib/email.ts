@@ -145,3 +145,50 @@ export const sendWelcomeEmail = async (email: string, userName: string, role: st
     return { success: false, error: error };
   }
 };
+
+export const sendInvoicePdfEmail = async (toEmail: string, invoiceNumber: string, pdfBuffer: Buffer) => {
+  try {
+    const transporter = createTransporter();
+
+    const from =
+      process.env.SMTP_EMAIL_FROM ||
+      process.env.SMTP_USER ||
+      process.env.EMAIL_USER ||
+      'trinityoilmills@gmail.com';
+
+    const safeInvoice = String(invoiceNumber || 'invoice').replace(/[^a-z0-9\-_/]/gi, '');
+    const filename = `${safeInvoice}.pdf`;
+
+    const mailOptions = {
+      from,
+      to: String(toEmail).trim(),
+      subject: `Trinity Oil Mills - Invoice ${safeInvoice}`,
+      text: `Dear Customer,\n\nPlease find attached Invoice PDF: ${safeInvoice}.\n\nThanks,\nTrinity Oil Mills`,
+      attachments: [
+        {
+          filename,
+          content: pdfBuffer,
+          contentType: 'application/pdf',
+        },
+      ],
+    };
+
+    const result = await transporter.sendMail(mailOptions);
+    console.log('✅ Invoice PDF email sent:', {
+      to: toEmail,
+      messageId: result?.messageId,
+      accepted: result?.accepted,
+      rejected: result?.rejected,
+    });
+    return {
+      success: true,
+      messageId: result?.messageId,
+      accepted: result?.accepted ?? [],
+      rejected: result?.rejected ?? [],
+      response: result?.response,
+    };
+  } catch (error) {
+    console.error('❌ Error sending invoice PDF email:', error);
+    return { success: false, error };
+  }
+};
