@@ -633,7 +633,23 @@ export default function CanteenSalesPage() {
           body: fd,
           credentials: 'include',
         });
-        const upJson = await upRes.json();
+
+        // Server may return JSON on success/error, but on some failures it can return text/HTML.
+        // Guard against `res.json()` throwing to keep the UI actionable.
+        let upJson: any = null;
+        try {
+          const ct = String(upRes.headers.get('content-type') || '').toLowerCase();
+          if (ct.includes('application/json')) {
+            upJson = await upRes.json();
+          } else {
+            const txt = await upRes.text().catch(() => '');
+            upJson = { error: txt || `PDF upload failed (HTTP ${upRes.status})` };
+          }
+        } catch (e) {
+          const txt = await upRes.text().catch(() => '');
+          upJson = { error: txt || `PDF upload failed (HTTP ${upRes.status})` };
+        }
+
         if (!upRes.ok) {
           const msg = upJson.error || 'PDF upload failed';
           setEditReferencePdfError(msg);
@@ -658,7 +674,19 @@ export default function CanteenSalesPage() {
         body: JSON.stringify(updateData)
       });
 
-      const data = await response.json();
+      let data: any = null;
+      try {
+        const ct = String(response.headers.get('content-type') || '').toLowerCase();
+        if (ct.includes('application/json')) {
+          data = await response.json();
+        } else {
+          const txt = await response.text().catch(() => '');
+          data = { error: txt || `Update failed (HTTP ${response.status})` };
+        }
+      } catch (e) {
+        const txt = await response.text().catch(() => '');
+        data = { error: txt || `Update failed (HTTP ${response.status})` };
+      }
 
       if (response.ok) {
         setSuccess('Sale updated successfully');
@@ -712,7 +740,19 @@ export default function CanteenSalesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ toEmail: emailInvoiceTo }),
       });
-      const data = await res.json();
+      let data: any = null;
+      try {
+        const ct = String(res.headers.get('content-type') || '').toLowerCase();
+        if (ct.includes('application/json')) {
+          data = await res.json();
+        } else {
+          const txt = await res.text().catch(() => '');
+          data = { error: txt || `Failed to send email (HTTP ${res.status})` };
+        }
+      } catch (e) {
+        const txt = await res.text().catch(() => '');
+        data = { error: txt || `Failed to send email (HTTP ${res.status})` };
+      }
 
       if (!res.ok) {
         setEmailInvoiceStatus({
