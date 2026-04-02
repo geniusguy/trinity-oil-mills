@@ -669,7 +669,10 @@ export default function CanteenSalesPage() {
         setError(data.error || 'Failed to update sale');
       }
     } catch (error) {
-      setError('Network error. Please try again.');
+      // Preserve the real API error message (e.g. PDF too large / unauthorized / invalid scope)
+      // instead of masking it as a generic network error.
+      const msg = (error as any)?.message || 'Network error. Please try again.';
+      setError(msg);
     } finally {
       setIsUpdating(false);
     }
@@ -723,10 +726,12 @@ export default function CanteenSalesPage() {
       const rejected = Array.isArray(data?.rejected) ? data.rejected : [];
       const acceptedText = accepted.length ? `Accepted: ${accepted.join(', ')}` : 'Accepted: —';
       const rejectedText = rejected.length ? `Rejected: ${rejected.join(', ')}` : 'Rejected: —';
+      const usedFallback = Boolean(data?.usedFallback);
+      const fallbackMsg = usedFallback ? ` (NOTE: HTML->PDF failed on server, used legacy PDF instead${data?.htmlPdfError ? `: ${data.htmlPdfError}` : ''})` : '';
 
       setEmailInvoiceStatus({
         type: 'success',
-        message: `Successfully email sent to ${emailInvoiceTo}. ${acceptedText}. ${rejectedText}.`,
+        message: `Successfully email sent to ${emailInvoiceTo}. ${acceptedText}. ${rejectedText}.${fallbackMsg}`,
       });
       fetchCanteenSales();
     } catch (e: any) {

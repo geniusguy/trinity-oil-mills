@@ -55,6 +55,7 @@ export async function POST(
 
       let pdfBuffer: Buffer | null = null;
       let usedFallback = false;
+      let htmlPdfError: string | null = null;
 
       // Attempt HTML->PDF via Playwright.
       try {
@@ -80,7 +81,8 @@ export async function POST(
       } catch (e: any) {
         // Typical server-side failure: missing Linux shared libraries for Chromium.
         // Example in your log: `error while loading shared libraries: libatk-1.0.so.0`.
-        console.error('HTML invoice PDF (Playwright) failed:', e?.message || e);
+        htmlPdfError = e?.message || String(e);
+        console.error('HTML invoice PDF (Playwright) failed:', htmlPdfError);
       }
 
       // If Playwright failed, fall back to legacy jsPDF endpoint so the email still goes out.
@@ -136,6 +138,7 @@ export async function POST(
           rejected: emailResult.rejected,
           messageId: emailResult.messageId,
           usedFallback,
+          htmlPdfError,
         },
         { status: 200 },
       );
