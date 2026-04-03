@@ -699,7 +699,6 @@ export default function RetailSalesPage() {
                       <div className="flex flex-col space-y-1">
                         <a 
                           href={`/api/sales/${sale.id}/invoice/html`} 
-                          target="_blank" 
                           className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
                         >
                           📄 Invoice

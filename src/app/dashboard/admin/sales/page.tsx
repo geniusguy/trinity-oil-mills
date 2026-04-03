@@ -871,7 +871,6 @@ export default function AdminSalesPage() {
                       <div className="flex flex-col space-y-1">
                         <a 
                           href={`/api/sales/${s.id}/invoice/html`} 
-                          target="_blank" 
                           className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
                         >
                           📄 Invoice
@@ -879,8 +878,6 @@ export default function AdminSalesPage() {
                         {(s as any).referencePdfPath && (
                           <a
                             href={`/api/uploads/inline?path=${encodeURIComponent((s as any).referencePdfPath)}`}
-                            target="_blank"
-                            rel="noreferrer"
                             className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
                           >
                             📎 View PDF
@@ -1073,8 +1070,6 @@ export default function AdminSalesPage() {
                       <div className="mt-2">
                         <a
                           href={`/api/uploads/inline?path=${encodeURIComponent(existingPdfPath)}`}
-                          target="_blank"
-                          rel="noreferrer"
                           className="text-xs text-indigo-600 hover:text-indigo-900 font-medium underline"
                         >
                           View current PDF

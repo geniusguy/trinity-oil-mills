@@ -1247,8 +1247,6 @@ export default function CourierExpensesPage() {
                 {!billPdfFile && existingPdfPath && (
                   <a
                     href={`/api/uploads/inline?path=${encodeURIComponent(existingPdfPath)}`}
-                    target="_blank"
-                    rel="noreferrer"
                     className="inline-block mt-1 text-xs text-indigo-600 hover:text-indigo-800 underline"
                   >
                     View current PDF{existingPdfOriginalName ? ` (${existingPdfOriginalName})` : ''}
@@ -1432,8 +1430,6 @@ export default function CourierExpensesPage() {
                           <div className="mt-1">
                             <a
                               href={`/api/uploads/inline?path=${encodeURIComponent(r.referencePdfPath)}`}
-                              target="_blank"
-                              rel="noreferrer"
                               className="text-indigo-600 hover:text-indigo-800 text-[11px] font-medium underline"
                             >
                               View PDF

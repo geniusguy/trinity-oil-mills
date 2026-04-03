@@ -1247,8 +1247,6 @@ export default function POSPage() {
                       {referencePdfPreviewUrl && (
                         <a
                           href={referencePdfPreviewUrl}
-                          target="_blank"
-                          rel="noreferrer"
                           className="inline-block mt-1 text-xs text-blue-600 hover:text-blue-800 underline"
                         >
                           View selected PDF

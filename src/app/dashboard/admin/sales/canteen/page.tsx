@@ -1345,8 +1345,6 @@ export default function CanteenSalesPage() {
                           {sale.referencePdfPath ? (
                             <a
                               href={`/api/uploads/inline?path=${encodeURIComponent(sale.referencePdfPath)}`}
-                              target="_blank"
-                              rel="noreferrer"
                               className="text-indigo-600 hover:text-indigo-900 font-medium underline"
                             >
                               View PDF
@@ -1388,7 +1386,6 @@ export default function CanteenSalesPage() {
                         {!sale.isReservation && (
                           <a 
                             href={`/api/sales/${sale.id}/invoice/html`} 
-                            target="_blank" 
                             className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
                           >
                             📄 Invoice
@@ -1404,8 +1401,6 @@ export default function CanteenSalesPage() {
                         {sale.referencePdfPath && (
                           <a
                             href={`/api/uploads/inline?path=${encodeURIComponent(sale.referencePdfPath)}`}
-                            target="_blank"
-                            rel="noreferrer"
                             className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
                           >
                             📎 View PDF
@@ -1781,8 +1776,6 @@ export default function CanteenSalesPage() {
                       <div className="mb-2">
                         <a
                           href={`/api/uploads/inline?path=${encodeURIComponent(selectedSale.referencePdfPath)}`}
-                          target="_blank"
-                          rel="noreferrer"
                           className="text-xs text-indigo-600 hover:text-indigo-900 font-medium underline"
                         >
                           View current PDF
