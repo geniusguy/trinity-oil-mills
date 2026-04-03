@@ -1344,7 +1344,7 @@ export default function CanteenSalesPage() {
                           <span className="font-semibold">Reference PDF:</span>{' '}
                           {sale.referencePdfPath ? (
                             <a
-                              href={sale.referencePdfPath}
+                              href={`/api/uploads/inline?path=${encodeURIComponent(sale.referencePdfPath)}`}
                               target="_blank"
                               rel="noreferrer"
                               className="text-indigo-600 hover:text-indigo-900 font-medium underline"
@@ -1403,7 +1403,7 @@ export default function CanteenSalesPage() {
                         </button>
                         {sale.referencePdfPath && (
                           <a
-                            href={sale.referencePdfPath}
+                            href={`/api/uploads/inline?path=${encodeURIComponent(sale.referencePdfPath)}`}
                             target="_blank"
                             rel="noreferrer"
                             className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
@@ -1780,7 +1780,7 @@ export default function CanteenSalesPage() {
                     {selectedSale.referencePdfPath && !editReferencePdfFile && (
                       <div className="mb-2">
                         <a
-                          href={selectedSale.referencePdfPath}
+                          href={`/api/uploads/inline?path=${encodeURIComponent(selectedSale.referencePdfPath)}`}
                           target="_blank"
                           rel="noreferrer"
                           className="text-xs text-indigo-600 hover:text-indigo-900 font-medium underline"
