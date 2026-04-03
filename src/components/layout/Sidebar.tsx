@@ -204,6 +204,20 @@ const navigationSections: NavSection[] = [
         roles: ['admin', 'accountant', 'retail_staff']
       },
       {
+        name: 'Payments Made',
+        href: '/dashboard/admin/purchase-payments',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-2" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 10h10" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 14h7" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 8v8" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M23 11l-3-3-3 3" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff']
+      },
+      {
         name: 'Oil Purchase Volume',
         href: '/dashboard/admin/oil-purchase-volume',
         icon: (
@@ -295,6 +309,18 @@ const navigationSections: NavSection[] = [
         ),
         roles: ['admin', 'accountant'],
         description: 'Returns, expiry write-off, P&L adjustment'
+      },
+      {
+        name: 'Resent Fresh Bottles',
+        href: '/dashboard/admin/sales-return-resent',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-3-6.708M21 3v6h-6" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h10v10H7z" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant'],
+        description: 'Expired returns replacements (stock deduction)'
       },
       {
         name: 'Loan Management',

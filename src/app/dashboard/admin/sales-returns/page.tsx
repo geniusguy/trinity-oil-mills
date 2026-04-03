@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
@@ -254,21 +254,7 @@ export default function SalesReturnsPage() {
 
       setSuccess(isEdit ? 'Return entry updated' : 'Return entry created. P&L will include this in selected period.');
       setEditingId(null);
-      setForm({
-        saleId: '',
-        saleType: 'canteen',
-        canteenName: '',
-        productName: '',
-        unit: 'bottles',
-        quantity: '',
-        unitPriceExGst: '',
-        gstRate: '5',
-        otherExpenses: '',
-        returnNature: 'expiry',
-        accountingImpact: 'revenue_reversal',
-        reason: '',
-        returnDate: new Date().toISOString().slice(0, 10),
-      });
+      setForm(emptyForm());
       await load();
     } catch {
       setError(editingId ? 'Network error while updating return' : 'Network error while creating return');
@@ -299,12 +285,10 @@ export default function SalesReturnsPage() {
     });
   };
 
-  const cancelEdit = () => {
-    setEditingId(null);
-    setFieldErrors({});
-    setForm({
+  const emptyForm = useCallback(
+    () => ({
       saleId: '',
-      saleType: 'canteen',
+      saleType: 'canteen' as const,
       canteenName: '',
       productName: '',
       unit: 'bottles',
@@ -312,12 +296,28 @@ export default function SalesReturnsPage() {
       unitPriceExGst: '',
       gstRate: '5',
       otherExpenses: '',
-      returnNature: 'expiry',
-      accountingImpact: 'revenue_reversal',
+      returnNature: 'expiry' as const,
+      accountingImpact: 'revenue_reversal' as const,
       reason: '',
       returnDate: new Date().toISOString().slice(0, 10),
-    });
-  };
+    }),
+    [],
+  );
+
+  const cancelEdit = useCallback(() => {
+    setEditingId(null);
+    setFieldErrors({});
+    setForm(emptyForm());
+  }, [emptyForm]);
+
+  useEffect(() => {
+    if (!editingId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') cancelEdit();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editingId, cancelEdit]);
 
   const removeRow = async (id: string) => {
     if (!window.confirm('Delete this return entry?')) return;

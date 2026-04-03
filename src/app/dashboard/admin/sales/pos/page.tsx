@@ -130,6 +130,9 @@ export default function POSPage() {
   const [currentYear, setCurrentYear] = useState(() => getFinancialYearLabelForDate(new Date()));
   const [editingQuantity, setEditingQuantity] = useState<Record<string, string>>({});
   const [castor200mlBillingCode, setCastor200mlBillingCode] = useState<string>(CASTOR_200ML_NEW_CODE); // default new code
+  /** Shown after a successful checkout so staff can void the invoice from POS (restores stock). */
+  const [justCreatedSale, setJustCreatedSale] = useState<{ id: string; invoiceNumber: string } | null>(null);
+  const [isDeletingLastSale, setIsDeletingLastSale] = useState(false);
   const { addToast, ToastContainer } = useToast();
 
   // Set mounted and FY label for invoice hint (matches invoice date)
@@ -548,12 +551,17 @@ export default function POSPage() {
       const result = await response.json();
 
       if (response.ok) {
+        const inv = result.sale?.invoiceNumber || 'Generated';
+        const sid = result.sale?.id;
         addToast(
-          `🎉 Sale completed! Invoice: ${result.sale?.invoiceNumber || 'Generated'}${
-            uploadedReferencePdfPath ? ' (Reference PDF attached)' : ''
-          }`,
+          `🎉 Sale completed! Invoice: ${inv}${uploadedReferencePdfPath ? ' (Reference PDF attached)' : ''}`,
           'success',
         );
+        if (sid) {
+          setJustCreatedSale({ id: String(sid), invoiceNumber: String(inv) });
+        } else {
+          setJustCreatedSale(null);
+        }
         setCart([]);
         setCustomerName('');
         setSelectedCanteen('');
@@ -572,11 +580,6 @@ export default function POSPage() {
         setCustomInvoiceNum('');
         setCustomInvoiceYear(getFinancialYearLabelForDate(new Date()));
         setShowInvoiceEdit(false);
-        const salesListPath =
-          saleType === 'canteen' ? '/dashboard/admin/sales/canteen' : '/dashboard/admin/sales';
-        setTimeout(() => {
-          router.push(salesListPath);
-        }, 2000);
       } else {
         const rawError = String(result.error || 'Failed to process sale');
         const lower = rawError.toLowerCase();
@@ -593,6 +596,35 @@ export default function POSPage() {
       addToast(msg, 'error');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const deleteJustCreatedSale = async () => {
+    if (!justCreatedSale) return;
+    if (
+      !window.confirm(
+        `Delete invoice ${justCreatedSale.invoiceNumber}? This removes the sale and restores product quantities in inventory (same rules as sales list delete).`,
+      )
+    ) {
+      return;
+    }
+    try {
+      setIsDeletingLastSale(true);
+      const res = await fetch(`/api/sales/${encodeURIComponent(justCreatedSale.id)}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        addToast(String(data.error || 'Failed to delete sale'), 'error');
+        return;
+      }
+      addToast('Invoice deleted. Stock restored for all line items.', 'success');
+      setJustCreatedSale(null);
+    } catch {
+      addToast('Network error while deleting sale', 'error');
+    } finally {
+      setIsDeletingLastSale(false);
     }
   };
 
@@ -690,6 +722,40 @@ export default function POSPage() {
           </div>
         </div>
       </div>
+
+      {justCreatedSale && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-amber-950">
+              <span className="font-semibold">Last sale:</span> {justCreatedSale.invoiceNumber}. Stock was reduced for this
+              invoice. If this was a mistake, delete it here — inventory is restored the same way as on the sales list.
+            </div>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={deleteJustCreatedSale}
+                disabled={isDeletingLastSale}
+                className="px-3 py-1.5 rounded-md text-sm font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {isDeletingLastSale ? 'Deleting…' : 'Delete this invoice'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setJustCreatedSale(null)}
+                className="px-3 py-1.5 rounded-md text-sm font-medium border border-amber-400 text-amber-900 hover:bg-amber-100"
+              >
+                Dismiss
+              </button>
+              <Link
+                href={saleType === 'canteen' ? '/dashboard/admin/sales/canteen' : '/dashboard/admin/sales'}
+                className="px-3 py-1.5 rounded-md text-sm font-medium bg-gray-700 text-white hover:bg-gray-800 text-center"
+              >
+                Sales list
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Success/Error Messages */}
       {success && (

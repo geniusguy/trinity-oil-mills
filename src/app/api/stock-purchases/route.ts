@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
 import { auth } from '@/lib/auth';
+import { ensureStockPurchasePaymentsTable } from '@/lib/stockPurchasePaymentsDb';
 
 // GET /api/stock-purchases — list with filters: productId, supplier, dateFrom, dateTo
 export async function GET(request: NextRequest) {
@@ -18,6 +19,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '100', 10), 500);
 
     const connection = await createConnection();
+    await ensureStockPurchasePaymentsTable(connection);
 
     const where: string[] = [];
     const params: any[] = [];
@@ -52,7 +54,19 @@ export async function GET(request: NextRequest) {
       `SELECT sp.id, sp.product_id as productId, p.name as productName, p.unit as unit,
               sp.quantity, sp.supplier_name as supplierName, sp.purchase_date as purchaseDate,
               sp.unit_price as unitPrice, sp.total_amount as totalAmount,
-              sp.invoice_number as invoiceNumber, sp.notes, sp.created_at as createdAt
+              sp.invoice_number as invoiceNumber, sp.notes, sp.created_at as createdAt,
+              COALESCE(pay_agg.total_paid, 0) as totalPaid,
+              pay_agg.last_paid_on as lastPaidOn,
+              CASE
+                WHEN sp.total_amount IS NULL THEN NULL
+                ELSE ROUND(CAST(sp.total_amount AS DECIMAL(14,2)) - COALESCE(pay_agg.total_paid, 0), 2)
+              END as balanceDue,
+              CASE
+                WHEN sp.total_amount IS NULL THEN 'unknown'
+                WHEN COALESCE(pay_agg.total_paid, 0) <= 0 THEN 'unpaid'
+                WHEN COALESCE(pay_agg.total_paid, 0) + 0.005 >= CAST(sp.total_amount AS DECIMAL(14,2)) THEN 'paid'
+                ELSE 'partial'
+              END as paymentStatus
        FROM stock_purchases sp
        JOIN products p ON p.id COLLATE utf8mb4_general_ci = (
          CASE
@@ -60,6 +74,13 @@ export async function GET(request: NextRequest) {
            ELSE sp.product_id
          END
        ) COLLATE utf8mb4_general_ci
+       LEFT JOIN (
+         SELECT stock_purchase_id,
+                COALESCE(SUM(amount), 0) as total_paid,
+                MAX(paid_on) as last_paid_on
+         FROM stock_purchase_payments
+         GROUP BY stock_purchase_id
+       ) pay_agg ON pay_agg.stock_purchase_id COLLATE utf8mb4_general_ci = sp.id COLLATE utf8mb4_general_ci
        ${whereSql}
        ORDER BY sp.purchase_date DESC, sp.created_at DESC
        LIMIT ?`,

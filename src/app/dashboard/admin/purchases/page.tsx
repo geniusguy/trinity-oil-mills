@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -10,6 +10,8 @@ interface Product {
   name: string;
   unit: string;
 }
+
+type PaymentStatus = 'unpaid' | 'partial' | 'paid' | 'unknown';
 
 interface Purchase {
   id: string;
@@ -24,6 +26,18 @@ interface Purchase {
   invoiceNumber: string | null;
   notes: string | null;
   createdAt: string;
+  totalPaid?: number;
+  lastPaidOn?: string | null;
+  balanceDue?: number | null;
+  paymentStatus?: PaymentStatus;
+}
+
+interface VendorPaymentRow {
+  id: string;
+  amount: number;
+  paidOn: string;
+  notes: string | null;
+  createdAt?: string;
 }
 
 interface PurchaseDraftLine {
@@ -78,6 +92,9 @@ export default function StockPurchasesPage() {
     | 'supplierName'
     | 'unitPrice'
     | 'totalAmount'
+    | 'totalPaid'
+    | 'balanceDue'
+    | 'paymentStatus'
     | 'invoiceNumber'
     | 'notes'
     | 'tins'
@@ -95,6 +112,17 @@ export default function StockPurchasesPage() {
     unitPrice: '',
     totalAmount: '',
     invoiceNumber: '',
+    notes: '',
+  });
+
+  const [paymentsModalPurchase, setPaymentsModalPurchase] = useState<Purchase | null>(null);
+  const [paymentLines, setPaymentLines] = useState<VendorPaymentRow[]>([]);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [paymentModalError, setPaymentModalError] = useState('');
+  const [paymentForm, setPaymentForm] = useState({
+    amount: '',
+    paidOn: new Date().toISOString().slice(0, 10),
     notes: '',
   });
 
@@ -250,8 +278,13 @@ export default function StockPurchasesPage() {
     const totalAmount = purchases.reduce((acc, p) => acc + (Number(p.totalAmount) || 0), 0);
     const totalQty = purchases.reduce((acc, p) => acc + (Number(p.quantity) || 0), 0);
     const totalTins = purchasesWithTins.reduce((acc, p: any) => acc + (Number(p.tinsDisplay) || 0), 0);
+    const totalPaid = purchases.reduce((acc, p) => acc + (Number(p.totalPaid) || 0), 0);
+    const totalBalance = purchases.reduce((acc, p) => {
+      const b = p.balanceDue;
+      return acc + (typeof b === 'number' && Number.isFinite(b) ? b : 0);
+    }, 0);
 
-    return { totalAmount, totalQty, totalTins };
+    return { totalAmount, totalQty, totalTins, totalPaid, totalBalance };
   }, [purchases, purchasesWithTins]);
 
   const handleSort = (key: typeof sortBy) => {
@@ -270,8 +303,18 @@ export default function StockPurchasesPage() {
         return Number.isFinite(n) ? n : 0;
       };
 
-      if (sortBy === 'quantity' || sortBy === 'unitPrice' || sortBy === 'totalAmount' || sortBy === 'tins') {
+      if (
+        sortBy === 'quantity' ||
+        sortBy === 'unitPrice' ||
+        sortBy === 'totalAmount' ||
+        sortBy === 'totalPaid' ||
+        sortBy === 'balanceDue' ||
+        sortBy === 'tins'
+      ) {
         return (getNum(a[sortBy]) - getNum(b[sortBy])) * dir;
+      }
+      if (sortBy === 'paymentStatus') {
+        return String(a.paymentStatus ?? '').localeCompare(String(b.paymentStatus ?? '')) * dir;
       }
       if (sortBy === 'purchaseDate') {
         return (new Date(String(a.purchaseDate)).getTime() - new Date(String(b.purchaseDate)).getTime()) * dir;
@@ -279,6 +322,47 @@ export default function StockPurchasesPage() {
       return String(a[sortBy] ?? '').localeCompare(String(b[sortBy] ?? '')) * dir;
     });
   }, [purchasesWithTins, sortBy, sortOrder]);
+
+  const historyTopScrollRef = useRef<HTMLDivElement>(null);
+  const historyMainScrollRef = useRef<HTMLDivElement>(null);
+  const historyScrollSpacerRef = useRef<HTMLDivElement>(null);
+  const historyTableRef = useRef<HTMLTableElement>(null);
+  const historyScrollSyncing = useRef(false);
+
+  useLayoutEffect(() => {
+    const table = historyTableRef.current;
+    const spacer = historyScrollSpacerRef.current;
+    if (!table || !spacer) return;
+    const syncWidth = () => {
+      spacer.style.width = `${table.scrollWidth}px`;
+    };
+    syncWidth();
+    const ro = new ResizeObserver(syncWidth);
+    ro.observe(table);
+    return () => ro.disconnect();
+  }, [sortedPurchases, purchases.length, isLoadingPurchases]);
+
+  const onHistoryTopScroll = () => {
+    if (historyScrollSyncing.current) return;
+    historyScrollSyncing.current = true;
+    const top = historyTopScrollRef.current;
+    const main = historyMainScrollRef.current;
+    if (top && main) main.scrollLeft = top.scrollLeft;
+    requestAnimationFrame(() => {
+      historyScrollSyncing.current = false;
+    });
+  };
+
+  const onHistoryMainScroll = () => {
+    if (historyScrollSyncing.current) return;
+    historyScrollSyncing.current = true;
+    const top = historyTopScrollRef.current;
+    const main = historyMainScrollRef.current;
+    if (top && main) top.scrollLeft = main.scrollLeft;
+    requestAnimationFrame(() => {
+      historyScrollSyncing.current = false;
+    });
+  };
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -467,6 +551,128 @@ export default function StockPurchasesPage() {
   const formatCurrency = (n: number | null) => {
     if (n == null) return '—';
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(n);
+  };
+
+  const paymentStatusLabel = (s?: PaymentStatus) => {
+    switch (s) {
+      case 'paid':
+        return 'Paid';
+      case 'partial':
+        return 'Partial';
+      case 'unpaid':
+        return 'Unpaid';
+      default:
+        return '—';
+    }
+  };
+
+  const paymentStatusClass = (s?: PaymentStatus) => {
+    switch (s) {
+      case 'paid':
+        return 'bg-green-100 text-green-800';
+      case 'partial':
+        return 'bg-amber-100 text-amber-800';
+      case 'unpaid':
+        return 'bg-gray-100 text-gray-700';
+      default:
+        return 'bg-slate-100 text-slate-600';
+    }
+  };
+
+  const reloadPaymentLines = async (purchaseId: string) => {
+    const res = await fetch(`/api/stock-purchases/${encodeURIComponent(purchaseId)}/payments`);
+    const data = await res.json();
+    if (res.ok) setPaymentLines(Array.isArray(data.payments) ? data.payments : []);
+    else setPaymentModalError(data.error || 'Failed to refresh payments');
+  };
+
+  const openVendorPaymentsModal = async (p: Purchase) => {
+    setPaymentsModalPurchase(p);
+    setPaymentModalError('');
+    setPaymentForm({
+      amount: '',
+      paidOn: new Date().toISOString().slice(0, 10),
+      notes: '',
+    });
+    setPaymentLoading(true);
+    setPaymentLines([]);
+    try {
+      const res = await fetch(`/api/stock-purchases/${encodeURIComponent(p.id)}/payments`);
+      const data = await res.json();
+      if (!res.ok) {
+        setPaymentModalError(data.error || 'Failed to load payments');
+        return;
+      }
+      setPaymentLines(Array.isArray(data.payments) ? data.payments : []);
+    } catch {
+      setPaymentModalError('Network error loading payments');
+    } finally {
+      setPaymentLoading(false);
+    }
+  };
+
+  const closeVendorPaymentsModal = () => {
+    setPaymentsModalPurchase(null);
+    setPaymentLines([]);
+    setPaymentModalError('');
+  };
+
+  const submitVendorPayment = async () => {
+    if (!paymentsModalPurchase) return;
+    const amt = Number(paymentForm.amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      setPaymentModalError('Enter a valid payment amount.');
+      return;
+    }
+    setPaymentSaving(true);
+    setPaymentModalError('');
+    try {
+      const res = await fetch(`/api/stock-purchases/${encodeURIComponent(paymentsModalPurchase.id)}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: amt,
+          paidOn: paymentForm.paidOn,
+          notes: paymentForm.notes.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPaymentModalError(data.error || 'Failed to record payment');
+        return;
+      }
+      setPaymentForm((f) => ({ ...f, amount: '', notes: '' }));
+      await reloadPaymentLines(paymentsModalPurchase.id);
+      fetchPurchases();
+    } catch {
+      setPaymentModalError('Network error');
+    } finally {
+      setPaymentSaving(false);
+    }
+  };
+
+  const deleteVendorPayment = async (paymentId: string) => {
+    if (!paymentsModalPurchase) return;
+    if (!window.confirm('Remove this payment line?')) return;
+    setPaymentSaving(true);
+    setPaymentModalError('');
+    try {
+      const res = await fetch(
+        `/api/stock-purchases/${encodeURIComponent(paymentsModalPurchase.id)}/payments?paymentId=${encodeURIComponent(paymentId)}`,
+        { method: 'DELETE' },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setPaymentModalError(data.error || 'Failed to delete');
+        return;
+      }
+      await reloadPaymentLines(paymentsModalPurchase.id);
+      fetchPurchases();
+    } catch {
+      setPaymentModalError('Network error');
+    } finally {
+      setPaymentSaving(false);
+    }
   };
 
   const mlPerPackForForm = getMlPerPackForProductId(form.productId);
@@ -821,6 +1027,10 @@ export default function StockPurchasesPage() {
             <p className="text-sm text-gray-500 mt-1">
               When and from whom stock was purchased. Use filters to search.
             </p>
+            <p className="text-xs text-gray-500 mt-2">
+              Use the bar above the table or the one under it to scroll sideways; scroll the table area for up/down. The
+              header stays visible.
+            </p>
           </div>
 
           <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
@@ -882,10 +1092,18 @@ export default function StockPurchasesPage() {
 
           {/* Grand totals (filtered) */}
           <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
               <div className="rounded-md border border-gray-200 p-3 bg-white">
                 <div className="text-xs text-gray-500">Grand Total Amount (₹)</div>
                 <div className="text-lg font-semibold text-gray-900">{formatCurrency(grandTotals.totalAmount)}</div>
+              </div>
+              <div className="rounded-md border border-gray-200 p-3 bg-white">
+                <div className="text-xs text-gray-500">Grand Total Paid (₹)</div>
+                <div className="text-lg font-semibold text-gray-900">{formatCurrency(grandTotals.totalPaid)}</div>
+              </div>
+              <div className="rounded-md border border-gray-200 p-3 bg-white">
+                <div className="text-xs text-gray-500">Grand Balance Due (₹)</div>
+                <div className="text-lg font-semibold text-gray-900">{formatCurrency(grandTotals.totalBalance)}</div>
               </div>
               <div className="rounded-md border border-gray-200 p-3 bg-white">
                 <div className="text-xs text-gray-500">Grand Total Quantity</div>
@@ -898,7 +1116,7 @@ export default function StockPurchasesPage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="border-t border-gray-100">
             {isLoadingPurchases ? (
               <div className="p-8 text-center text-gray-500">Loading purchase history...</div>
             ) : purchases.length === 0 ? (
@@ -906,70 +1124,108 @@ export default function StockPurchasesPage() {
                 No purchase records found. Add stock using the form above to see history here.
               </div>
             ) : (
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <>
+                <div
+                  ref={historyTopScrollRef}
+                  onScroll={onHistoryTopScroll}
+                  className="overflow-x-auto overflow-y-hidden overscroll-x-contain -mx-1 px-1 sm:mx-0 sm:px-0 border-b border-gray-200 bg-gray-50"
+                  style={{ WebkitOverflowScrolling: 'touch' }}
+                >
+                  <div ref={historyScrollSpacerRef} className="h-2.5 shrink-0" aria-hidden />
+                </div>
+                <div
+                  ref={historyMainScrollRef}
+                  onScroll={onHistoryMainScroll}
+                  className="max-h-[min(75vh,42rem)] overflow-auto overscroll-contain -mx-1 px-1 sm:mx-0 sm:px-0"
+                  style={{ WebkitOverflowScrolling: 'touch' }}
+                >
+                  <table ref={historyTableRef} className="min-w-max w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50 sticky top-0 z-10 shadow-[0_1px_0_0_rgb(229,231,235)]">
                   <tr>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
                       onClick={() => handleSort('purchaseDate')}
                     >
                       Date {sortBy === 'purchaseDate' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
                       onClick={() => handleSort('productName')}
                     >
                       Product {sortBy === 'productName' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
                       onClick={() => handleSort('quantity')}
                     >
                       Qty {sortBy === 'quantity' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
                       onClick={() => handleSort('unit')}
                     >
                       Unit {sortBy === 'unit' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
                       onClick={() => handleSort('supplierName')}
                     >
                       Supplier {sortBy === 'supplierName' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
                       onClick={() => handleSort('unitPrice')}
                     >
                       Unit Price {sortBy === 'unitPrice' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
                       onClick={() => handleSort('totalAmount')}
                     >
                       Total {sortBy === 'totalAmount' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
+                      onClick={() => handleSort('totalPaid')}
+                    >
+                      Paid {sortBy === 'totalPaid' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                    </th>
+                    <th
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
+                      onClick={() => handleSort('balanceDue')}
+                    >
+                      Balance {sortBy === 'balanceDue' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                    </th>
+                    <th
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
+                      onClick={() => handleSort('paymentStatus')}
+                    >
+                      Pay status {sortBy === 'paymentStatus' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
+                    </th>
+                    <th
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap"
+                    >
+                      Last paid
+                    </th>
+                    <th
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
                       onClick={() => handleSort('invoiceNumber')}
                     >
                       Invoice {sortBy === 'invoiceNumber' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
                       onClick={() => handleSort('notes')}
                     >
                       Notes {sortBy === 'notes' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                      className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap"
                       onClick={() => handleSort('tins')}
                     >
                       No. of Tin {sortBy === 'tins' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
                       Actions
                     </th>
                   </tr>
@@ -977,19 +1233,43 @@ export default function StockPurchasesPage() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {sortedPurchases.map((p: any) => (
                     <tr key={p.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{formatDate(p.purchaseDate)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{getPurchaseProductDisplayName(p.productName)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{Number(p.quantity)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.unit}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.supplierName}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{formatCurrency(p.unitPrice)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{formatCurrency(p.totalAmount)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.invoiceNumber || '—'}</td>
-                      <td className="px-6 py-4 text-sm text-gray-700 max-w-xs truncate" title={p.notes || ''}>{p.notes || '—'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{formatDate(p.purchaseDate)}</td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm font-medium text-gray-900">{getPurchaseProductDisplayName(p.productName)}</td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{Number(p.quantity)}</td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{p.unit}</td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{p.supplierName}</td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{formatCurrency(p.unitPrice)}</td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{formatCurrency(p.totalAmount)}</td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">
+                        {formatCurrency(p.totalPaid != null ? Number(p.totalPaid) : 0)}
+                      </td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">
+                        {p.balanceDue == null ? '—' : formatCurrency(Number(p.balanceDue))}
+                      </td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm">
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${paymentStatusClass(p.paymentStatus)}`}
+                        >
+                          {paymentStatusLabel(p.paymentStatus)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">
+                        {p.lastPaidOn ? formatDate(String(p.lastPaidOn)) : '—'}
+                      </td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{p.invoiceNumber || '—'}</td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 text-sm text-gray-700 max-w-[10rem] sm:max-w-xs truncate" title={p.notes || ''}>{p.notes || '—'}</td>
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">
                         {p.tinsDisplay == null ? '—' : p.tinsDisplay}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                      <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700 align-top">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-center min-w-[5.5rem]">
+                        <button
+                          type="button"
+                          onClick={() => openVendorPaymentsModal(p)}
+                          className="text-indigo-600 hover:text-indigo-900 font-medium text-xs sm:mr-2 text-left"
+                        >
+                          Payments
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
@@ -1008,23 +1288,26 @@ export default function StockPurchasesPage() {
                             setError('');
                             setSuccess('');
                           }}
-                          className="text-blue-600 hover:text-blue-900 font-medium text-xs"
+                          className="text-blue-600 hover:text-blue-900 font-medium text-xs text-left"
                         >
                           Edit
                         </button>
                         <button
                           type="button"
                           onClick={() => handleDeletePurchase(p)}
-                          className="ml-3 text-red-600 hover:text-red-900 font-medium text-xs"
+                          className="sm:ml-3 text-red-600 hover:text-red-900 font-medium text-xs text-left"
                           disabled={isUpdating}
                         >
                           Delete
                         </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+                </div>
+              </>
             )}
             {showEditModal && selectedPurchase && (
               <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
@@ -1210,6 +1493,167 @@ export default function StockPurchasesPage() {
                       </button>
                     </div>
                   </form>
+                </div>
+              </div>
+            )}
+
+            {paymentsModalPurchase && (
+              <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-[60]">
+                <div className="relative top-8 mx-auto p-5 border w-full max-w-lg shadow-lg rounded-md bg-white mb-8">
+                  <h3 className="text-lg font-medium text-gray-900 mb-1">Vendor payments</h3>
+                  <p className="text-sm text-gray-600 mb-3">
+                    {paymentsModalPurchase.supplierName} · {getPurchaseProductDisplayName(paymentsModalPurchase.productName)}
+                  </p>
+                  {(() => {
+                    const bill =
+                      paymentsModalPurchase.totalAmount != null
+                        ? Number(paymentsModalPurchase.totalAmount)
+                        : null;
+                    const paidSum = paymentLines.reduce((acc, row) => acc + Number(row.amount || 0), 0);
+                    const bal = bill != null && Number.isFinite(bill) ? Number((bill - paidSum).toFixed(2)) : null;
+                    const st: PaymentStatus =
+                      bill == null
+                        ? 'unknown'
+                        : paidSum <= 0
+                          ? 'unpaid'
+                          : paidSum + 0.005 >= bill
+                            ? 'paid'
+                            : 'partial';
+                    return (
+                      <div className="rounded-md border border-gray-200 bg-gray-50 p-3 text-sm mb-4 space-y-1">
+                        <div className="flex justify-between gap-2">
+                          <span className="text-gray-600">Bill total</span>
+                          <span className="font-medium">{formatCurrency(bill)}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-gray-600">Paid to vendor</span>
+                          <span className="font-medium">{formatCurrency(paidSum)}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span className="text-gray-600">Balance</span>
+                          <span className="font-medium">{bal == null ? '—' : formatCurrency(bal)}</span>
+                        </div>
+                        <div className="flex justify-between gap-2 items-center">
+                          <span className="text-gray-600">Status</span>
+                          <span
+                            className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${paymentStatusClass(st)}`}
+                          >
+                            {paymentStatusLabel(st)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {paymentModalError && (
+                    <div className="mb-3 text-sm text-red-600 bg-red-50 border border-red-100 rounded px-2 py-2">
+                      {paymentModalError}
+                    </div>
+                  )}
+
+                  {paymentLoading ? (
+                    <div className="text-sm text-gray-500 py-4">Loading payments…</div>
+                  ) : (
+                    <>
+                      <div className="border rounded-md overflow-hidden mb-4 max-h-48 overflow-y-auto">
+                        <table className="min-w-full text-sm">
+                          <thead className="bg-gray-50 sticky top-0">
+                            <tr>
+                              <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-600">Date</th>
+                              <th className="px-2 py-1.5 text-right text-xs font-medium text-gray-600">Amount</th>
+                              <th className="px-2 py-1.5 text-left text-xs font-medium text-gray-600">Note</th>
+                              <th className="px-2 py-1.5 text-right text-xs font-medium text-gray-600"> </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paymentLines.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="px-2 py-3 text-center text-gray-500 text-xs">
+                                  No payments yet. Add one full payment or multiple installments below.
+                                </td>
+                              </tr>
+                            ) : (
+                              paymentLines.map((row) => (
+                                <tr key={row.id} className="border-t border-gray-100">
+                                  <td className="px-2 py-1.5 text-gray-800">{row.paidOn}</td>
+                                  <td className="px-2 py-1.5 text-right text-gray-800">
+                                    {formatCurrency(Number(row.amount))}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-gray-600 truncate max-w-[120px]" title={row.notes || ''}>
+                                    {row.notes || '—'}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-right">
+                                    <button
+                                      type="button"
+                                      onClick={() => deleteVendorPayment(row.id)}
+                                      disabled={paymentSaving}
+                                      className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                                    >
+                                      Remove
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="space-y-3 border-t border-gray-200 pt-4">
+                        <p className="text-xs font-medium text-gray-700">Record payment</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-xs text-gray-600 mb-0.5">Amount (₹) *</label>
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={paymentForm.amount}
+                              onChange={(e) => setPaymentForm((f) => ({ ...f, amount: e.target.value }))}
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-gray-600 mb-0.5">Paid on *</label>
+                            <input
+                              type="date"
+                              value={paymentForm.paidOn}
+                              onChange={(e) => setPaymentForm((f) => ({ ...f, paidOn: e.target.value }))}
+                              className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-600 mb-0.5">Note (optional)</label>
+                          <input
+                            type="text"
+                            value={paymentForm.notes}
+                            onChange={(e) => setPaymentForm((f) => ({ ...f, notes: e.target.value }))}
+                            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                            placeholder="e.g. UPI ref, chq no."
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={closeVendorPaymentsModal}
+                            className="px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50"
+                            disabled={paymentSaving}
+                          >
+                            Close
+                          </button>
+                          <button
+                            type="button"
+                            onClick={submitVendorPayment}
+                            disabled={paymentSaving}
+                            className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
+                          >
+                            {paymentSaving ? 'Saving…' : 'Add payment'}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}

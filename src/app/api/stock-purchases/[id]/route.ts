@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { createConnection } from '@/lib/database';
+import { ensureStockPurchasePaymentsTable } from '@/lib/stockPurchasePaymentsDb';
 
 // PUT /api/stock-purchases/:id — edit purchase details without inventory correction
 export async function PUT(
@@ -128,6 +129,7 @@ export async function DELETE(
 
     const connection = await createConnection();
     try {
+      await ensureStockPurchasePaymentsTable(connection);
       await connection.beginTransaction();
 
       const [rows]: any = await connection.query(
@@ -177,6 +179,7 @@ export async function DELETE(
         );
       }
 
+      await connection.execute('DELETE FROM stock_purchase_payments WHERE stock_purchase_id = ?', [id]);
       await connection.execute('DELETE FROM stock_purchases WHERE id = ?', [id]);
 
       await connection.commit();

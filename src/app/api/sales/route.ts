@@ -1,233 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
-import {
-  isCastor200mlProduct,
-  packLitersPerUnit,
-  CASTOR_200ML_LOOKUP_IDS,
-  CASTOR_200ML_NEW_ID,
-  CANTEEN_LITERS_PER_TIN,
-} from '@/lib/canteenSupply';
+import { packLitersPerUnit, CASTOR_200ML_NEW_ID, CANTEEN_LITERS_PER_TIN } from '@/lib/canteenSupply';
 import { auth } from '@/lib/auth';
 import { getInvoiceFinancialYearSuffix, INVOICE_NUMBER_FULL_REGEX } from '@/lib/financialYear';
-
-// Function to deduct packaging materials for both retail and canteen sales
-async function deductPackagingMaterials(connection: any, productId: string, quantity: number, saleType: string) {
-  try {
-    // Get product details to determine packaging requirements
-    const [productResult] = await connection.query(
-      'SELECT name, unit FROM products WHERE id = ?',
-      [productId]
-    );
-    
-    if (!productResult || productResult.length === 0) return;
-    
-    const product = productResult[0];
-    const productName = product.name.toLowerCase();
-    
-    // Define packaging requirements based on product.
-    // We keep both product-id oriented matching (preferred) and fallback name matching.
-    const packagingRequirements: Array<{
-      quantity: number;
-      description: string;
-      inventoryIdHints?: string[];
-      inventoryNameHints?: string[];
-      rawMaterialNameHints?: string[];
-    }> = [];
-    
-    // For oil products, determine bottle size and packaging needs
-    if (productName.includes('oil')) {
-      // Determine oil type for labels
-      let oilType = '';
-      if (productName.includes('groundnut')) oilType = 'groundnut';
-      else if (productName.includes('gingelly') || productName.includes('sesame')) oilType = 'gingelly';
-      else if (productName.includes('coconut')) oilType = 'coconut';
-      else if (productName.includes('deepam')) oilType = 'deepam';
-      else if (productName.includes('castor')) oilType = 'castor';
-
-      const addBottlePackaging = (sizeKey: '5l' | '1l' | '500ml' | '200ml') => {
-        const sizeLabel = sizeKey === '5l' ? '5L' : sizeKey === '1l' ? '1L' : sizeKey === '500ml' ? '500ml' : '200ml';
-        const bottleId = `pack_pet_bottle_${sizeKey}`;
-        const innerCapId = `pack_inner_cap_${sizeKey}`;
-        const flipTopIds = [
-          `pack_flip_top_cap_${sizeKey}_green`,
-          `pack_flip_top_cap_${sizeKey}_yellow`,
-          `pack_flip_top_cap_${sizeKey}_white`,
-          `pack_flip_top_cap_${sizeKey}_red`,
-        ];
-        const frontLabelId = `pack_front_label_${sizeKey}`;
-        const backLabelId = `pack_back_label_${sizeKey}`;
-
-        packagingRequirements.push(
-          {
-            quantity,
-            description: `PET Bottle ${sizeLabel}`,
-            inventoryIdHints: [bottleId],
-            inventoryNameHints: [`pet bottle ${sizeLabel.toLowerCase()}`, `pet bottle ${sizeKey}`, `bottle ${sizeLabel.toLowerCase()}`],
-            rawMaterialNameHints: [`pet bottle ${sizeKey}`, `bottle ${sizeLabel.toLowerCase()}`],
-          },
-          {
-            quantity,
-            description: `Inner Cap (${sizeLabel})`,
-            inventoryIdHints: [innerCapId],
-            inventoryNameHints: [`inner cap ${sizeKey}`, `inner cap ${sizeLabel.toLowerCase()}`, `innercap ${sizeKey}`],
-            rawMaterialNameHints: [`inner cap ${sizeKey}`, `inner cap ${sizeLabel.toLowerCase()}`],
-          },
-          {
-            quantity,
-            description: `Flip Top Cap (${sizeLabel})`,
-            inventoryIdHints: flipTopIds,
-            inventoryNameHints: [`flip top cap ${sizeKey}`, `flip cap ${sizeKey}`, `bottle cap flip top ${sizeKey}`],
-            rawMaterialNameHints: [`flip top cap ${sizeKey}`, `flip cap ${sizeKey}`],
-          },
-          {
-            quantity,
-            description: `${oilType.charAt(0).toUpperCase() + oilType.slice(1)} Front Label (${sizeLabel})`,
-            inventoryIdHints: [frontLabelId],
-            inventoryNameHints: [`${oilType} front label ${sizeKey}`, `front label ${sizeKey}`, `${oilType} label front ${sizeKey}`],
-            rawMaterialNameHints: [`${oilType} front label ${sizeKey}`, `front label ${sizeKey}`],
-          },
-          {
-            quantity,
-            description: `${oilType.charAt(0).toUpperCase() + oilType.slice(1)} Back Label (${sizeLabel})`,
-            inventoryIdHints: [backLabelId],
-            inventoryNameHints: [`${oilType} back label ${sizeKey}`, `back label ${sizeKey}`, `${oilType} label back ${sizeKey}`],
-            rawMaterialNameHints: [`${oilType} back label ${sizeKey}`, `back label ${sizeKey}`],
-          },
-        );
-      };
-
-      if (productName.includes('5l') || productName.includes('5 l') || productName.includes('5 liter')) {
-        addBottlePackaging('5l');
-      } else if (productName.includes('1l') || productName.includes('1 l') || productName.includes('1 liter')) {
-        addBottlePackaging('1l');
-      } else if (productName.includes('500ml') || productName.includes('500 ml')) {
-        addBottlePackaging('500ml');
-      } else if (/\b200\D*ml\b/.test(productName)) {
-        addBottlePackaging('200ml');
-      }
-      
-      // Additional packaging for canteen delivery only
-      if (saleType === 'canteen') {
-        // Canteen orders need cardboard box (1 per order)
-        packagingRequirements.push({
-          quantity: 1,
-          description: 'Cardboard Boxes',
-          inventoryIdHints: ['pack_carton_box'],
-          inventoryNameHints: ['cardboard box', 'carton box'],
-          rawMaterialNameHints: ['cardboard box', 'carton box'],
-        });
-        
-        // For packing tape: Check how many canteen orders exist and deduct tape every 4 orders
-        try {
-          const [canteenOrderCount] = await connection.query(
-            'SELECT COUNT(*) as count FROM sales WHERE sale_type = "canteen"'
-          );
-          const totalCanteenOrders = canteenOrderCount[0].count + 1; // +1 for current order
-          
-          // Check if this order completes a group of 4 (every 4th order needs 1 tape)
-          if (totalCanteenOrders % 4 === 0) {
-            packagingRequirements.push({
-              quantity: 1,
-              description: 'Packing Tape',
-              inventoryIdHints: ['pack_packing_tape'],
-              inventoryNameHints: ['packaging tape', 'packing tape'],
-              rawMaterialNameHints: ['packaging tape', 'packing tape'],
-            });
-          }
-        } catch (error) {
-          console.log('Could not check canteen order count for tape calculation:', error instanceof Error ? error.message : error);
-        }
-      }
-    }
-    
-    const buildLike = (hints?: string[]) => (hints || []).map((h) => `%${String(h).toLowerCase()}%`);
-
-    // Deduct packaging materials from inventory / raw materials
-    for (const pkg of packagingRequirements) {
-      let updatedAny = false;
-
-      // 1) Prefer exact id hints where available.
-      if (pkg.inventoryIdHints && pkg.inventoryIdHints.length > 0) {
-        if (pkg.inventoryIdHints.length === 1) {
-          const [r] = await connection.execute(
-            `UPDATE inventory
-             SET quantity = GREATEST(0, quantity - ?), updated_at = NOW()
-             WHERE product_id = ?`,
-            [pkg.quantity, pkg.inventoryIdHints[0]],
-          );
-          const affected = Number((r as any)?.affectedRows ?? 0);
-          if (affected > 0) updatedAny = true;
-        } else {
-          // Multiple candidate IDs (e.g. colored flip-top caps): deduct from the row with the highest available stock.
-          const idPlaceholders = pkg.inventoryIdHints.map(() => '?').join(',');
-          const [candidates]: any = await connection.execute(
-            `SELECT id, quantity
-             FROM inventory
-             WHERE product_id IN (${idPlaceholders})
-             ORDER BY quantity DESC
-             LIMIT 1`,
-            [...pkg.inventoryIdHints],
-          );
-          if (Array.isArray(candidates) && candidates.length > 0) {
-            const targetInvId = candidates[0].id;
-            const [r] = await connection.execute(
-              `UPDATE inventory
-               SET quantity = GREATEST(0, quantity - ?), updated_at = NOW()
-               WHERE id = ?`,
-              [pkg.quantity, targetInvId],
-            );
-            const affected = Number((r as any)?.affectedRows ?? 0);
-            if (affected > 0) updatedAny = true;
-          }
-        }
-      }
-
-      // 2) Fallback by packaging product names (lowercase contains hints).
-      if (!updatedAny) {
-        const likeHints = buildLike(pkg.inventoryNameHints);
-        if (likeHints.length > 0) {
-          const ors = likeHints.map(() => 'LOWER(p.name) LIKE ?').join(' OR ');
-          const [r] = await connection.execute(
-            `UPDATE inventory i
-             JOIN products p ON p.id = i.product_id
-             SET i.quantity = GREATEST(0, i.quantity - ?), i.updated_at = NOW()
-             WHERE (${ors})`,
-            [pkg.quantity, ...likeHints],
-          );
-          const affected = Number((r as any)?.affectedRows ?? 0);
-          if (affected > 0) updatedAny = true;
-        }
-      }
-
-      // 3) Also attempt raw_materials (if used in this DB).
-      try {
-        const likeHints = buildLike(pkg.rawMaterialNameHints);
-        if (likeHints.length > 0) {
-          const ors = likeHints.map(() => 'LOWER(name) LIKE ?').join(' OR ');
-          const [r] = await connection.execute(
-            `UPDATE raw_materials
-             SET current_stock = GREATEST(0, current_stock - ?), updated_at = NOW()
-             WHERE category = 'packaging' AND (${ors})`,
-            [pkg.quantity, ...likeHints],
-          );
-          const affected = Number((r as any)?.affectedRows ?? 0);
-          if (affected > 0) updatedAny = true;
-        }
-      } catch (error) {
-        // raw_materials may not exist on some installs
-        console.log('[sales] raw_materials update skipped:', error instanceof Error ? error.message : error);
-      }
-
-      if (!updatedAny) {
-        console.warn(`[sales] Packaging stock not matched for "${pkg.description}" (product ${productId}).`);
-      }
-    }
-    
-  } catch (error) {
-    console.error('Error deducting packaging materials:', error);
-    // Don't throw error to avoid breaking the sale, just log it
-  }
-}
+import { adjustInventoryForSaleLine } from '@/lib/inventorySaleStock';
+import { adjustPackagingForProductLine } from '@/lib/packagingSaleStock';
 
 // GET /api/sales
 export async function GET(request: NextRequest) {
@@ -510,56 +287,6 @@ async function generateInvoiceNumber(
 }
 
 const CASTOR_200ML_NEW_BASE_PRICE = 76.19; // GST-EXCLUSIVE price for new code (GST extra)
-
-/**
- * Deduct quantity from inventory.
- * 1) Find row by product_id. For Castor (55336/68539), also look for product_id 'castor-200ml' and pick row with most stock.
- * 2) If found: UPDATE by id. If not: INSERT row then UPDATE by id.
- */
-async function deductInventory(
-  connection: any,
-  productId: string,
-  quantity: number,
-  productName?: string | null,
-  productUnit?: string | null
-): Promise<void> {
-  const pid = String(productId).trim();
-  const isCastor = isCastor200mlProduct({ name: productName ?? '', unit: productUnit ?? '' }, pid);
-  const lookupIds = isCastor ? Array.from(new Set([...CASTOR_200ML_LOOKUP_IDS, pid])) : [pid];
-
-  // 1) Find inventory row. For Castor, try every possible product_id and pick the row with highest quantity.
-  let invId: string | null = null;
-  if (lookupIds.length === 1) {
-    const [rows]: any = await connection.query('SELECT id FROM inventory WHERE product_id = ? LIMIT 1', [lookupIds[0]]);
-    if (rows && rows[0]) invId = rows[0].id;
-  } else {
-    let best: { id: string; quantity: number } | null = null;
-    for (const id of lookupIds) {
-      const [rows]: any = await connection.query('SELECT id, quantity FROM inventory WHERE product_id = ? LIMIT 1', [id]);
-      if (rows && rows[0]) {
-        const q = Number(rows[0].quantity ?? 0);
-        if (!best || q > best.quantity) best = { id: rows[0].id, quantity: q };
-      }
-    }
-    if (best) invId = best.id;
-  }
-
-  if (!invId) {
-    const insertProductId = isCastor ? 'castor-200ml' : pid;
-    invId = `inv-${insertProductId}-${Date.now()}`;
-    await connection.execute(
-      `INSERT INTO inventory (id, product_id, quantity, min_stock, max_stock, location, created_at, updated_at)
-       VALUES (?, ?, 0, 10, 1000, 'main_store', NOW(), NOW())`,
-      [invId, insertProductId]
-    );
-  }
-
-  // 2) Deduct by primary key (same style as PUT /api/inventory)
-  await connection.execute(
-    'UPDATE inventory SET quantity = quantity - ?, updated_at = NOW() WHERE id = ?',
-    [quantity, invId]
-  );
-}
 
 // POST /api/sales (create sale with items, 5% GST, deduct inventory)
 export async function POST(request: NextRequest) {
@@ -1000,10 +727,17 @@ export async function POST(request: NextRequest) {
         ]
       );
 
-      await deductInventory(connection, it.productId, it.quantity, it.inventoryProductName, it.inventoryProductUnit);
+      await adjustInventoryForSaleLine(connection, {
+        productId: it.productId,
+        quantityDelta: -Number(it.quantity),
+        productName: it.inventoryProductName,
+        productUnit: it.inventoryProductUnit,
+      });
 
       try {
-        await deductPackagingMaterials(connection, it.productId, it.quantity, saleType);
+        await adjustPackagingForProductLine(connection, it.productId, it.quantity, saleType, 'deduct', {
+          canteenSaleId: saleType === 'canteen' ? saleId : undefined,
+        });
       } catch (packErr) {
         console.error('[sales] Packaging deduction failed (sale and inventory still saved):', packErr);
       }

@@ -154,6 +154,20 @@ export async function POST(request: NextRequest) {
     `;
     await connection.execute(stockPurchasesSQL);
 
+    const stockPurchasePaymentsSQL = `
+      CREATE TABLE IF NOT EXISTS stock_purchase_payments (
+        id VARCHAR(255) PRIMARY KEY,
+        stock_purchase_id VARCHAR(255) NOT NULL,
+        amount DECIMAL(12,2) NOT NULL,
+        paid_on DATE NOT NULL,
+        notes TEXT NULL,
+        created_by VARCHAR(255) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_spp_purchase (stock_purchase_id)
+      )
+    `;
+    await connection.execute(stockPurchasePaymentsSQL);
+
     // Daily notes / task reminders (calls, follow-ups, reminders)
     const dailyTaskRemindersSQL = `
       CREATE TABLE IF NOT EXISTS daily_task_reminders (

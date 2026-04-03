@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { createConnection } from '@/lib/database';
 import { INVOICE_NUMBER_FULL_REGEX } from '@/lib/financialYear';
+import { adjustInventoryForSaleLine } from '@/lib/inventorySaleStock';
+import { adjustPackagingForProductLine } from '@/lib/packagingSaleStock';
+
+const SALE_DELETE_ROLES = ['admin', 'accountant', 'retail_staff'];
 
 // GET - Fetch single sale details
 export async function GET(
@@ -334,7 +338,7 @@ export async function DELETE(
 ) {
   try {
     const session = await auth();
-    if (!session || session.user?.role !== 'admin') {
+    if (!session?.user?.id || !SALE_DELETE_ROLES.includes(session.user.role || '')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -345,17 +349,56 @@ export async function DELETE(
     await connection.query('START TRANSACTION');
 
     try {
-      // Get sale items to restore inventory
+      const [[saleRow]]: any = await connection.query(
+        'SELECT sale_type AS saleType FROM sales WHERE id = ? LIMIT 1',
+        [saleId],
+      );
+      if (!saleRow) {
+        await connection.query('ROLLBACK');
+        await connection.end();
+        return NextResponse.json({ error: 'Sale not found' }, { status: 404 });
+      }
+      const saleType = String(saleRow.saleType || 'retail');
+
+      // Sale lines + product name/unit for Castor / merged SKU inventory resolution (same rules as POST /api/sales)
       const [items]: any = await connection.query(
-        'SELECT product_id, quantity FROM sale_items WHERE sale_id = ?',
-        [saleId]
+        `SELECT
+           si.product_id AS productId,
+           si.quantity AS quantity,
+           COALESCE(p.name, '') AS productName,
+           COALESCE(p.unit, '') AS productUnit
+         FROM sale_items si
+         LEFT JOIN products p ON p.id COLLATE utf8mb4_general_ci = (
+           CASE
+             WHEN si.product_id COLLATE utf8mb4_general_ci IN ('55336', '68539') THEN 'castor-200ml'
+             ELSE si.product_id
+           END
+         ) COLLATE utf8mb4_general_ci
+         WHERE si.sale_id = ?`,
+        [saleId],
       );
 
-      // Restore inventory for each item
-      for (const item of items) {
-        await connection.execute(
-          'UPDATE inventory SET quantity = quantity + ? WHERE product_id = ?',
-          [item.quantity, item.product_id]
+      for (const item of items || []) {
+        const qty = Number(item.quantity);
+        if (!Number.isFinite(qty) || qty <= 0) continue;
+        await adjustInventoryForSaleLine(connection, {
+          productId: String(item.productId),
+          quantityDelta: qty,
+          productName: item.productName,
+          productUnit: item.productUnit,
+        });
+      }
+
+      for (const item of items || []) {
+        const qty = Number(item.quantity);
+        if (!Number.isFinite(qty) || qty <= 0) continue;
+        await adjustPackagingForProductLine(
+          connection,
+          String(item.productId),
+          qty,
+          saleType,
+          'restore',
+          { canteenSaleId: saleType === 'canteen' ? saleId : undefined },
         );
       }
 

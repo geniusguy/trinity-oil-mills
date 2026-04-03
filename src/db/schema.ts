@@ -237,6 +237,17 @@ export const stockPurchases = mysqlTable('stock_purchases', {
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
 });
 
+/** Vendor payments against a stock purchase (one full payment or multiple installments). */
+export const stockPurchasePayments = mysqlTable('stock_purchase_payments', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  stockPurchaseId: varchar('stock_purchase_id', { length: 255 }).notNull(),
+  amount: decimal('amount', { precision: 12, scale: 2 }).notNull(),
+  paidOn: date('paid_on', { mode: 'string' }).notNull(),
+  notes: text('notes'),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
 // Production table (for produced oils)
 export const production = mysqlTable('production', {
   id: varchar('id', { length: 255 }).primaryKey(),
