@@ -30,6 +30,51 @@ body {
   font-family: var(--font-inter), system-ui, sans-serif;
 }
 
+/* Mobile: darker form text (~90% black) for readability */
+@media (max-width: 767px) {
+  .tom-dashboard-forms input:where(
+      :not([type='checkbox']):not([type='radio']):not([type='hidden']):not([type='range']):not([type='image']):not(
+          [type='submit']
+        ):not([type='reset']):not([type='button'])
+    ),
+  .tom-dashboard-forms textarea,
+  .tom-dashboard-forms select,
+  .tom-app-forms input:where(
+      :not([type='checkbox']):not([type='radio']):not([type='hidden']):not([type='range']):not([type='image']):not(
+          [type='submit']
+        ):not([type='reset']):not([type='button'])
+    ),
+  .tom-app-forms textarea,
+  .tom-app-forms select {
+    color: rgba(0, 0, 0, 0.9) !important;
+    -webkit-text-fill-color: rgba(0, 0, 0, 0.9);
+  }
+
+  .tom-dashboard-forms input::placeholder,
+  .tom-dashboard-forms textarea::placeholder,
+  .tom-app-forms input::placeholder,
+  .tom-app-forms textarea::placeholder {
+    color: rgba(0, 0, 0, 0.55) !important;
+    -webkit-text-fill-color: rgba(0, 0, 0, 0.55);
+  }
+
+  .tom-dashboard-forms label:not(.sr-only),
+  .tom-app-forms label:not(.sr-only) {
+    color: rgba(0, 0, 0, 0.9) !important;
+    -webkit-text-fill-color: rgba(0, 0, 0, 0.9);
+  }
+
+  /* Small helper lines under fields (common Tailwind pattern) */
+  .tom-dashboard-forms .text-xs.text-gray-400,
+  .tom-dashboard-forms .text-xs.text-gray-500,
+  .tom-dashboard-forms .text-xs.text-gray-600,
+  .tom-dashboard-forms .text-sm.text-gray-400,
+  .tom-dashboard-forms .text-sm.text-gray-500,
+  .tom-dashboard-forms .text-sm.text-gray-600 {
+    color: rgba(0, 0, 0, 0.78) !important;
+  }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
