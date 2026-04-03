@@ -8,6 +8,16 @@ export const dynamic = 'force-dynamic';
 const ALLOWED_SCOPES = ['courier-expenses', 'sales'] as const;
 type Scope = (typeof ALLOWED_SCOPES)[number];
 
+function getUploadsRootDir() {
+  // Use a stable, explicit storage location in production if provided.
+  // Example: UPLOADS_ROOT_DIR=/var/www/trinityoil-api/uploads-storage
+  const envDir = String(process.env.UPLOADS_ROOT_DIR || '').trim();
+  if (envDir) return envDir;
+
+  // Fallback for local/dev.
+  return path.join(process.cwd(), 'storage', 'uploads');
+}
+
 function isValidPdf(file: File) {
   const name = file.name?.toLowerCase?.() || '';
   const type = file.type?.toLowerCase?.() || '';
@@ -53,7 +63,7 @@ export async function POST(request: NextRequest) {
   const bytes = await file.arrayBuffer();
   const buffer = Buffer.from(bytes);
 
-  const uploadsDir = path.join(process.cwd(), 'public', 'uploads', scope);
+  const uploadsDir = path.join(getUploadsRootDir(), scope);
   await fs.mkdir(uploadsDir, { recursive: true });
 
   const ext = '.pdf';
@@ -63,7 +73,7 @@ export async function POST(request: NextRequest) {
   const fullPath = path.join(uploadsDir, filename);
   await fs.writeFile(fullPath, buffer);
 
-  // URL path (served from Next public/)
+  // Public logical path. Served by /api/uploads/inline route.
   const urlPath = `/uploads/${scope}/${filename}`;
   return NextResponse.json({ path: urlPath, originalName: safeOriginalName });
 }

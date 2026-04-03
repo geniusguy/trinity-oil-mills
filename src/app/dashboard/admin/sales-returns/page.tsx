@@ -66,6 +66,18 @@ export default function SalesReturnsPage() {
     return d.toISOString().slice(0, 10);
   };
 
+  /** For <input type="date"> and API bodies: always YYYY-MM-DD (never raw ISO with time). */
+  const toDateInputValue = (value?: string | null) => {
+    if (!value) return new Date().toISOString().slice(0, 10);
+    const s = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const leading = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (leading) return leading[1];
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
+    return d.toISOString().slice(0, 10);
+  };
+
   const load = async () => {
     try {
       setLoading(true);
@@ -231,7 +243,7 @@ export default function SalesReturnsPage() {
           returnNature: form.returnNature,
           accountingImpact: form.accountingImpact,
           reason: form.reason || null,
-          returnDate: form.returnDate,
+          returnDate: toDateInputValue(form.returnDate),
         }),
       });
       const data = await res.json();
@@ -283,7 +295,7 @@ export default function SalesReturnsPage() {
       returnNature: r.returnNature,
       accountingImpact: r.accountingImpact,
       reason: r.reason || '',
-      returnDate: r.returnDate || new Date().toISOString().slice(0, 10),
+      returnDate: toDateInputValue(r.returnDate),
     });
   };
 

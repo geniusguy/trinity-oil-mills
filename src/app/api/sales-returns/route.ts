@@ -43,6 +43,24 @@ async function ensureSalesReturnsTable(connection: any) {
 }
 
 const toNum = (v: any) => (v === null || v === undefined || v === '' ? 0 : Number(v));
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function normalizeMySqlDate(input: unknown): string {
+  const raw = String(input ?? '').trim();
+  if (!raw) return '';
+  if (DATE_ONLY_RE.test(raw)) return raw;
+
+  // ISO / datetime strings: take leading YYYY-MM-DD when present (avoids TZ edge cases).
+  const leading = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (leading && DATE_ONLY_RE.test(leading[1])) return leading[1];
+
+  const dt = new Date(raw);
+  if (Number.isNaN(dt.getTime())) return '';
+
+  // Convert to UTC date-only so ISO strings like 2026-02-10T18:30:00.000Z
+  // safely map to MySQL DATE format.
+  return dt.toISOString().slice(0, 10);
+}
 
 // GET /api/sales-returns?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD&returnNature=expiry&saleType=canteen
 export async function GET(request: NextRequest) {
@@ -100,7 +118,7 @@ export async function GET(request: NextRequest) {
             return_nature as returnNature,
             accounting_impact as accountingImpact,
             reason,
-            return_date as returnDate,
+            DATE_FORMAT(return_date, '%Y-%m-%d') as returnDate,
             created_by as createdBy,
             created_at as createdAt,
             updated_at as updatedAt
@@ -141,10 +159,12 @@ export async function POST(request: NextRequest) {
     const returnNature = String(body.returnNature || 'sales_return').trim().toLowerCase(); // sales_return | expiry
     const accountingImpact = String(body.accountingImpact || 'revenue_reversal').trim().toLowerCase(); // revenue_reversal | expense_writeoff | both
     const reason = body.reason == null ? null : String(body.reason).trim();
-    const returnDate = String(body.returnDate || '').trim();
+    const returnDate = normalizeMySqlDate(
+      body.returnDate ?? (body as any).return_date,
+    );
 
     if (!productName) return NextResponse.json({ error: 'Product name is required' }, { status: 400 });
-    if (!returnDate) return NextResponse.json({ error: 'Return date is required' }, { status: 400 });
+    if (!returnDate) return NextResponse.json({ error: 'Valid return date is required' }, { status: 400 });
     if (!['canteen', 'retail'].includes(saleType)) return NextResponse.json({ error: 'Invalid saleType' }, { status: 400 });
     if (!['sales_return', 'expiry'].includes(returnNature)) return NextResponse.json({ error: 'Invalid returnNature' }, { status: 400 });
     if (!['revenue_reversal', 'expense_writeoff', 'both'].includes(accountingImpact)) {
@@ -242,11 +262,13 @@ export async function PUT(request: NextRequest) {
     const returnNature = String(body.returnNature || 'sales_return').trim().toLowerCase();
     const accountingImpact = String(body.accountingImpact || 'revenue_reversal').trim().toLowerCase();
     const reason = body.reason == null ? null : String(body.reason).trim();
-    const returnDate = String(body.returnDate || '').trim();
+    const returnDate = normalizeMySqlDate(
+      body.returnDate ?? (body as any).return_date,
+    );
 
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
     if (!productName) return NextResponse.json({ error: 'Product name is required' }, { status: 400 });
-    if (!returnDate) return NextResponse.json({ error: 'Return date is required' }, { status: 400 });
+    if (!returnDate) return NextResponse.json({ error: 'Valid return date is required' }, { status: 400 });
     if (!['canteen', 'retail'].includes(saleType)) return NextResponse.json({ error: 'Invalid saleType' }, { status: 400 });
     if (!['sales_return', 'expiry'].includes(returnNature)) return NextResponse.json({ error: 'Invalid returnNature' }, { status: 400 });
     if (!['revenue_reversal', 'expense_writeoff', 'both'].includes(accountingImpact)) {
