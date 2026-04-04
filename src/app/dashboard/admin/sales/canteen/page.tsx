@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -60,6 +60,72 @@ interface CanteenAddress {
   gstNumber?: string;
 }
 
+function formatDateEnGB(value: string | null | undefined): string {
+  if (value == null || !String(value).trim()) return '—';
+  const v = String(value).trim();
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T12:00:00`) : new Date(v);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB');
+}
+
+/** Days from invoice date (or sale created_at) to credited_date; null if missing. */
+function getDaysInvoiceToCredit(sale: Sale): number | null {
+  if (sale.isReservation || sale.paymentStatus !== 'paid') return null;
+  const credRaw = String(sale.creditedDate || '').trim();
+  if (!credRaw) return null;
+  const cred = /^\d{4}-\d{2}-\d{2}$/.test(credRaw) ? new Date(`${credRaw}T12:00:00`) : new Date(credRaw);
+  const invRaw = sale.invoiceDate || sale.createdAt;
+  const invStr = String(invRaw || '').trim();
+  const invDatePart = invStr.slice(0, 10);
+  const inv = /^\d{4}-\d{2}-\d{2}$/.test(invDatePart)
+    ? new Date(`${invDatePart}T12:00:00`)
+    : new Date(invRaw);
+  if (Number.isNaN(cred.getTime()) || Number.isNaN(inv.getTime())) return null;
+  return Math.round((cred.getTime() - inv.getTime()) / 86400000);
+}
+
+function PaidCreditBlock({ sale }: { sale: Sale }) {
+  if (sale.isReservation || sale.paymentStatus !== 'paid') return null;
+  const days = getDaysInvoiceToCredit(sale);
+  const invoiceDateLabel = formatDateEnGB(sale.invoiceDate || sale.createdAt);
+  const creditedLabel = formatDateEnGB(sale.creditedDate);
+
+  return (
+    <div className="mt-2 rounded-lg border border-emerald-200/90 bg-emerald-50/95 px-2.5 py-2 space-y-1 shadow-sm">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-900">Credited to our account</div>
+      <div className="text-xs text-emerald-950">
+        <span className="text-emerald-800/90">Credited date:</span>{' '}
+        <span className="font-medium">{creditedLabel}</span>
+      </div>
+      <div className="text-xs text-emerald-950">
+        <span className="text-emerald-800/90">No. of days to credit:</span>{' '}
+        {days === null ? (
+          <span className="text-amber-800 font-medium">— (set credited date)</span>
+        ) : (
+          <span className="font-semibold tabular-nums">{days}</span>
+        )}
+        {days !== null && <span className="text-emerald-800/80"> {days === 1 ? 'day' : 'days'}</span>}
+      </div>
+      <div className="text-[11px] text-emerald-900/95 font-mono leading-snug break-words border-t border-emerald-200/60 pt-1.5 mt-1">
+        <span className="text-emerald-800/80 font-sans text-[10px] uppercase tracking-wide">Invoice → credit</span>
+        <br />
+        <span className="font-semibold">{sale.invoiceNumber}</span>
+        <span className="text-emerald-700 mx-1">·</span>
+        {invoiceDateLabel}
+        <span className="text-emerald-600 mx-1">→</span>
+        {creditedLabel}
+      </div>
+    </div>
+  );
+}
+
+/** Display label for `sale.paymentStatus` (API still uses `paid` for credited-to-account). */
+function paymentStatusDisplay(status: string): string {
+  const s = String(status || '').toLowerCase();
+  if (s === 'paid') return 'Credited';
+  if (s === 'reserved') return 'Reserved (dummy)';
+  return status;
+}
+
 export default function CanteenSalesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -99,6 +165,12 @@ export default function CanteenSalesPage() {
   const [editReferencePdfError, setEditReferencePdfError] = useState('');
   const [removeExistingReferencePdf, setRemoveExistingReferencePdf] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const canteenTableTopScrollRef = useRef<HTMLDivElement>(null);
+  const canteenTableMainScrollRef = useRef<HTMLDivElement>(null);
+  const canteenTableScrollSpacerRef = useRef<HTMLDivElement>(null);
+  const canteenTableRef = useRef<HTMLTableElement>(null);
+  const canteenScrollSyncing = useRef(false);
 
   // Dummy invoice reservation modal
   const [showReserveReservationModal, setShowReserveReservationModal] = useState(false);
@@ -548,6 +620,41 @@ export default function CanteenSalesPage() {
     applyFiltersAndSort();
   }, [sales, filters, sortBy, sortOrder]);
 
+  useLayoutEffect(() => {
+    const table = canteenTableRef.current;
+    const spacer = canteenTableScrollSpacerRef.current;
+    if (!table || !spacer) return;
+    const syncWidth = () => {
+      spacer.style.width = `${table.scrollWidth}px`;
+    };
+    syncWidth();
+    const ro = new ResizeObserver(syncWidth);
+    ro.observe(table);
+    return () => ro.disconnect();
+  }, [filteredSales, sales.length]);
+
+  const onCanteenTableTopScroll = () => {
+    if (canteenScrollSyncing.current) return;
+    canteenScrollSyncing.current = true;
+    const top = canteenTableTopScrollRef.current;
+    const main = canteenTableMainScrollRef.current;
+    if (top && main) main.scrollLeft = top.scrollLeft;
+    requestAnimationFrame(() => {
+      canteenScrollSyncing.current = false;
+    });
+  };
+
+  const onCanteenTableMainScroll = () => {
+    if (canteenScrollSyncing.current) return;
+    canteenScrollSyncing.current = true;
+    const top = canteenTableTopScrollRef.current;
+    const main = canteenTableMainScrollRef.current;
+    if (top && main) top.scrollLeft = main.scrollLeft;
+    requestAnimationFrame(() => {
+      canteenScrollSyncing.current = false;
+    });
+  };
+
   const handleEditSale = (sale: Sale) => {
     setSelectedSale(sale);
     
@@ -877,53 +984,52 @@ export default function CanteenSalesPage() {
   })();
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50">
+      <div className="w-full max-w-full py-3 sm:py-6">
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="mb-6 sm:mb-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Canteen Sales</h1>
-              <p className="mt-2 text-gray-600">Manage canteen sales and deliveries</p>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Canteen Sales</h1>
+              <p className="mt-1.5 text-sm sm:text-base text-slate-600">Manage canteen sales, deliveries, and credits</p>
             </div>
-            <div className="w-full md:w-auto">
-              <div className="text-sm text-gray-700 mb-2 md:text-right">
-                Welcome, {session.user?.name}
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:w-[620px]">
+            <div className="w-full lg:max-w-3xl lg:shrink-0">
+              <div className="text-sm text-slate-600 mb-2 lg:text-right">Welcome, {session.user?.name}</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 <Link
                   href="/dashboard/admin/sales/pos?type=canteen"
-                  className="text-center bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                  className="text-center rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 active:scale-[0.98] transition"
                 >
-                  New Canteen Sale
+                  New Sale
                 </Link>
                 <Link
                   href="/dashboard/admin/canteen-addresses"
-                  className="text-center bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                  className="text-center rounded-lg bg-blue-600 px-3 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 active:scale-[0.98] transition"
                 >
-                  Manage Addresses
+                  Addresses
                 </Link>
                 <button
+                  type="button"
                   onClick={openReserveReservationModal}
-                  className="text-center bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                  className="text-center rounded-lg bg-amber-500 px-3 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-amber-600 active:scale-[0.98] transition"
                 >
-                  Reserve Dummy Invoice
+                  Reserve dummy
                 </button>
                 <Link
                   href="/dashboard/admin/sales"
-                  className="text-center bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                  className="text-center rounded-lg bg-slate-600 px-3 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-slate-700 active:scale-[0.98] transition"
                 >
-                  All Sales
+                  All sales
                 </Link>
                 <Link
                   href="/dashboard/admin/sales/retail"
-                  className="text-center bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                  className="text-center rounded-lg bg-violet-600 px-3 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-violet-700 active:scale-[0.98] transition"
                 >
-                  Retail Sales
+                  Retail
                 </Link>
                 <Link
                   href="/dashboard"
-                  className="text-center bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md text-sm font-medium"
+                  className="text-center rounded-lg bg-indigo-600 px-3 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 active:scale-[0.98] transition"
                 >
                   Dashboard
                 </Link>
@@ -946,10 +1052,10 @@ export default function CanteenSalesPage() {
         )}
 
         {/* Filters Section */}
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Filters & Search</h3>
+        <div className="mb-6 rounded-xl border border-slate-200/90 bg-white p-4 sm:p-6 shadow-sm">
+          <h3 className="text-base sm:text-lg font-semibold text-slate-900 mb-4">Filters &amp; search</h3>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
             {/* Search */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
@@ -979,16 +1085,16 @@ export default function CanteenSalesPage() {
               </select>
             </div>
 
-            {/* Payment Status Filter */}
+            {/* Credit status filter — API still uses payment_status=paid for credited sales */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Payment Status</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Credit status</label>
               <select
                 value={filters.paymentStatus}
                 onChange={(e) => handleFilterChange('paymentStatus', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="">All Status</option>
-                <option value="paid">Paid</option>
+                <option value="">All</option>
+                <option value="paid">Credited to account</option>
                 <option value="pending">Pending</option>
                 <option value="partial">Partial</option>
                 <option value="refunded">Refunded</option>
@@ -1100,39 +1206,71 @@ export default function CanteenSalesPage() {
           </div>
         </div>
 
-        {/* Sales Table */}
-        <div className="bg-white shadow rounded-lg">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <h2 className="text-lg font-medium text-gray-900">Canteen Sales ({filteredSales.length})</h2>
-              <div className="text-sm text-gray-600">
-                Total Amount (filtered):{' '}
-                <span className="font-semibold text-gray-900">
-                  ₹
-                  {filteredSales
-                    .reduce((sum, s) => sum + Number(s.totalAmount || 0), 0)
-                    .toFixed(2)}
-                </span>
-                {' • '}
-                FY Invoice Count ({filters.year || 'All FY'}):{' '}
-                <span className="font-semibold text-gray-900">{fyInvoiceCount}</span>
-                {!filters.year && fyBreakupText ? (
-                  <>
-                    {' • '}
-                    <span className="text-gray-500">Breakup: {fyBreakupText}</span>
-                  </>
-                ) : null}
+        {/* Sales Table + mobile cards */}
+        <div className="rounded-xl border border-slate-200/90 bg-white shadow-sm overflow-visible">
+          <div className="border-b border-slate-200/80 bg-slate-50/80 px-4 py-4 sm:px-6">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <h2 className="text-base sm:text-lg font-semibold text-slate-900">
+                Canteen sales <span className="text-slate-500 font-normal">({filteredSales.length})</span>
+              </h2>
+              <div className="flex flex-col gap-1 text-xs sm:text-sm text-slate-600 lg:text-right lg:items-end">
+                <div>
+                  <span className="text-slate-500">Total (filtered):</span>{' '}
+                  <span className="font-semibold text-slate-900 tabular-nums">
+                    ₹
+                    {filteredSales
+                      .reduce((sum, s) => sum + Number(s.totalAmount || 0), 0)
+                      .toFixed(2)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500">FY count ({filters.year || 'All FY'}):</span>{' '}
+                  <span className="font-semibold text-slate-900">{fyInvoiceCount}</span>
+                  {!filters.year && fyBreakupText ? (
+                    <div className="mt-1 max-w-xl text-[11px] leading-snug text-slate-500 lg:ml-auto">
+                      {fyBreakupText}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
+            <p className="mt-2 text-[11px] text-slate-600 hidden md:block">
+              <span className="font-medium text-slate-800">Wide table:</span> use the top or bottom horizontal scrollbar
+              to see all columns (a short hint appears when you hover the table or those scroll areas). Invoice and
+              Actions stay pinned while you scroll.
+            </p>
           </div>
           
-          <div className="overflow-x-auto shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          <div className="hidden md:block border-t border-slate-200/90 group/canteen-hscroll">
+            <div
+              className="flex max-h-0 items-center justify-between gap-2 overflow-hidden border-b border-transparent bg-transparent px-3 py-0 opacity-0 transition-[max-height,opacity,padding,border-color,background-color] duration-200 ease-out group-hover/canteen-hscroll:max-h-14 group-hover/canteen-hscroll:border-slate-200 group-hover/canteen-hscroll:bg-indigo-50/70 group-hover/canteen-hscroll:py-1.5 group-hover/canteen-hscroll:opacity-100"
+              role="note"
+              aria-hidden="true"
+            >
+              <span className="text-xs font-medium text-indigo-950">↑ Scroll horizontally (same as table below)</span>
+              <span className="text-lg leading-none text-indigo-400 select-none" aria-hidden>
+                ↔
+              </span>
+            </div>
+            <div
+              ref={canteenTableTopScrollRef}
+              onScroll={onCanteenTableTopScroll}
+              className="canteen-sales-hscroll-top overscroll-x-contain border-b-2 border-slate-200 bg-slate-100/90"
+              aria-label="Horizontal scroll for canteen table (top, synced with table scrollbar)"
+            >
+              <div ref={canteenTableScrollSpacerRef} className="h-2 shrink-0" />
+            </div>
+            <div
+              ref={canteenTableMainScrollRef}
+              onScroll={onCanteenTableMainScroll}
+              className="canteen-sales-hscroll-main w-full max-w-full overflow-x-auto overscroll-x-contain [scrollbar-gutter:auto]"
+            >
+            <table ref={canteenTableRef} className="min-w-[1180px] w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50">
                 <tr>
                   {/* Invoice - Always visible */}
                   <th
-                    className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
+                    className="sticky left-0 z-20 bg-slate-50 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none border-r border-slate-200 shadow-[4px_0_14px_-6px_rgba(15,23,42,0.18)]"
                     onClick={() => handleSortChange('invoiceNumberNumeric')}
                     title="Sort by invoice number (numeric)"
                   >
@@ -1164,9 +1302,9 @@ export default function CanteenSalesPage() {
                   <th
                     className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none"
                     onClick={() => handleSortChange('paymentStatus')}
-                    title="Sort by payment status"
+                    title="Sort by payment method and credit status (paid = credited to account)"
                   >
-                    Payment
+                    Pay / credit
                     {sortBy === 'paymentStatus' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
 
@@ -1206,16 +1344,16 @@ export default function CanteenSalesPage() {
                   </th>
                   
                   {/* Actions - Always visible */}
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="sticky right-0 z-20 bg-slate-50 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-l border-slate-200 shadow-[-4px_0_14px_-6px_rgba(15,23,42,0.18)]">
                     Actions
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredSales.map((sale) => (
-                  <tr key={sale.id} className="hover:bg-gray-50">
+                  <tr key={sale.id} className="group hover:bg-slate-50/90">
                     {/* Invoice */}
-                    <td className="px-3 py-4 whitespace-nowrap text-sm">
+                    <td className="sticky left-0 z-10 border-r border-slate-200 bg-white px-3 py-4 text-sm whitespace-nowrap shadow-[4px_0_14px_-8px_rgba(15,23,42,0.12)] group-hover:bg-slate-50">
                       <div className="space-y-1">
                         <div className="font-medium text-indigo-700">{sale.invoiceNumber}</div>
                         <div className="text-xs text-gray-500">
@@ -1251,7 +1389,7 @@ export default function CanteenSalesPage() {
                     </td>
                     
                     {/* Payment Combined */}
-                    <td className="px-3 py-4 whitespace-nowrap text-sm">
+                    <td className="px-3 py-4 text-sm align-top min-w-[11rem] max-w-[17rem]">
                       <div className="space-y-1">
                         <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
                           sale.paymentMethod === 'cash' ? 'bg-green-100 text-green-800' :
@@ -1273,28 +1411,12 @@ export default function CanteenSalesPage() {
                             sale.paymentStatus === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                             'bg-red-100 text-red-800'
                           }`}>
-                            {sale.paymentStatus === 'reserved'
-                              ? 'Reserved (Dummy)'
-                              : sale.paymentStatus === 'paid'
-                              ? 'Credited to our account'
-                              : sale.paymentStatus}
+                            {paymentStatusDisplay(sale.paymentStatus)}
                           </span>
                           {sale.isReservation && sale.reservationReason ? (
                             <div className="text-xs text-gray-500 mt-1">Reason: {sale.reservationReason}</div>
                           ) : null}
-                          {sale.paymentStatus === 'paid' && (
-                            <div className="text-xs text-gray-500 mt-1">
-                              Credited Date:{' '}
-                              {(() => {
-                                const v = String(sale.creditedDate || '').trim();
-                                if (!v) return '—';
-                                const dt = /^\d{4}-\d{2}-\d{2}$/.test(v)
-                                  ? new Date(`${v}T00:00:00`)
-                                  : new Date(v);
-                                return Number.isNaN(dt.getTime()) ? '—' : dt.toLocaleDateString('en-GB');
-                              })()}
-                            </div>
-                          )}
+                          <PaidCreditBlock sale={sale} />
                         </div>
                       </div>
                     </td>
@@ -1381,7 +1503,7 @@ export default function CanteenSalesPage() {
                     </td>
                     
                     {/* Actions */}
-                    <td className="px-3 py-4 whitespace-nowrap text-sm">
+                    <td className="sticky right-0 z-10 border-l border-slate-200 bg-white px-3 py-4 text-sm whitespace-nowrap shadow-[-4px_0_14px_-8px_rgba(15,23,42,0.12)] group-hover:bg-slate-50">
                       <div className="flex flex-col space-y-1">
                         {!sale.isReservation && (
                           <a 
@@ -1436,6 +1558,164 @@ export default function CanteenSalesPage() {
                 ))}
               </tbody>
             </table>
+            </div>
+          </div>
+
+          {/* Mobile: card list (no horizontal table scroll) */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {filteredSales.map((sale) => (
+              <div key={sale.id} className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-indigo-700 break-all">{sale.invoiceNumber}</div>
+                    <div className="text-xs text-slate-500">
+                      Invoice date: {formatDateEnGB(sale.invoiceDate || sale.createdAt)}
+                    </div>
+                    {sale.isReservation && (
+                      <div className="mt-1 text-xs font-medium text-amber-700">Dummy reservation</div>
+                    )}
+                  </div>
+                  {sale.isReservation ? (
+                    <span className="shrink-0 text-xs text-slate-500">—</span>
+                  ) : (
+                    <div className="shrink-0 text-right font-semibold text-slate-900 tabular-nums">
+                      ₹{Number(sale.totalAmount).toFixed(2)}
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-sm text-slate-800">
+                  <span aria-hidden>🏢</span> <span className="font-medium">{sale.canteenName || 'Unknown'}</span>
+                  {sale.canteenAddress ? (
+                    <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{sale.canteenAddress}</div>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <span
+                    className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${
+                      sale.paymentMethod === 'cash'
+                        ? 'bg-green-100 text-green-800'
+                        : sale.paymentMethod === 'upi'
+                          ? 'bg-blue-100 text-blue-800'
+                          : sale.paymentMethod === 'card'
+                            ? 'bg-purple-100 text-purple-800'
+                            : sale.paymentMethod === 'credit'
+                              ? 'bg-orange-100 text-orange-800'
+                              : 'bg-gray-100 text-gray-800'
+                    }`}
+                  >
+                    {sale.paymentMethod === 'cash'
+                      ? 'Cash'
+                      : sale.paymentMethod === 'upi'
+                        ? 'UPI'
+                        : sale.paymentMethod === 'card'
+                          ? 'Card'
+                          : sale.paymentMethod === 'credit'
+                            ? 'Credit'
+                            : sale.paymentMethod}
+                  </span>
+                  <span
+                    className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${
+                      sale.paymentStatus === 'reserved'
+                        ? 'bg-amber-100 text-amber-800'
+                        : sale.paymentStatus === 'paid'
+                          ? 'bg-green-100 text-green-800'
+                          : sale.paymentStatus === 'pending'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-red-100 text-red-800'
+                    }`}
+                  >
+                    {paymentStatusDisplay(sale.paymentStatus)}
+                  </span>
+                  <span
+                    className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${
+                      sale.shipmentStatus === 'delivered'
+                        ? 'bg-green-100 text-green-800'
+                        : sale.shipmentStatus === 'shipped'
+                          ? 'bg-blue-100 text-blue-800'
+                          : sale.shipmentStatus === 'courier'
+                            ? 'bg-indigo-100 text-indigo-800'
+                            : sale.shipmentStatus === 'pending'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : sale.shipmentStatus === 'walk_in_delivery'
+                                ? 'bg-gray-100 text-gray-800'
+                                : 'bg-red-100 text-red-800'
+                    }`}
+                  >
+                    {sale.shipmentStatus}
+                  </span>
+                </div>
+
+                {sale.isReservation && sale.reservationReason ? (
+                  <div className="text-xs text-slate-600">Reason: {sale.reservationReason}</div>
+                ) : null}
+
+                <PaidCreditBlock sale={sale} />
+
+                {(sale.poNumber || sale.poDate) && (
+                  <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    {sale.poNumber ? <div>PO: {sale.poNumber}</div> : null}
+                    {sale.poDate ? <div>PO date: {formatDateEnGB(sale.poDate)}</div> : null}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                  {!sale.isReservation && (
+                    <a
+                      href={`/api/sales/${sale.id}/invoice/html`}
+                      className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                    >
+                      Invoice
+                    </a>
+                  )}
+                  {!sale.isReservation && (
+                    <button
+                      type="button"
+                      onClick={() => openEmailInvoiceModal(sale)}
+                      className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
+                    >
+                      Email PDF
+                    </button>
+                  )}
+                  {sale.referencePdfPath && (
+                    <a
+                      href={`/api/uploads/inline?path=${encodeURIComponent(sale.referencePdfPath)}`}
+                      className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      View PDF
+                    </a>
+                  )}
+                  {sale.isReservation && (
+                    <button
+                      type="button"
+                      onClick={() => cancelReservation(sale)}
+                      className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100"
+                    >
+                      Cancel reservation
+                    </button>
+                  )}
+                  {!sale.isReservation && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleEditSale(sale)}
+                        className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSale(sale)}
+                        className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -1889,7 +2169,7 @@ export default function CanteenSalesPage() {
 
                 <div>
                   <label htmlFor="paymentStatus" className="block text-xs font-medium text-gray-700 mb-1">
-                    Payment Status
+                    Credit status
                   </label>
                   <select
                     id="paymentStatus"
@@ -1904,7 +2184,7 @@ export default function CanteenSalesPage() {
                     className="w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   >
                     <option value="pending">Pending</option>
-                    <option value="paid">Credited to our account</option>
+                    <option value="paid">Credited to account</option>
                     <option value="partial">Partial</option>
                     <option value="refunded">Refunded</option>
                   </select>

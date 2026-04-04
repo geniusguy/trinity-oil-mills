@@ -142,3 +142,48 @@ html {
 .pulse-cta {
   animation: pulse-soft 2s infinite;
 }
+
+/* Canteen sales table: obvious horizontal scrollbars (top synced strip + main) */
+.canteen-sales-hscroll-top {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(99 102 241) rgb(226 232 240);
+}
+.canteen-sales-hscroll-top::-webkit-scrollbar {
+  height: 11px;
+}
+.canteen-sales-hscroll-top::-webkit-scrollbar-track {
+  background: rgb(241 245 249);
+  border-radius: 6px;
+  margin: 0 4px;
+}
+.canteen-sales-hscroll-top::-webkit-scrollbar-thumb {
+  background: rgb(129 140 248);
+  border-radius: 6px;
+  border: 2px solid rgb(241 245 249);
+}
+.canteen-sales-hscroll-top::-webkit-scrollbar-thumb:hover {
+  background: rgb(99 102 241);
+}
+
+.canteen-sales-hscroll-main {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 163 184) rgb(248 250 252);
+}
+.canteen-sales-hscroll-main::-webkit-scrollbar {
+  height: 11px;
+}
+.canteen-sales-hscroll-main::-webkit-scrollbar-track {
+  background: rgb(248 250 252);
+  border-radius: 6px;
+}
+.canteen-sales-hscroll-main::-webkit-scrollbar-thumb {
+  background: rgb(148 163 184);
+  border-radius: 6px;
+  border: 2px solid rgb(248 250 252);
+}
+.canteen-sales-hscroll-main::-webkit-scrollbar-thumb:hover {
+  background: rgb(100 116 139);
+}
