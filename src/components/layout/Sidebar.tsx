@@ -587,8 +587,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, isCollapsed =
               </div>
               {!isCollapsed && (
                 <div>
-                  <h1 className="text-lg font-bold text-gray-900">Trinity Oil Mills</h1>
-                  <p className="text-xs text-gray-600">Management System</p>
+                  <h1 className="text-lg font-bold text-gray-900">TOM</h1>
+                  <p className="text-xs text-gray-600">management</p>
                 </div>
               )}
               {isCollapsed && (
