@@ -37,6 +37,8 @@ type PurchaseDueRow = {
   balanceDue: number | null;
 };
 
+type DueSortKey = 'purchaseDate' | 'invoiceNumber' | 'productName' | 'totalAmount' | 'totalPaid' | 'balanceDue';
+
 export default function PurchasePaymentsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -73,6 +75,14 @@ export default function PurchasePaymentsPage() {
     totalAmount: '',
     notes: '',
   });
+  const [vendorFyScope, setVendorFyScope] = useState<string>('all');
+  const [openingBalancePayable, setOpeningBalancePayable] = useState(0);
+  const [openingBalanceDraft, setOpeningBalanceDraft] = useState('');
+  const [openingBalanceNotes, setOpeningBalanceNotes] = useState('');
+  const [openingBalanceLoading, setOpeningBalanceLoading] = useState(false);
+  const [openingBalanceSaving, setOpeningBalanceSaving] = useState(false);
+  const [dueSortBy, setDueSortBy] = useState<DueSortKey>('purchaseDate');
+  const [dueSortOrder, setDueSortOrder] = useState<'asc' | 'desc'>('asc');
   const [allocations, setAllocations] = useState<Record<string, string>>({});
   const [vendorSaving, setVendorSaving] = useState(false);
 
@@ -201,6 +211,18 @@ export default function PurchasePaymentsPage() {
     return new Map(availableMonths.map((m) => [m.value, m.label]));
   }, [availableMonths]);
 
+  const fyYearOptions = useMemo(() => {
+    const cur = getFinancialYearStartYear(new Date());
+    const years: number[] = [];
+    for (let y = cur + 1; y >= cur - 20; y--) years.push(y);
+    return years;
+  }, []);
+
+  const activeScopeFyStartYear = useMemo(() => {
+    const m = /^fy:(\d+)$/.exec(vendorFyScope);
+    return m ? Number(m[1]) : null;
+  }, [vendorFyScope]);
+
   const totals = useMemo(() => {
     const totalAmount = payments.reduce((acc, p) => acc + Number(p.amount || 0), 0);
     return {
@@ -245,8 +267,7 @@ export default function PurchasePaymentsPage() {
           totalPaid: Number(p.totalPaid || 0),
           balanceDue: p.balanceDue == null ? null : Number(p.balanceDue),
         }))
-        .filter((p: PurchaseDueRow) => p.totalAmount != null && (p.balanceDue || 0) > 0.005)
-        .sort((a, b) => new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime());
+        .filter((p: PurchaseDueRow) => p.totalAmount != null && (p.balanceDue || 0) > 0.005);
       setDuePurchases(list);
       setAllocations({});
     } catch {
@@ -255,6 +276,107 @@ export default function PurchasePaymentsPage() {
       setDueLoading(false);
     }
   };
+
+  const filteredDuePurchases = useMemo(() => {
+    if (activeScopeFyStartYear == null) return duePurchases;
+    const start = new Date(activeScopeFyStartYear, 3, 1).getTime();
+    const end = new Date(activeScopeFyStartYear + 1, 2, 31, 23, 59, 59, 999).getTime();
+    return duePurchases.filter((p) => {
+      const t = new Date(p.purchaseDate).getTime();
+      return Number.isFinite(t) && t >= start && t <= end;
+    });
+  }, [duePurchases, activeScopeFyStartYear]);
+
+  const sortedDuePurchases = useMemo(() => {
+    const dir = dueSortOrder === 'asc' ? 1 : -1;
+    return [...filteredDuePurchases].sort((a, b) => {
+      const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+      if (dueSortBy === 'purchaseDate') {
+        return (new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime()) * dir;
+      }
+      if (dueSortBy === 'totalAmount' || dueSortBy === 'totalPaid' || dueSortBy === 'balanceDue') {
+        return (num((a as any)[dueSortBy]) - num((b as any)[dueSortBy])) * dir;
+      }
+      return String((a as any)[dueSortBy] ?? '').localeCompare(String((b as any)[dueSortBy] ?? '')) * dir;
+    });
+  }, [filteredDuePurchases, dueSortBy, dueSortOrder]);
+
+  const handleDueSort = (k: DueSortKey) => {
+    if (dueSortBy === k) setDueSortOrder((s) => (s === 'asc' ? 'desc' : 'asc'));
+    else {
+      setDueSortBy(k);
+      setDueSortOrder('asc');
+    }
+  };
+
+  const loadSupplierOpeningBalance = async (supplierName: string, fyStartYear: number) => {
+    setOpeningBalanceLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set('supplierName', supplierName);
+      params.set('fyStartYear', String(fyStartYear));
+      const res = await fetch(`/api/suppliers/opening-balance?${params.toString()}`);
+      const data = await res.json();
+      if (res.ok) {
+        const amt = Number(data.openingBalancePayable) || 0;
+        setOpeningBalancePayable(amt);
+        setOpeningBalanceDraft(amt ? String(amt) : '');
+        setOpeningBalanceNotes(String(data.notes || ''));
+      }
+    } catch {
+      setOpeningBalancePayable(0);
+      setOpeningBalanceDraft('');
+      setOpeningBalanceNotes('');
+    } finally {
+      setOpeningBalanceLoading(false);
+    }
+  };
+
+  const saveSupplierOpeningBalance = async () => {
+    if (!vendorForm.supplierName || activeScopeFyStartYear == null) return;
+    const n = openingBalanceDraft.trim() === '' ? 0 : Number(openingBalanceDraft);
+    if (!Number.isFinite(n) || n < 0) return setError('Opening balance must be a valid non-negative amount.');
+    setOpeningBalanceSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch('/api/suppliers/opening-balance', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplierName: vendorForm.supplierName.trim(),
+          fyStartYear: activeScopeFyStartYear,
+          openingBalancePayable: n,
+          notes: openingBalanceNotes.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to save opening balance.');
+        return;
+      }
+      setOpeningBalancePayable(n);
+      setSuccess(`Opening balance saved for FY ${formatFinancialYearLabel(activeScopeFyStartYear)}.`);
+    } catch {
+      setError('Network error saving opening balance.');
+    } finally {
+      setOpeningBalanceSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!showVendorModal) return;
+    if (!vendorForm.supplierName) return;
+    if (activeScopeFyStartYear == null) {
+      setOpeningBalancePayable(0);
+      setOpeningBalanceDraft('');
+      setOpeningBalanceNotes('');
+      setOpeningBalanceLoading(false);
+      return;
+    }
+    loadSupplierOpeningBalance(vendorForm.supplierName, activeScopeFyStartYear);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showVendorModal, vendorForm.supplierName, activeScopeFyStartYear]);
 
   const allocatedTotal = useMemo(() => {
     return Object.values(allocations).reduce((acc, v) => acc + (Number(v) || 0), 0);
@@ -269,12 +391,16 @@ export default function PurchasePaymentsPage() {
     return Math.max(0, lumpsumTotal - allocatedTotal);
   }, [lumpsumTotal, allocatedTotal]);
 
+  const scopeRemainingTotal = useMemo(() => {
+    return filteredDuePurchases.reduce((acc, p) => acc + (Number(p.balanceDue) || 0), 0);
+  }, [filteredDuePurchases]);
+
   const autoAllocateOldestFirst = () => {
     const total = lumpsumTotal;
     if (!total || total <= 0) return;
     let remaining = total;
     const next: Record<string, string> = {};
-    for (const p of duePurchases) {
+    for (const p of sortedDuePurchases) {
       const rem = Number(p.balanceDue || 0);
       if (rem <= 0 || remaining <= 0) continue;
       const use = Math.min(rem, remaining);
@@ -363,6 +489,7 @@ export default function PurchasePaymentsPage() {
               onClick={() => {
                 setError('');
                 setSuccess('');
+                setVendorFyScope('all');
                 setShowVendorModal(true);
               }}
               className="w-full sm:w-auto text-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
@@ -410,6 +537,7 @@ export default function PurchasePaymentsPage() {
                     onChange={(e) => {
                       const v = e.target.value;
                       setVendorForm((f) => ({ ...f, supplierName: v }));
+                      setVendorFyScope('all');
                       loadDuePurchases(v);
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
@@ -430,6 +558,21 @@ export default function PurchasePaymentsPage() {
                   </div>
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Scope</label>
+                  <select
+                    value={vendorFyScope}
+                    onChange={(e) => setVendorFyScope(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="all">Overall (all FY)</option>
+                    {fyYearOptions.map((y) => (
+                      <option key={y} value={`fy:${y}`}>
+                        FY {formatFinancialYearLabel(y)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Paid on *</label>
                   <input
                     type="date"
@@ -438,7 +581,7 @@ export default function PurchasePaymentsPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   />
                 </div>
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Total paid (₹) *</label>
                   <input
                     type="number"
@@ -462,6 +605,52 @@ export default function PurchasePaymentsPage() {
                 </div>
               </div>
 
+              {activeScopeFyStartYear != null && (
+                <div className="mt-4 p-3 rounded-md border border-amber-200 bg-amber-50/70">
+                  <div className="text-sm font-medium text-gray-800 mb-2">
+                    Opening balance for {vendorForm.supplierName || 'selected supplier'} (FY{' '}
+                    {formatFinancialYearLabel(activeScopeFyStartYear)})
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Opening payable (₹)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={openingBalanceDraft}
+                        onChange={(e) => setOpeningBalanceDraft(e.target.value)}
+                        disabled={openingBalanceLoading}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-xs text-gray-600 mb-1">Notes</label>
+                      <input
+                        type="text"
+                        value={openingBalanceNotes}
+                        onChange={(e) => setOpeningBalanceNotes(e.target.value)}
+                        disabled={openingBalanceLoading}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                      />
+                    </div>
+                    <div className="flex items-end">
+                      <button
+                        type="button"
+                        onClick={saveSupplierOpeningBalance}
+                        disabled={!vendorForm.supplierName || openingBalanceLoading || openingBalanceSaving}
+                        className="w-full px-4 py-2 text-sm border border-amber-300 rounded-md bg-white hover:bg-amber-50 disabled:opacity-50"
+                      >
+                        {openingBalanceSaving ? 'Saving...' : 'Save opening'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-600 mt-2">
+                    Saved opening: <span className="font-medium">{formatCurrency(openingBalancePayable)}</span>
+                  </div>
+                </div>
+              )}
+
               <div className="mt-5 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
                 <div className="text-sm text-gray-700">
                   <div>
@@ -469,6 +658,12 @@ export default function PurchasePaymentsPage() {
                   </div>
                   <div>
                     Unallocated: <span className="font-semibold">{formatCurrency(unallocated)}</span>
+                  </div>
+                  <div>
+                    Scope remaining due:{' '}
+                    <span className="font-semibold">
+                      {formatCurrency(scopeRemainingTotal + (activeScopeFyStartYear == null ? 0 : openingBalancePayable))}
+                    </span>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -495,12 +690,24 @@ export default function PurchasePaymentsPage() {
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      <th className="px-3 py-2 text-left">Purchase date</th>
-                      <th className="px-3 py-2 text-left">Invoice</th>
-                      <th className="px-3 py-2 text-left">Product</th>
-                      <th className="px-3 py-2 text-right">Bill (₹)</th>
-                      <th className="px-3 py-2 text-right">Paid (₹)</th>
-                      <th className="px-3 py-2 text-right">Remaining (₹)</th>
+                      <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleDueSort('purchaseDate')}>
+                        Purchase date {dueSortBy === 'purchaseDate' ? (dueSortOrder === 'asc' ? '▲' : '▼') : ''}
+                      </th>
+                      <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleDueSort('invoiceNumber')}>
+                        Invoice {dueSortBy === 'invoiceNumber' ? (dueSortOrder === 'asc' ? '▲' : '▼') : ''}
+                      </th>
+                      <th className="px-3 py-2 text-left cursor-pointer" onClick={() => handleDueSort('productName')}>
+                        Product {dueSortBy === 'productName' ? (dueSortOrder === 'asc' ? '▲' : '▼') : ''}
+                      </th>
+                      <th className="px-3 py-2 text-right cursor-pointer" onClick={() => handleDueSort('totalAmount')}>
+                        Bill (₹) {dueSortBy === 'totalAmount' ? (dueSortOrder === 'asc' ? '▲' : '▼') : ''}
+                      </th>
+                      <th className="px-3 py-2 text-right cursor-pointer" onClick={() => handleDueSort('totalPaid')}>
+                        Paid (₹) {dueSortBy === 'totalPaid' ? (dueSortOrder === 'asc' ? '▲' : '▼') : ''}
+                      </th>
+                      <th className="px-3 py-2 text-right cursor-pointer" onClick={() => handleDueSort('balanceDue')}>
+                        Remaining (₹) {dueSortBy === 'balanceDue' ? (dueSortOrder === 'asc' ? '▲' : '▼') : ''}
+                      </th>
                       <th className="px-3 py-2 text-right">Allocate now (₹)</th>
                     </tr>
                   </thead>
@@ -511,14 +718,18 @@ export default function PurchasePaymentsPage() {
                           Loading purchases...
                         </td>
                       </tr>
-                    ) : duePurchases.length === 0 ? (
+                    ) : sortedDuePurchases.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="px-3 py-6 text-center text-gray-500">
-                          {vendorForm.supplierName ? 'No remaining purchases found (all paid).' : 'Select supplier to load purchases.'}
+                          {vendorForm.supplierName
+                            ? activeScopeFyStartYear == null
+                              ? 'No remaining purchases found (all paid).'
+                              : `No remaining purchases in FY ${formatFinancialYearLabel(activeScopeFyStartYear)}.`
+                            : 'Select supplier to load purchases.'}
                         </td>
                       </tr>
                     ) : (
-                      duePurchases.map((p) => {
+                      sortedDuePurchases.map((p) => {
                         const remaining = Number(p.balanceDue || 0);
                         return (
                           <tr key={p.id} className="border-t">

@@ -268,6 +268,14 @@ export const suppliers = mysqlTable('suppliers', {
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
 });
 
+export const supplierFyOpeningBalance = mysqlTable('supplier_fy_opening_balance', {
+  supplierName: varchar('supplier_name', { length: 255 }).notNull(),
+  fyStartYear: int('fy_start_year').notNull(),
+  openingBalancePayable: decimal('opening_balance_payable', { precision: 14, scale: 2 }).notNull().default('0'),
+  notes: varchar('notes', { length: 500 }),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
 // Production table (for produced oils)
 export const production = mysqlTable('production', {
   id: varchar('id', { length: 255 }).primaryKey(),
