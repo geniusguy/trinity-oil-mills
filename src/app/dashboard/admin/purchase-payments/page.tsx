@@ -24,6 +24,19 @@ type PaymentRow = {
   monthKey: string; // YYYY-MM
 };
 
+type SupplierOption = { id: string; name: string };
+
+type PurchaseDueRow = {
+  id: string;
+  purchaseDate: string;
+  invoiceNumber: string | null;
+  productName: string | null;
+  unit: string | null;
+  totalAmount: number | null;
+  totalPaid: number;
+  balanceDue: number | null;
+};
+
 export default function PurchasePaymentsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -47,6 +60,21 @@ export default function PurchasePaymentsPage() {
   const [availableMonths, setAvailableMonths] = useState<{ value: string; label: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
+  const [duePurchases, setDuePurchases] = useState<PurchaseDueRow[]>([]);
+  const [dueLoading, setDueLoading] = useState(false);
+
+  const [showVendorModal, setShowVendorModal] = useState(false);
+  const [vendorForm, setVendorForm] = useState({
+    supplierName: '',
+    paidOn: new Date().toISOString().slice(0, 10),
+    totalAmount: '',
+    notes: '',
+  });
+  const [allocations, setAllocations] = useState<Record<string, string>>({});
+  const [vendorSaving, setVendorSaving] = useState(false);
 
   const historyTopScrollRef = useRef<HTMLDivElement>(null);
   const historyMainScrollRef = useRef<HTMLDivElement>(null);
@@ -119,6 +147,7 @@ export default function PurchasePaymentsPage() {
       try {
         setIsLoading(true);
         setError('');
+        setSuccess('');
 
         const params = new URLSearchParams();
         if (filters.fy) params.set('fy', filters.fy);
@@ -145,6 +174,29 @@ export default function PurchasePaymentsPage() {
     fetchPayments();
   }, [filters.fy, filters.month, filters.search]);
 
+  useEffect(() => {
+    const loadSuppliers = async () => {
+      try {
+        const res = await fetch('/api/suppliers');
+        const data = await res.json();
+        if (res.ok) {
+          setSuppliers((data.suppliers || []).map((s: any) => ({ id: String(s.id), name: String(s.name) })));
+        }
+      } catch {}
+    };
+    if (['admin', 'retail_staff', 'accountant'].includes((session?.user as any)?.role || '')) {
+      loadSuppliers();
+    }
+  }, [session?.user]);
+
+  const formatCurrency = (n: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 2,
+    }).format(n);
+  };
+
   const monthLabelMap = useMemo(() => {
     return new Map(availableMonths.map((m) => [m.value, m.label]));
   }, [availableMonths]);
@@ -165,12 +217,120 @@ export default function PurchasePaymentsPage() {
     }
   };
 
-  const formatCurrency = (n: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 2,
-    }).format(n);
+  const loadDuePurchases = async (supplierName: string) => {
+    if (!supplierName) {
+      setDuePurchases([]);
+      setAllocations({});
+      return;
+    }
+    setDueLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set('supplier', supplierName);
+      params.set('limit', '500');
+      const res = await fetch(`/api/stock-purchases?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to load purchases for supplier');
+        return;
+      }
+      const list: PurchaseDueRow[] = (data.purchases || [])
+        .map((p: any) => ({
+          id: String(p.id),
+          purchaseDate: String(p.purchaseDate || ''),
+          invoiceNumber: p.invoiceNumber ?? null,
+          productName: p.productName ?? null,
+          unit: p.unit ?? null,
+          totalAmount: p.totalAmount == null ? null : Number(p.totalAmount),
+          totalPaid: Number(p.totalPaid || 0),
+          balanceDue: p.balanceDue == null ? null : Number(p.balanceDue),
+        }))
+        .filter((p: PurchaseDueRow) => p.totalAmount != null && (p.balanceDue || 0) > 0.005)
+        .sort((a, b) => new Date(a.purchaseDate).getTime() - new Date(b.purchaseDate).getTime());
+      setDuePurchases(list);
+      setAllocations({});
+    } catch {
+      setError('Network error loading supplier purchases');
+    } finally {
+      setDueLoading(false);
+    }
+  };
+
+  const allocatedTotal = useMemo(() => {
+    return Object.values(allocations).reduce((acc, v) => acc + (Number(v) || 0), 0);
+  }, [allocations]);
+
+  const lumpsumTotal = useMemo(() => {
+    const n = Number(vendorForm.totalAmount);
+    return Number.isFinite(n) ? n : 0;
+  }, [vendorForm.totalAmount]);
+
+  const unallocated = useMemo(() => {
+    return Math.max(0, lumpsumTotal - allocatedTotal);
+  }, [lumpsumTotal, allocatedTotal]);
+
+  const autoAllocateOldestFirst = () => {
+    const total = lumpsumTotal;
+    if (!total || total <= 0) return;
+    let remaining = total;
+    const next: Record<string, string> = {};
+    for (const p of duePurchases) {
+      const rem = Number(p.balanceDue || 0);
+      if (rem <= 0 || remaining <= 0) continue;
+      const use = Math.min(rem, remaining);
+      next[p.id] = use.toFixed(2);
+      remaining -= use;
+    }
+    setAllocations(next);
+  };
+
+  const saveVendorPayment = async () => {
+    const supplierName = vendorForm.supplierName.trim();
+    const paidOn = String(vendorForm.paidOn || '').trim();
+    const totalAmount = Number(vendorForm.totalAmount);
+    if (!supplierName) return setError('Select supplier.');
+    if (!paidOn) return setError('Select paid date.');
+    if (!Number.isFinite(totalAmount) || totalAmount <= 0) return setError('Enter a valid total amount.');
+    if (Math.abs(allocatedTotal - totalAmount) > 0.01) {
+      return setError(`Allocated total must equal lumpsum total. Allocated ₹${allocatedTotal.toFixed(2)} / Total ₹${totalAmount.toFixed(2)}.`);
+    }
+    const allocationsList = Object.entries(allocations)
+      .map(([stockPurchaseId, amount]) => ({ stockPurchaseId, amount: Number(amount) }))
+      .filter((a) => Number.isFinite(a.amount) && a.amount > 0);
+    if (!allocationsList.length) return setError('Allocate amount to at least one purchase.');
+
+    setVendorSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await fetch('/api/stock-purchase-payments/vendor-bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          supplierName,
+          paidOn,
+          totalAmount,
+          notes: vendorForm.notes?.trim() || null,
+          allocations: allocationsList,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Failed to save vendor payment');
+        return;
+      }
+      setSuccess('Vendor payment saved and allocated.');
+      setShowVendorModal(false);
+      setVendorForm((f) => ({ ...f, totalAmount: '', notes: '' }));
+      setAllocations({});
+      setDuePurchases([]);
+      // refresh main table
+      setFilters((f) => ({ ...f }));
+    } catch {
+      setError('Network error saving vendor payment');
+    } finally {
+      setVendorSaving(false);
+    }
   };
 
   if (status === 'loading') {
@@ -198,6 +358,17 @@ export default function PurchasePaymentsPage() {
             <p className="mt-2 text-gray-600">Track all vendor payments recorded against stock purchases.</p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setError('');
+                setSuccess('');
+                setShowVendorModal(true);
+              }}
+              className="w-full sm:w-auto text-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium"
+            >
+              Single vendor payment
+            </button>
             <Link
               href="/dashboard/admin/purchases"
               className="w-full sm:w-auto text-center bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-md text-sm font-medium"
@@ -208,6 +379,200 @@ export default function PurchasePaymentsPage() {
         </div>
 
         {error && <div className="mb-6 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md">{error}</div>}
+        {success && (
+          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md">{success}</div>
+        )}
+
+        {showVendorModal && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div className="relative top-10 mx-auto p-6 border w-full max-w-4xl shadow-lg rounded-md bg-white max-h-screen overflow-y-auto">
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <h3 className="text-lg font-medium text-gray-900">Single vendor payment (lumpsum)</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowVendorModal(false)}
+                  className="px-2 py-1 text-sm text-gray-600 hover:text-gray-900"
+                >
+                  Close
+                </button>
+              </div>
+
+              <p className="text-xs text-gray-600 mb-4">
+                Enter one paid amount, then allocate it across multiple purchases of the same supplier. This will save one
+                payment row per selected purchase (for accurate remaining balances).
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Supplier *</label>
+                  <select
+                    value={vendorForm.supplierName}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setVendorForm((f) => ({ ...f, supplierName: v }));
+                      loadDuePurchases(v);
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="">Select supplier</option>
+                    {suppliers.map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-1 text-xs text-gray-500">
+                    Manage suppliers in{' '}
+                    <Link href="/dashboard/admin/suppliers" className="text-indigo-600 hover:text-indigo-800">
+                      Supplier Master
+                    </Link>
+                    .
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Paid on *</label>
+                  <input
+                    type="date"
+                    value={vendorForm.paidOn}
+                    onChange={(e) => setVendorForm((f) => ({ ...f, paidOn: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Total paid (₹) *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={vendorForm.totalAmount}
+                    onChange={(e) => setVendorForm((f) => ({ ...f, totalAmount: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="e.g. 15000"
+                  />
+                </div>
+                <div className="md:col-span-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+                  <input
+                    type="text"
+                    value={vendorForm.notes}
+                    onChange={(e) => setVendorForm((f) => ({ ...f, notes: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                    placeholder="e.g. NEFT ref / bank / remarks"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-5 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+                <div className="text-sm text-gray-700">
+                  <div>
+                    Allocated: <span className="font-semibold">{formatCurrency(allocatedTotal)}</span>
+                  </div>
+                  <div>
+                    Unallocated: <span className="font-semibold">{formatCurrency(unallocated)}</span>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={autoAllocateOldestFirst}
+                    disabled={!vendorForm.supplierName || !lumpsumTotal || dueLoading}
+                    className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Auto allocate (oldest first)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAllocations({})}
+                    disabled={dueLoading}
+                    className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Clear allocations
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 border rounded-md overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Purchase date</th>
+                      <th className="px-3 py-2 text-left">Invoice</th>
+                      <th className="px-3 py-2 text-left">Product</th>
+                      <th className="px-3 py-2 text-right">Bill (₹)</th>
+                      <th className="px-3 py-2 text-right">Paid (₹)</th>
+                      <th className="px-3 py-2 text-right">Remaining (₹)</th>
+                      <th className="px-3 py-2 text-right">Allocate now (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dueLoading ? (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-6 text-center text-gray-500">
+                          Loading purchases...
+                        </td>
+                      </tr>
+                    ) : duePurchases.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-6 text-center text-gray-500">
+                          {vendorForm.supplierName ? 'No remaining purchases found (all paid).' : 'Select supplier to load purchases.'}
+                        </td>
+                      </tr>
+                    ) : (
+                      duePurchases.map((p) => {
+                        const remaining = Number(p.balanceDue || 0);
+                        return (
+                          <tr key={p.id} className="border-t">
+                            <td className="px-3 py-2">{p.purchaseDate ? formatDate(p.purchaseDate) : '—'}</td>
+                            <td className="px-3 py-2">{p.invoiceNumber || '—'}</td>
+                            <td className="px-3 py-2">{(p.productName || '—') + (p.unit ? ` (${p.unit})` : '')}</td>
+                            <td className="px-3 py-2 text-right">{formatCurrency(Number(p.totalAmount || 0))}</td>
+                            <td className="px-3 py-2 text-right">{formatCurrency(Number(p.totalPaid || 0))}</td>
+                            <td className="px-3 py-2 text-right">{formatCurrency(remaining)}</td>
+                            <td className="px-3 py-2 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={allocations[p.id] ?? ''}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  const n = Number(v);
+                                  if (v !== '' && (!Number.isFinite(n) || n < 0)) return;
+                                  if (v !== '' && Number.isFinite(n) && n > remaining + 0.01) return;
+                                  setAllocations((a) => ({ ...a, [p.id]: v }));
+                                }}
+                                className="w-32 px-2 py-1 border border-gray-300 rounded-md text-right"
+                                placeholder="0.00"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-6 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowVendorModal(false)}
+                  className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveVendorPayment}
+                  disabled={vendorSaving || dueLoading}
+                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {vendorSaving ? 'Saving…' : 'Save payment'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="bg-white shadow rounded-lg mb-6">

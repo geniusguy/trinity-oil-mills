@@ -178,6 +178,21 @@ export async function POST(request: NextRequest) {
     `;
     await connection.execute(stockPurchaseFyOpeningSQL);
 
+    const suppliersSQL = `
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        supplier_type VARCHAR(120) NULL,
+        contact_number VARCHAR(30) NULL,
+        email VARCHAR(255) NULL,
+        created_by VARCHAR(255) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_supplier_name (name)
+      )
+    `;
+    await connection.execute(suppliersSQL);
+
     // Daily notes / task reminders (calls, follow-ups, reminders)
     const dailyTaskRemindersSQL = `
       CREATE TABLE IF NOT EXISTS daily_task_reminders (

@@ -256,6 +256,18 @@ export const stockPurchaseFyOpening = mysqlTable('stock_purchase_fy_opening', {
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
 });
 
+/** Supplier master for purchase/vendor records. */
+export const suppliers = mysqlTable('suppliers', {
+  id: varchar('id', { length: 255 }).primaryKey(),
+  name: varchar('name', { length: 255 }).notNull().unique(),
+  supplierType: varchar('supplier_type', { length: 120 }),
+  contactNumber: varchar('contact_number', { length: 30 }),
+  email: varchar('email', { length: 255 }),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
 // Production table (for produced oils)
 export const production = mysqlTable('production', {
   id: varchar('id', { length: 255 }).primaryKey(),

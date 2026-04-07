@@ -12,6 +12,11 @@ interface Product {
   unit: string;
 }
 
+interface SupplierOption {
+  id: string;
+  name: string;
+}
+
 type PaymentStatus = 'unpaid' | 'partial' | 'paid' | 'unknown';
 
 interface Purchase {
@@ -58,8 +63,10 @@ export default function StockPurchasesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [products, setProducts] = useState<Product[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(true);
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -68,7 +75,7 @@ export default function StockPurchasesPage() {
     productId: '',
     quantity: '',
     tins: '',
-    supplierName: 'Yuvaraj',
+    supplierName: '',
     purchaseDate: new Date().toISOString().slice(0, 10),
     unitPrice: '',
     totalAmount: '',
@@ -244,6 +251,12 @@ export default function StockPurchasesPage() {
     return [...nonCastors, canonical];
   }, [products, canonicalCastor200mlProductId]);
 
+  const supplierNamesForEdit = useMemo(() => {
+    const names = new Set<string>(suppliers.map((s) => s.name));
+    if (editForm.supplierName?.trim()) names.add(editForm.supplierName.trim());
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [suppliers, editForm.supplierName]);
+
   const canonicalizeCastor200mlProductIdForForm = (productId: string) => {
     if (isCastorOil200mlVariantById(productId)) return canonicalCastor200mlProductId || String(productId).trim();
     return productId;
@@ -397,6 +410,7 @@ export default function StockPurchasesPage() {
   useEffect(() => {
     if (['admin', 'retail_staff', 'accountant'].includes(session?.user?.role || '')) {
       fetchProducts();
+      fetchSuppliers();
     }
   }, [session?.user?.role]);
 
@@ -417,6 +431,20 @@ export default function StockPurchasesPage() {
       setError('Network error loading products.');
     } finally {
       setIsLoadingProducts(false);
+    }
+  };
+
+  const fetchSuppliers = async () => {
+    try {
+      setIsLoadingSuppliers(true);
+      const res = await fetch('/api/suppliers');
+      const data = await res.json();
+      if (res.ok) setSuppliers((data.suppliers || []).map((s: any) => ({ id: String(s.id), name: String(s.name) })));
+      else setError(data.error || 'Failed to load suppliers');
+    } catch {
+      setError('Network error loading suppliers.');
+    } finally {
+      setIsLoadingSuppliers(false);
     }
   };
 
@@ -991,14 +1019,27 @@ export default function StockPurchasesPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Supplier / From whom *</label>
-                <input
-                  type="text"
+                <select
                   required
                   value={form.supplierName}
                   onChange={(e) => setForm((f) => ({ ...f, supplierName: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="Supplier or vendor name"
-                />
+                  disabled={isLoadingSuppliers}
+                >
+                  <option value="">{isLoadingSuppliers ? 'Loading suppliers...' : 'Select supplier'}</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-1 text-xs text-gray-500">
+                  New supplier? Add in{' '}
+                  <Link href="/dashboard/admin/suppliers" className="text-indigo-600 hover:text-indigo-800">
+                    Supplier Master
+                  </Link>
+                  .
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price (₹)</label>
@@ -1606,13 +1647,20 @@ export default function StockPurchasesPage() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Supplier / From whom *</label>
-                        <input
-                          type="text"
+                        <select
                           required
                           value={editForm.supplierName}
                           onChange={(e) => setEditForm((f) => ({ ...f, supplierName: e.target.value }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        />
+                          disabled={isLoadingSuppliers}
+                        >
+                          <option value="">{isLoadingSuppliers ? 'Loading suppliers...' : 'Select supplier'}</option>
+                          {supplierNamesForEdit.map((name) => (
+                            <option key={name} value={name}>
+                              {name}
+                            </option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price (₹)</label>

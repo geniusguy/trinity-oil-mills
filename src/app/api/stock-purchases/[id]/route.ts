@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { createConnection } from '@/lib/database';
 import { ensureStockPurchasePaymentsTable } from '@/lib/stockPurchasePaymentsDb';
+import { ensureSuppliersTable } from '@/lib/suppliersDb';
 
 // PUT /api/stock-purchases/:id — edit purchase details without inventory correction
 export async function PUT(
@@ -42,6 +43,16 @@ export async function PUT(
 
     const connection = await createConnection();
     try {
+      await ensureSuppliersTable(connection);
+      const supplierNameNormalized = String(supplierName).trim();
+      const [supRows]: any = await connection.query(
+        'SELECT id FROM suppliers WHERE name COLLATE utf8mb4_general_ci = ? COLLATE utf8mb4_general_ci LIMIT 1',
+        [supplierNameNormalized]
+      );
+      if (!supRows?.length) {
+        return NextResponse.json({ error: 'Supplier is not in master list. Add supplier first.' }, { status: 400 });
+      }
+
       // Normalize Castor Oil (200ml) variants to canonical inventory product id.
       // This keeps inventory and tin/ltr calculations consistent.
       let normalizedProductId = String(productId).trim();
@@ -81,7 +92,7 @@ export async function PUT(
         [
           normalizedProductId,
           qty,
-          String(supplierName).trim(),
+          supplierNameNormalized,
           purchaseDateStr,
           unitPrice != null && unitPrice !== '' ? Number(unitPrice) : null,
           totalAmount != null && totalAmount !== '' ? Number(totalAmount) : null,

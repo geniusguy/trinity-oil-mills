@@ -204,6 +204,16 @@ const navigationSections: NavSection[] = [
         roles: ['admin', 'accountant', 'retail_staff']
       },
       {
+        name: 'Supplier Master',
+        href: '/dashboard/admin/suppliers',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5V4H2v16h5m10 0v-2a4 4 0 00-8 0v2m8 0H9m8-8a4 4 0 11-8 0 4 4 0 018 0z" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff']
+      },
+      {
         name: 'Payments Made',
         href: '/dashboard/admin/purchase-payments',
         icon: (

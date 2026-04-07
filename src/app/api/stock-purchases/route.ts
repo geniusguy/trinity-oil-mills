@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
 import { auth } from '@/lib/auth';
 import { ensureStockPurchasePaymentsTable } from '@/lib/stockPurchasePaymentsDb';
+import { ensureSuppliersTable } from '@/lib/suppliersDb';
 
 // GET /api/stock-purchases — list with filters: productId, supplier, dateFrom, dateTo
 export async function GET(request: NextRequest) {
@@ -130,8 +131,19 @@ export async function POST(request: NextRequest) {
 
     try {
       await connection.beginTransaction();
+      await ensureSuppliersTable(connection);
 
       const purchaseId = `sp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const supplierNameNormalized = String(supplierName).trim();
+      const [supRows]: any = await connection.query(
+        'SELECT id FROM suppliers WHERE name COLLATE utf8mb4_general_ci = ? COLLATE utf8mb4_general_ci LIMIT 1',
+        [supplierNameNormalized]
+      );
+      if (!supRows?.length) {
+        await connection.rollback();
+        await connection.end();
+        return NextResponse.json({ error: 'Supplier is not in master list. Add supplier first.' }, { status: 400 });
+      }
 
       // Merge Castor Oil (200ml) variants into canonical inventory product id
       // so stock is not split across product_id values.
@@ -164,7 +176,7 @@ export async function POST(request: NextRequest) {
           purchaseId,
           normalizedProductId,
           qty,
-          String(supplierName).trim(),
+          supplierNameNormalized,
           purchaseDate,
           unitPrice != null ? Number(unitPrice) : null,
           totalAmount != null ? Number(totalAmount) : null,
