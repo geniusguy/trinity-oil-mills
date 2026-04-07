@@ -248,6 +248,14 @@ export const stockPurchasePayments = mysqlTable('stock_purchase_payments', {
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
+/** Opening vendor payables at 1 Apr for an Indian FY (fy_start_year = April year). */
+export const stockPurchaseFyOpening = mysqlTable('stock_purchase_fy_opening', {
+  fyStartYear: int('fy_start_year').primaryKey(),
+  openingBalancePayable: decimal('opening_balance_payable', { precision: 14, scale: 2 }).notNull().default('0'),
+  notes: varchar('notes', { length: 500 }),
+  updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),
+});
+
 // Production table (for produced oils)
 export const production = mysqlTable('production', {
   id: varchar('id', { length: 255 }).primaryKey(),
