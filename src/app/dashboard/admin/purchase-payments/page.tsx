@@ -55,6 +55,7 @@ export default function PurchasePaymentsPage() {
     month: '',
     search: '',
   });
+  const [paymentsReloadKey, setPaymentsReloadKey] = useState(0);
   const [searchDraft, setSearchDraft] = useState('');
 
   const [payments, setPayments] = useState<PaymentRow[]>([]);
@@ -182,7 +183,7 @@ export default function PurchasePaymentsPage() {
     };
 
     fetchPayments();
-  }, [filters.fy, filters.month, filters.search]);
+  }, [filters.fy, filters.month, filters.search, paymentsReloadKey]);
 
   useEffect(() => {
     const loadSuppliers = async () => {
@@ -450,8 +451,7 @@ export default function PurchasePaymentsPage() {
       setVendorForm((f) => ({ ...f, totalAmount: '', notes: '' }));
       setAllocations({});
       setDuePurchases([]);
-      // refresh main table
-      setFilters((f) => ({ ...f }));
+      setPaymentsReloadKey((k) => k + 1);
     } catch {
       setError('Network error saving vendor payment');
     } finally {
@@ -561,7 +561,11 @@ export default function PurchasePaymentsPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Scope</label>
                   <select
                     value={vendorFyScope}
-                    onChange={(e) => setVendorFyScope(e.target.value)}
+                    onChange={(e) => {
+                      setVendorFyScope(e.target.value);
+                      // Prevent hidden allocations from being submitted after scope switch.
+                      setAllocations({});
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   >
                     <option value="all">Overall (all FY)</option>

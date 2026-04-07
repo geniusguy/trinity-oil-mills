@@ -94,14 +94,6 @@ export default function StockPurchasesPage() {
     dateTo: '',
   }));
 
-  const [fyOpeningPayable, setFyOpeningPayable] = useState(0);
-  const [fyOpeningNotes, setFyOpeningNotes] = useState('');
-  const [fyOpeningDraft, setFyOpeningDraft] = useState({ amount: '', notes: '' });
-  const [fyOpeningLoading, setFyOpeningLoading] = useState(false);
-  const [fyOpeningSaving, setFyOpeningSaving] = useState(false);
-  const [showFyOpeningModal, setShowFyOpeningModal] = useState(false);
-  const [fyOpeningModalYear, setFyOpeningModalYear] = useState(getFinancialYearStartYear(new Date()));
-
   const [sortBy, setSortBy] = useState<
     | 'purchaseDate'
     | 'productName'
@@ -476,42 +468,6 @@ export default function StockPurchasesPage() {
     }
   };
 
-  const loadFyOpeningBalance = async (fyStartYear: number) => {
-    setFyOpeningLoading(true);
-    try {
-      const res = await fetch(`/api/stock-purchases/fy-opening?fyStartYear=${fyStartYear}`);
-      const data = await res.json();
-      if (res.ok) {
-        const amt = Number(data.openingBalancePayable) || 0;
-        const n = String(data.notes || '');
-        setFyOpeningPayable(amt);
-        setFyOpeningNotes(n);
-        setFyOpeningDraft({ amount: amt ? String(amt) : '', notes: n });
-      }
-    } catch {
-      setFyOpeningPayable(0);
-      setFyOpeningNotes('');
-      setFyOpeningDraft({ amount: '', notes: '' });
-    } finally {
-      setFyOpeningLoading(false);
-    }
-  };
-
-  const openFyOpeningModal = async () => {
-    const m = /^fy:(\d+)$/.exec(filters.fySelect);
-    const y = m ? Number(m[1]) : getFinancialYearStartYear(new Date());
-    setFyOpeningModalYear(y);
-    setShowFyOpeningModal(true);
-  };
-
-  useEffect(() => {
-    if (!showFyOpeningModal) return;
-    if (status === 'loading') return;
-    if (!['admin', 'retail_staff', 'accountant'].includes(session?.user?.role || '')) return;
-    loadFyOpeningBalance(fyOpeningModalYear);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showFyOpeningModal, fyOpeningModalYear, session?.user?.role, status]);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     addCurrentFormToDraft();
@@ -635,43 +591,6 @@ export default function StockPurchasesPage() {
       dateFrom: '',
       dateTo: '',
     });
-  };
-
-  const saveFyOpeningBalance = async () => {
-    const fyStartYear = fyOpeningModalYear;
-    const raw = String(fyOpeningDraft.amount).trim();
-    const openingBalancePayable = raw === '' ? 0 : Number(raw);
-    if (!Number.isFinite(openingBalancePayable) || openingBalancePayable < 0) {
-      setError('Opening balance must be a valid non-negative amount.');
-      return;
-    }
-    setError('');
-    setSuccess('');
-    setFyOpeningSaving(true);
-    try {
-      const res = await fetch('/api/stock-purchases/fy-opening', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fyStartYear,
-          openingBalancePayable,
-          notes: fyOpeningDraft.notes.trim() || null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Failed to save opening balance');
-        return;
-      }
-      setSuccess('Opening balance saved for this financial year.');
-      setFyOpeningPayable(openingBalancePayable);
-      setFyOpeningNotes(fyOpeningDraft.notes.trim());
-      setShowFyOpeningModal(false);
-    } catch {
-      setError('Network error saving opening balance.');
-    } finally {
-      setFyOpeningSaving(false);
-    }
   };
 
   const formatDate = (d: string) => {
@@ -1297,13 +1216,6 @@ export default function StockPurchasesPage() {
               <div className="flex items-end gap-2">
                 <button
                   type="button"
-                  onClick={openFyOpeningModal}
-                  className="px-4 py-2 text-sm font-medium text-indigo-700 border border-indigo-200 rounded-md bg-white hover:bg-indigo-50"
-                >
-                  Opening balance
-                </button>
-                <button
-                  type="button"
                   onClick={clearFilters}
                   className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded-md hover:bg-gray-50"
                 >
@@ -1735,91 +1647,6 @@ export default function StockPurchasesPage() {
                       </button>
                     </div>
                   </form>
-                </div>
-              </div>
-            )}
-
-            {showFyOpeningModal && (
-              <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-                <div className="relative top-10 mx-auto p-6 border w-full max-w-xl shadow-lg rounded-md bg-white max-h-screen overflow-y-auto">
-                  <div className="flex items-start justify-between gap-4 mb-3">
-                    <h3 className="text-lg font-medium text-gray-900">Set opening balance</h3>
-                    <button
-                      type="button"
-                      onClick={() => setShowFyOpeningModal(false)}
-                      className="px-2 py-1 text-sm text-gray-600 hover:text-gray-900"
-                    >
-                      Close
-                    </button>
-                  </div>
-
-                  <p className="text-xs text-gray-600 mb-4">
-                    Opening balance is saved <span className="font-medium">per FY</span>, as on{' '}
-                    <span className="font-medium">1 Apr</span> of that FY start year.
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Financial year</label>
-                      <select
-                        value={String(fyOpeningModalYear)}
-                        onChange={(e) => setFyOpeningModalYear(Number(e.target.value))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                      >
-                        {fyYearList.map((y) => (
-                          <option key={y} value={String(y)}>
-                            FY {formatFinancialYearLabel(y)} (as on {`${y}-04-01`})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Opening payable (₹)</label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={fyOpeningDraft.amount}
-                        onChange={(e) => setFyOpeningDraft((d) => ({ ...d, amount: e.target.value }))}
-                        placeholder="0"
-                        disabled={fyOpeningLoading}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100"
-                      />
-                      <div className="text-[11px] text-gray-500 mt-1">
-                        Saved: {formatCurrency(fyOpeningPayable)} {fyOpeningNotes ? `(${fyOpeningNotes})` : ''}
-                      </div>
-                    </div>
-
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
-                      <input
-                        type="text"
-                        value={fyOpeningDraft.notes}
-                        onChange={(e) => setFyOpeningDraft((d) => ({ ...d, notes: e.target.value }))}
-                        placeholder="e.g. brought forward from books"
-                        disabled={fyOpeningLoading}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 mt-6">
-                    <button
-                      type="button"
-                      onClick={() => setShowFyOpeningModal(false)}
-                      className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={saveFyOpeningBalance}
-                      disabled={fyOpeningLoading || fyOpeningSaving}
-                      className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
-                    >
-                      {fyOpeningSaving ? 'Saving…' : 'Save'}
-                    </button>
-                  </div>
                 </div>
               </div>
             )}

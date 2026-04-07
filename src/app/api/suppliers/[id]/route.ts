@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { createConnection } from '@/lib/database';
 import { ensureSuppliersTable } from '@/lib/suppliersDb';
+import { ensureSupplierFyOpeningTable } from '@/lib/supplierFyOpeningDb';
 
 const ROLES = ['admin', 'accountant', 'retail_staff'];
 
@@ -31,15 +32,47 @@ export async function PUT(
 
     const connection = await createConnection();
     await ensureSuppliersTable(connection);
-    const [result]: any = await connection.execute(
-      `UPDATE suppliers
-       SET name = ?, supplier_type = ?, contact_number = ?, email = ?, updated_at = NOW()
-       WHERE id = ?`,
-      [name, supplierType, contactNumber, email, id]
-    );
-    await connection.end();
-    if (!result?.affectedRows) return NextResponse.json({ error: 'Supplier not found' }, { status: 404 });
-    return NextResponse.json({ message: 'Supplier updated' }, { status: 200 });
+    await ensureSupplierFyOpeningTable(connection);
+
+    await connection.beginTransaction();
+    try {
+      const [oldRows]: any = await connection.query('SELECT name FROM suppliers WHERE id = ? LIMIT 1', [id]);
+      if (!oldRows?.length) {
+        await connection.rollback();
+        await connection.end();
+        return NextResponse.json({ error: 'Supplier not found' }, { status: 404 });
+      }
+      const oldName = String(oldRows[0].name || '').trim();
+
+      const [result]: any = await connection.execute(
+        `UPDATE suppliers
+         SET name = ?, supplier_type = ?, contact_number = ?, email = ?, updated_at = NOW()
+         WHERE id = ?`,
+        [name, supplierType, contactNumber, email, id]
+      );
+      if (!result?.affectedRows) {
+        await connection.rollback();
+        await connection.end();
+        return NextResponse.json({ error: 'Supplier not found' }, { status: 404 });
+      }
+
+      if (oldName && oldName.toLowerCase() !== name.toLowerCase()) {
+        await connection.execute(
+          `UPDATE supplier_fy_opening_balance
+           SET supplier_name = ?
+           WHERE supplier_name COLLATE utf8mb4_general_ci = ? COLLATE utf8mb4_general_ci`,
+          [name, oldName]
+        );
+      }
+
+      await connection.commit();
+      await connection.end();
+      return NextResponse.json({ message: 'Supplier updated' }, { status: 200 });
+    } catch (e) {
+      await connection.rollback();
+      await connection.end();
+      throw e;
+    }
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
     if (msg.toLowerCase().includes('duplicate')) {
