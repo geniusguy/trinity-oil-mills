@@ -134,6 +134,16 @@ const navigationSections: NavSection[] = [
         roles: ['admin', 'accountant', 'retail_staff']
       },
       {
+        name: 'Material Balance Sheet',
+        href: '/dashboard/admin/sales/material-balance',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff']
+      },
+      {
         name: 'Supplied Details',
         href: '/dashboard/admin/sales/supplied-details',
         icon: (
@@ -308,6 +318,19 @@ const navigationSections: NavSection[] = [
         ),
         roles: ['admin', 'accountant'],
         description: 'Payments credited to account'
+      },
+      {
+        name: 'Vendor Payment Reference',
+        href: '/dashboard/admin/vendor-payment-reference',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-2" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 10h10M7 14h7" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 8v8" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff'],
+        description: 'Separate vendor payment reference sheet',
       },
       {
         name: 'Sales Returns / Expiry',
