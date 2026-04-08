@@ -4,6 +4,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import {
+  getFinancialYearLabelForDate,
+  isDateInFinancialYear,
+  parseFinancialYearLabelToStartYear,
+} from '@/lib/financialYear';
 
 type SaleRow = {
   id: string;
@@ -21,22 +26,6 @@ type SummaryRow = {
   totalValue: number;
 };
 
-const MONTH_OPTIONS = [
-  { value: '', label: 'All Months' },
-  { value: '1', label: 'January' },
-  { value: '2', label: 'February' },
-  { value: '3', label: 'March' },
-  { value: '4', label: 'April' },
-  { value: '5', label: 'May' },
-  { value: '6', label: 'June' },
-  { value: '7', label: 'July' },
-  { value: '8', label: 'August' },
-  { value: '9', label: 'September' },
-  { value: '10', label: 'October' },
-  { value: '11', label: 'November' },
-  { value: '12', label: 'December' },
-];
-
 function getSaleDate(sale: SaleRow): Date {
   const raw = sale.invoiceDate || sale.createdAt;
   const dt = new Date(raw as string);
@@ -51,8 +40,7 @@ export default function CanteenWiseSalesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [yearFilter, setYearFilter] = useState('');
-  const [monthFilter, setMonthFilter] = useState('');
+  const [fyFilter, setFyFilter] = useState(() => getFinancialYearLabelForDate(new Date()));
   const [canteenFilter, setCanteenFilter] = useState('');
 
   useEffect(() => {
@@ -94,10 +82,17 @@ export default function CanteenWiseSalesPage() {
     fetchSales();
   }, [session]);
 
-  const availableYears = useMemo(() => {
+  const availableFinancialYears = useMemo(() => {
     const years = new Set<string>();
-    sales.forEach((sale) => years.add(String(getSaleDate(sale).getFullYear())));
-    return Array.from(years).sort((a, b) => Number(b) - Number(a));
+    sales.forEach((sale) => years.add(getFinancialYearLabelForDate(getSaleDate(sale))));
+    const arr = Array.from(years).sort((a, b) => {
+      const ay = parseFinancialYearLabelToStartYear(a) ?? 0;
+      const by = parseFinancialYearLabelToStartYear(b) ?? 0;
+      return by - ay;
+    });
+    const currentFy = getFinancialYearLabelForDate(new Date());
+    if (!arr.includes(currentFy)) arr.unshift(currentFy);
+    return arr;
   }, [sales]);
 
   const availableCanteens = useMemo(() => {
@@ -109,8 +104,8 @@ export default function CanteenWiseSalesPage() {
   const summaryRows = useMemo(() => {
     const filtered = sales.filter((sale) => {
       const d = getSaleDate(sale);
-      if (yearFilter && String(d.getFullYear()) !== yearFilter) return false;
-      if (monthFilter && String(d.getMonth() + 1) !== monthFilter) return false;
+      const fyStart = parseFinancialYearLabelToStartYear(fyFilter);
+      if (fyStart !== null && !isDateInFinancialYear(d, fyStart)) return false;
       const name = (sale.canteenName || 'Unknown').trim() || 'Unknown';
       if (canteenFilter && name !== canteenFilter) return false;
       return true;
@@ -126,7 +121,7 @@ export default function CanteenWiseSalesPage() {
     });
 
     return Array.from(byCanteen.values()).sort((a, b) => b.totalValue - a.totalValue);
-  }, [sales, yearFilter, monthFilter, canteenFilter]);
+  }, [sales, fyFilter, canteenFilter]);
 
   const totals = useMemo(() => {
     return summaryRows.reduce(
@@ -181,33 +176,17 @@ export default function CanteenWiseSalesPage() {
 
         <div className="bg-white shadow rounded-lg p-6 mb-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Filters</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Financial year (Apr-Mar)</label>
               <select
-                value={yearFilter}
-                onChange={(e) => setYearFilter(e.target.value)}
+                value={fyFilter}
+                onChange={(e) => setFyFilter(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="">All Years</option>
-                {availableYears.map((year) => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Month</label>
-              <select
-                value={monthFilter}
-                onChange={(e) => setMonthFilter(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-              >
-                {MONTH_OPTIONS.map((m) => (
-                  <option key={m.value || 'all'} value={m.value}>
-                    {m.label}
+                {availableFinancialYears.map((fy) => (
+                  <option key={fy} value={fy}>
+                    {fy}
                   </option>
                 ))}
               </select>
