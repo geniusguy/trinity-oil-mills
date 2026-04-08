@@ -354,6 +354,7 @@ export const expenses = mysqlTable('expenses', {
 export const courierExpenses = mysqlTable('courier_expenses', {
   id: varchar('id', { length: 255 }).primaryKey(),
   courierDate: date('courier_date', { mode: 'string' }).notNull(),
+  paidDate: date('paid_date', { mode: 'string' }).notNull(),
   quantity: decimal('quantity', { precision: 12, scale: 2 }).notNull().default('0'),
   cost: decimal('cost', { precision: 12, scale: 2 }).notNull(),
   /** Cost excluding GST (base amount). */

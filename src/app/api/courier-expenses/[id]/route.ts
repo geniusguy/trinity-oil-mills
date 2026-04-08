@@ -28,6 +28,7 @@ export async function PUT(
     const body = await request.json();
     const {
       courierDate,
+      paidDate,
       quantity,
       cost,
       gstRate,
@@ -44,6 +45,7 @@ export async function PUT(
     if (!courierDate || String(courierDate).trim() === '') {
       return NextResponse.json({ success: false, error: 'Courier date is required' }, { status: 400 });
     }
+    const paidDateStr = paidDate && String(paidDate).trim() ? String(paidDate).slice(0, 10) : String(courierDate).slice(0, 10);
 
     const qty = Number(quantity);
     if (Number.isNaN(qty) || qty < 0) {
@@ -84,6 +86,7 @@ export async function PUT(
       .update(courierExpenses)
       .set({
         courierDate: String(courierDate).slice(0, 10),
+        paidDate: paidDateStr,
         quantity: String(qty),
         cost: String(costNum),
         gstRate: String(gstRateNum),

@@ -31,6 +31,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    const paidStartDate = searchParams.get('paidStartDate');
+    const paidEndDate = searchParams.get('paidEndDate');
     const canteenAddressId = searchParams.get('canteenAddressId') || '';
     const sortBy = searchParams.get('sortBy') || 'courier_date';
     const sortDir = searchParams.get('sortDir') === 'asc' ? 'asc' : 'desc';
@@ -44,6 +46,12 @@ export async function GET(request: NextRequest) {
     }
     if (canteenAddressId.trim()) {
       conditions.push(eq(courierExpenses.canteenAddressId, canteenAddressId.trim()));
+    }
+    if (paidStartDate) {
+      conditions.push(gte(courierExpenses.paidDate, paidStartDate));
+    }
+    if (paidEndDate) {
+      conditions.push(lte(courierExpenses.paidDate, paidEndDate));
     }
 
     const whereClause = conditions.length ? and(...conditions) : undefined;
@@ -121,14 +129,17 @@ export async function GET(request: NextRequest) {
     });
 
     const orderDate = sortDir === 'asc' ? asc(courierExpenses.courierDate) : desc(courierExpenses.courierDate);
+    const orderPaidDate = sortDir === 'asc' ? asc(courierExpenses.paidDate) : desc(courierExpenses.paidDate);
     const orderCost = sortDir === 'asc' ? asc(courierExpenses.cost) : desc(courierExpenses.cost);
     const orderQty = sortDir === 'asc' ? asc(courierExpenses.quantity) : desc(courierExpenses.quantity);
-    const orderExpr = sortBy === 'cost' ? orderCost : sortBy === 'quantity' ? orderQty : orderDate;
+    const orderExpr =
+      sortBy === 'cost' ? orderCost : sortBy === 'quantity' ? orderQty : sortBy === 'paid_date' ? orderPaidDate : orderDate;
 
     const rows = await db
       .select({
         id: courierExpenses.id,
         courierDate: courierExpenses.courierDate,
+        paidDate: courierExpenses.paidDate,
         quantity: courierExpenses.quantity,
         cost: courierExpenses.cost,
         gstRate: courierExpenses.gstRate,
@@ -157,6 +168,7 @@ export async function GET(request: NextRequest) {
       return {
         id: r.id,
         courierDate: r.courierDate,
+        paidDate: (r as any).paidDate,
         quantity: toNum(r.quantity),
         cost: toNum(r.cost),
         gstRate: toNum((r as any).gstRate),
@@ -228,6 +240,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const {
       courierDate,
+      paidDate,
       quantity,
       cost,
       gstRate,
@@ -244,6 +257,7 @@ export async function POST(request: NextRequest) {
     if (!courierDate || String(courierDate).trim() === '') {
       return NextResponse.json({ success: false, error: 'Courier date is required' }, { status: 400 });
     }
+    const paidDateStr = paidDate && String(paidDate).trim() ? String(paidDate).slice(0, 10) : String(courierDate).slice(0, 10);
 
     const qty = Number(quantity);
     if (Number.isNaN(qty) || qty < 0) {
@@ -284,6 +298,7 @@ export async function POST(request: NextRequest) {
     await db.insert(courierExpenses).values({
       id,
       courierDate: String(courierDate).slice(0, 10),
+      paidDate: paidDateStr,
       quantity: String(qty),
       cost: String(costNum),
       gstRate: String(gstRateNum),

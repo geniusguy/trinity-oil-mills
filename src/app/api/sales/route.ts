@@ -384,6 +384,8 @@ export async function POST(request: NextRequest) {
     const idToProduct: Record<string, any> = {};
     (products as any[]).forEach((p) => (idToProduct[p.id] = p));
 
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
     let subtotal = 0;
     let gstAmount = 0;
     const effectiveGstMode: 'included' | 'excluded' =
@@ -466,7 +468,23 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    const totalAmount = Number((subtotal + gstAmount).toFixed(2));
+    subtotal = round2(subtotal);
+    gstAmount = round2(gstAmount);
+
+    // Keep stored totals consistent with printed invoice logic for canteen.
+    // See `/api/sales/[id]/invoice/html` "Bill total" rounding strategy.
+    let totalAmount: number;
+    if (String(saleType).toLowerCase() === 'canteen') {
+      const derivedGstAmount = round2(subtotal * 0.05);
+      gstAmount = derivedGstAmount;
+      const sgstDisplay = round2(derivedGstAmount / 2);
+      const cgstDisplay = round2(derivedGstAmount - sgstDisplay);
+      const sgstBillWhole = Math.floor(sgstDisplay);
+      const cgstBillWhole = Math.floor(cgstDisplay);
+      totalAmount = round2(subtotal + sgstBillWhole + cgstBillWhole);
+    } else {
+      totalAmount = round2(subtotal + gstAmount);
+    }
     const totalLitersSupply = Number(supplyTotalLiters.toFixed(2));
     const totalBottlesSupply = Number(supplyTotalBottles.toFixed(2));
     const totalTinsSupply = Number((totalLitersSupply / CANTEEN_LITERS_PER_TIN).toFixed(2)); // 15.2 L usable = 1 tin (0.8 L wastage vs 16 L nominal)

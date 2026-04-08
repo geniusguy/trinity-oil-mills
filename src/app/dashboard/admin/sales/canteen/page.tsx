@@ -67,6 +67,25 @@ function formatDateEnGB(value: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB');
 }
 
+function round2(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * Invoice value shown on printed invoice.
+ * Keep consistent with `/api/sales/[id]/invoice/html` bill-rounding logic.
+ */
+function getInvoiceBillTotal(sale: Sale): number {
+  const subtotal = round2(Number(sale.subtotal || 0));
+  // Current system uses 5% GST for canteen invoices.
+  const derivedGstAmount = round2(subtotal * 0.05);
+  const sgstDisplay = round2(derivedGstAmount / 2);
+  const cgstDisplay = round2(derivedGstAmount - sgstDisplay);
+  const sgstBillWhole = Math.floor(sgstDisplay);
+  const cgstBillWhole = Math.floor(cgstDisplay);
+  return round2(subtotal + sgstBillWhole + cgstBillWhole);
+}
+
 /** Days from invoice date (or sale created_at) to credited_date; null if missing. */
 function getDaysInvoiceToCredit(sale: Sale): number | null {
   if (sale.isReservation || sale.paymentStatus !== 'paid') return null;
@@ -454,8 +473,8 @@ export default function CanteenSalesPage() {
           bValue = (b.canteenName || '').toLowerCase();
           break;
         case 'totalAmount':
-          aValue = Number(a.totalAmount);
-          bValue = Number(b.totalAmount);
+          aValue = a.isReservation ? -1 : getInvoiceBillTotal(a);
+          bValue = b.isReservation ? -1 : getInvoiceBillTotal(b);
           break;
         case 'paymentMethod':
           aValue = a.paymentMethod.toLowerCase();
@@ -1384,7 +1403,7 @@ export default function CanteenSalesPage() {
                       {sale.isReservation ? (
                         <div className="font-semibold text-gray-500">—</div>
                       ) : (
-                        <div className="font-semibold text-gray-900">₹{Number(sale.totalAmount).toFixed(2)}</div>
+                        <div className="font-semibold text-gray-900">₹{getInvoiceBillTotal(sale).toFixed(2)}</div>
                       )}
                     </td>
                     
@@ -1508,6 +1527,8 @@ export default function CanteenSalesPage() {
                         {!sale.isReservation && (
                           <a 
                             href={`/api/sales/${sale.id}/invoice/html`} 
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
                           >
                             📄 Invoice
@@ -1664,6 +1685,8 @@ export default function CanteenSalesPage() {
                   {!sale.isReservation && (
                     <a
                       href={`/api/sales/${sale.id}/invoice/html`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="inline-flex min-h-[40px] items-center justify-center rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-50"
                     >
                       Invoice

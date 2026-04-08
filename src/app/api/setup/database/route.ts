@@ -274,6 +274,7 @@ export async function POST(request: NextRequest) {
       CREATE TABLE IF NOT EXISTS courier_expenses (
         id VARCHAR(255) PRIMARY KEY,
         courier_date DATE NOT NULL,
+        paid_date DATE NOT NULL,
         quantity DECIMAL(12, 2) NOT NULL DEFAULT 0,
         cost DECIMAL(12, 2) NOT NULL,
         gst_rate DECIMAL(5, 2) NOT NULL DEFAULT 0,
@@ -340,6 +341,17 @@ export async function POST(request: NextRequest) {
         WHERE gst_amount IS NOT NULL AND gst_amount > 0
           AND (cgst_amount = 0 AND sgst_amount = 0)
       `);
+    } catch (_) {}
+
+    // Ensure paid_date exists for courier expenses
+    try {
+      const [pCols] = await connection.query('SHOW COLUMNS FROM courier_expenses LIKE "paid_date"');
+      const hasPaidDate = Array.isArray(pCols) && pCols.length > 0;
+      if (!hasPaidDate) {
+        await connection.execute('ALTER TABLE courier_expenses ADD COLUMN paid_date DATE NULL AFTER courier_date');
+      }
+      await connection.execute('UPDATE courier_expenses SET paid_date = COALESCE(paid_date, courier_date)');
+      await connection.execute('ALTER TABLE courier_expenses MODIFY COLUMN paid_date DATE NOT NULL');
     } catch (_) {}
 
     // Reference PDF attachment columns (optional)

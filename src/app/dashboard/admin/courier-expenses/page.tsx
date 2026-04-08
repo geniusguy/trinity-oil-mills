@@ -6,15 +6,14 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   getCurrentFinancialYearBounds,
-  getCurrentFinancialYearQuarterBounds,
   getFinancialYearStartYear,
-  getPreviousFinancialYearBounds,
   formatFinancialYearLabel,
 } from '@/lib/financialYear';
 
 type CourierRow = {
   id: string;
   courierDate: string;
+  paidDate: string;
   quantity: number;
   cost: number; // cost ex GST (base amount)
   gstRate: number;
@@ -61,11 +60,23 @@ type CourierDraftLine = {
 
 type FormFieldKey =
   | 'courierDate'
+  | 'paidDate'
   | 'quantity'
   | 'cost'
   | 'gstAmount'
   | 'paymentMethod'
   | 'destinationNote'
+  | 'referenceNo';
+
+type EntrySortKey =
+  | 'courierDate'
+  | 'paidDate'
+  | 'destination'
+  | 'quantity'
+  | 'cost'
+  | 'cgstAmount'
+  | 'sgstAmount'
+  | 'total'
   | 'referenceNo';
 
 function pad2(n: number) {
@@ -96,6 +107,7 @@ const PAYMENT_METHODS = [
 
 const SORT_OPTIONS = [
   { id: 'courier_date', label: 'Courier date' },
+  { id: 'paid_date', label: 'Paid date' },
   { id: 'cost', label: 'Cost' },
   { id: 'quantity', label: 'Quantity' },
   { id: 'canteen', label: 'Canteen name' },
@@ -122,9 +134,7 @@ export default function CourierExpensesPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState<string>('');
 
-  const [periodPreset, setPeriodPreset] = useState<
-    'this_month' | 'fy_quarter' | 'fy_year' | 'fy_prev' | 'custom'
-  >('fy_year');
+  const [selectedFyStartYear, setSelectedFyStartYear] = useState(() => getFinancialYearStartYear(new Date()));
   const [startDate, setStartDate] = useState(() => {
     const { start } = getCurrentFinancialYearBounds(new Date());
     return toYmd(start);
@@ -134,8 +144,12 @@ export default function CourierExpensesPage() {
     return toYmd(end);
   });
   const [filterCanteenId, setFilterCanteenId] = useState('');
+  const [paidStartDate, setPaidStartDate] = useState('');
+  const [paidEndDate, setPaidEndDate] = useState('');
   const [sortBy, setSortBy] = useState<(typeof SORT_OPTIONS)[number]['id']>('courier_date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [entrySortBy, setEntrySortBy] = useState<EntrySortKey>('courierDate');
+  const [entrySortDir, setEntrySortDir] = useState<'asc' | 'desc'>('desc');
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -147,6 +161,7 @@ export default function CourierExpensesPage() {
   const [removeExistingPdf, setRemoveExistingPdf] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FormFieldKey, string>>>({});
   const courierDateRef = useRef<HTMLInputElement | null>(null);
+  const paidDateRef = useRef<HTMLInputElement | null>(null);
   const quantityRef = useRef<HTMLInputElement | null>(null);
   const costRef = useRef<HTMLInputElement | null>(null);
   const gstAmountRef = useRef<HTMLInputElement | null>(null);
@@ -155,6 +170,7 @@ export default function CourierExpensesPage() {
   const referenceNoRef = useRef<HTMLInputElement | null>(null);
   const [form, setForm] = useState({
     courierDate: toYmd(new Date()),
+    paidDate: toYmd(new Date()),
     quantity: '1',
     cost: '',
     gstRate: '18',
@@ -177,41 +193,6 @@ export default function CourierExpensesPage() {
     }
   }, [session, status, router]);
 
-  const applyPreset = useCallback((preset: typeof periodPreset) => {
-    const now = new Date();
-    if (preset === 'this_month') {
-      const s = new Date(now.getFullYear(), now.getMonth(), 1);
-      const e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      setStartDate(toYmd(s));
-      setEndDate(toYmd(e));
-      return;
-    }
-    if (preset === 'fy_quarter') {
-      const { start, end } = getCurrentFinancialYearQuarterBounds(now);
-      setStartDate(toYmd(start));
-      setEndDate(toYmd(end));
-      return;
-    }
-    if (preset === 'fy_year') {
-      const { start, end } = getCurrentFinancialYearBounds(now);
-      setStartDate(toYmd(start));
-      setEndDate(toYmd(end));
-      return;
-    }
-    if (preset === 'fy_prev') {
-      const { start, end } = getPreviousFinancialYearBounds(now);
-      setStartDate(toYmd(start));
-      setEndDate(toYmd(end));
-      return;
-    }
-  }, []);
-
-  useEffect(() => {
-    if (periodPreset !== 'custom') {
-      applyPreset(periodPreset);
-    }
-  }, [periodPreset, applyPreset]);
-
   const fetchCanteens = async () => {
     try {
       const res = await fetch('/api/canteen-addresses');
@@ -231,6 +212,8 @@ export default function CourierExpensesPage() {
       if (startDate) qs.set('startDate', startDate);
       if (endDate) qs.set('endDate', endDate);
       if (filterCanteenId) qs.set('canteenAddressId', filterCanteenId);
+      if (paidStartDate) qs.set('paidStartDate', paidStartDate);
+      if (paidEndDate) qs.set('paidEndDate', paidEndDate);
       qs.set('sortBy', sortBy);
       qs.set('sortDir', sortDir);
 
@@ -271,7 +254,7 @@ export default function CourierExpensesPage() {
     if (!session?.user || !allowed.includes(session.user.role || '')) return;
     if (!startDate || !endDate) return;
     void fetchData();
-  }, [session, startDate, endDate, filterCanteenId, sortBy, sortDir]);
+  }, [session, startDate, endDate, filterCanteenId, paidStartDate, paidEndDate, sortBy, sortDir]);
 
   const resetForm = () => {
     setEditingId(null);
@@ -286,6 +269,7 @@ export default function CourierExpensesPage() {
     setFieldErrors({});
     setForm({
       courierDate: toYmd(new Date()),
+      paidDate: toYmd(new Date()),
       quantity: '1',
       cost: '',
       gstRate: '18',
@@ -311,6 +295,7 @@ export default function CourierExpensesPage() {
     setRemoveExistingPdf(false);
     setForm({
       courierDate: r.courierDate,
+      paidDate: r.paidDate || r.courierDate,
       quantity: String(r.quantity),
       cost: String(r.cost),
       gstRate: String(r.gstRate ?? 0),
@@ -327,6 +312,7 @@ export default function CourierExpensesPage() {
   const focusField = (field: FormFieldKey) => {
     const map: Record<FormFieldKey, () => void> = {
       courierDate: () => courierDateRef.current?.focus(),
+      paidDate: () => paidDateRef.current?.focus(),
       quantity: () => quantityRef.current?.focus(),
       cost: () => costRef.current?.focus(),
       gstAmount: () => gstAmountRef.current?.focus(),
@@ -340,6 +326,7 @@ export default function CourierExpensesPage() {
   const validateCurrentFormLine = () => {
     const errors: Partial<Record<FormFieldKey, string>> = {};
     const courierDate = String(form.courierDate || '').trim();
+    const paidDate = String(form.paidDate || '').trim();
     const qty = Number(form.quantity);
     const costNum = Number(form.cost);
     const gstAmountNum = formGstAmountComputed;
@@ -349,6 +336,7 @@ export default function CourierExpensesPage() {
     const billRef = String(form.referenceNo || '').trim();
 
     if (!courierDate) errors.courierDate = 'Courier date is required';
+    if (!paidDate) errors.paidDate = 'Paid date is required';
     if (Number.isNaN(qty) || qty <= 0) errors.quantity = 'Quantity must be greater than 0';
     if (Number.isNaN(costNum) || costNum <= 0) errors.cost = 'Cost must be greater than 0';
     if (Number.isNaN(gstAmountNum) || gstAmountNum < 0) {
@@ -360,6 +348,7 @@ export default function CourierExpensesPage() {
 
     const order: FormFieldKey[] = [
       'courierDate',
+      'paidDate',
       'quantity',
       'cost',
       'gstAmount',
@@ -523,6 +512,7 @@ export default function CourierExpensesPage() {
 
         const payload = {
           courierDate: form.courierDate,
+          paidDate: form.paidDate || form.courierDate,
           quantity: form.quantity,
           cost: form.cost,
           gstRate: form.gstRate,
@@ -616,6 +606,7 @@ export default function CourierExpensesPage() {
 
         const payload = {
           courierDate: form.courierDate,
+          paidDate: form.paidDate || form.courierDate,
           quantity: line.quantity,
           cost: line.cost,
           gstRate: line.gstRate,
@@ -661,7 +652,17 @@ export default function CourierExpensesPage() {
     }
   };
 
-  const fyLabelNow = useMemo(() => formatFinancialYearLabel(getFinancialYearStartYear(new Date())), []);
+  const fyYearOptions = useMemo(() => {
+    const cur = getFinancialYearStartYear(new Date());
+    const arr: number[] = [];
+    for (let y = cur + 1; y >= cur - 20; y--) arr.push(y);
+    return arr;
+  }, []);
+
+  const applySelectedFyRange = useCallback((startYear: number) => {
+    setStartDate(`${startYear}-04-01`);
+    setEndDate(`${startYear + 1}-03-31`);
+  }, []);
 
   const gstBreakdownByMonthAndYear = useMemo(() => {
     const monthMap = new Map<string, { month: string; cgst: number; sgst: number; gst: number; count: number }>();
@@ -702,6 +703,46 @@ export default function CourierExpensesPage() {
     };
   }, [rows]);
 
+  const sortedEntryRows = useMemo(() => {
+    const dir = entrySortDir === 'asc' ? 1 : -1;
+    const text = (v: unknown) => String(v ?? '').toLowerCase();
+    const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+    return [...rows].sort((a, b) => {
+      if (entrySortBy === 'courierDate') {
+        return (new Date(a.courierDate).getTime() - new Date(b.courierDate).getTime()) * dir;
+      }
+      if (entrySortBy === 'paidDate') {
+        return (new Date((a.paidDate || a.courierDate) as string).getTime() - new Date((b.paidDate || b.courierDate) as string).getTime()) * dir;
+      }
+      if (entrySortBy === 'destination') {
+        const ad = a.canteenName || a.destinationNote || '';
+        const bd = b.canteenName || b.destinationNote || '';
+        return text(ad).localeCompare(text(bd)) * dir;
+      }
+      if (entrySortBy === 'quantity') return (num(a.quantity) - num(b.quantity)) * dir;
+      if (entrySortBy === 'cost') return (num(a.cost) - num(b.cost)) * dir;
+      if (entrySortBy === 'cgstAmount') return (num(a.cgstAmount) - num(b.cgstAmount)) * dir;
+      if (entrySortBy === 'sgstAmount') return (num(a.sgstAmount) - num(b.sgstAmount)) * dir;
+      if (entrySortBy === 'total') {
+        const at = round2(Math.round(num(a.cost) + num(a.gstAmount)));
+        const bt = round2(Math.round(num(b.cost) + num(b.gstAmount)));
+        return (at - bt) * dir;
+      }
+      if (entrySortBy === 'referenceNo') return text(a.referenceNo).localeCompare(text(b.referenceNo)) * dir;
+      return 0;
+    });
+  }, [rows, entrySortBy, entrySortDir]);
+
+  const onEntrySort = (key: EntrySortKey) => {
+    if (entrySortBy === key) {
+      setEntrySortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setEntrySortBy(key);
+      setEntrySortDir('asc');
+    }
+  };
+
   if (status === 'loading' || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -726,7 +767,7 @@ export default function CourierExpensesPage() {
             <h1 className="text-3xl font-bold text-slate-900">Courier expenses</h1>
             <p className="mt-2 text-slate-600 max-w-2xl">
               Record courier / shipment costs by date, quantity, amount, and canteen (or free-text destination).
-              Totals respect filters below (month, FY quarter, FY year, or custom range).
+              Totals respect filters below (financial year and date range).
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -773,31 +814,26 @@ export default function CourierExpensesPage() {
         {/* Filters */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 mb-6 space-y-4">
           <h2 className="text-sm font-semibold text-slate-800 uppercase tracking-wide">Period & filters</h2>
-          <div className="flex flex-wrap gap-2">
-            {(
-              [
-                ['this_month', 'This month'],
-                ['fy_quarter', 'This FY quarter (Apr–Mar)'],
-                ['fy_year', `This FY (${fyLabelNow})`],
-                ['fy_prev', 'Last FY (full)'],
-                ['custom', 'Custom range'],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setPeriodPreset(id)}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium ${
-                  periodPreset === id
-                    ? 'bg-indigo-100 text-indigo-900 ring-2 ring-indigo-500'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Financial year (Apr-Mar)</label>
+              <select
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                value={selectedFyStartYear}
+                onChange={(e) => {
+                  const fy = Number(e.target.value);
+                  if (!Number.isFinite(fy)) return;
+                  setSelectedFyStartYear(fy);
+                  applySelectedFyRange(fy);
+                }}
+              >
+                {fyYearOptions.map((fy) => (
+                  <option key={fy} value={fy}>
+                    {formatFinancialYearLabel(fy)}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">From</label>
               <input
@@ -805,7 +841,6 @@ export default function CourierExpensesPage() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 value={startDate}
                 onChange={(e) => {
-                  setPeriodPreset('custom');
                   setStartDate(e.target.value);
                 }}
               />
@@ -817,9 +852,26 @@ export default function CourierExpensesPage() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 value={endDate}
                 onChange={(e) => {
-                  setPeriodPreset('custom');
                   setEndDate(e.target.value);
                 }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Paid from</label>
+              <input
+                type="date"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                value={paidStartDate}
+                onChange={(e) => setPaidStartDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Paid to</label>
+              <input
+                type="date"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                value={paidEndDate}
+                onChange={(e) => setPaidEndDate(e.target.value)}
               />
             </div>
             <div>
@@ -1024,6 +1076,21 @@ export default function CourierExpensesPage() {
                   }}
                 />
                 {fieldErrors.courierDate && <p className="text-xs text-red-600 mt-1">{fieldErrors.courierDate}</p>}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Paid date *</label>
+                <input
+                  ref={paidDateRef}
+                  type="date"
+                  required
+                  className="w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-sm"
+                  value={form.paidDate}
+                  onChange={(e) => {
+                    setFieldErrors((prev) => ({ ...prev, paidDate: '' }));
+                    setForm((f) => ({ ...f, paidDate: e.target.value }));
+                  }}
+                />
+                {fieldErrors.paidDate && <p className="text-xs text-red-600 mt-1">{fieldErrors.paidDate}</p>}
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-700 mb-1">Quantity *</label>
@@ -1386,25 +1453,45 @@ export default function CourierExpensesPage() {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
-                  <th className="px-3 py-3">Date</th>
-                  <th className="px-3 py-3">Canteen / destination</th>
-                  <th className="px-3 py-3 text-right">Qty</th>
-                  <th className="px-3 py-3 text-right">Cost (ex GST)</th>
-                      <th className="px-3 py-3 text-right">CGST</th>
-                      <th className="px-3 py-3 text-right">SGST</th>
-                  <th className="px-3 py-3 text-right">Total</th>
-                  <th className="px-3 py-3">Ref</th>
+                  <th className="px-3 py-3 cursor-pointer select-none" onClick={() => onEntrySort('courierDate')}>
+                    Date {entrySortBy === 'courierDate' ? (entrySortDir === 'asc' ? '▲' : '▼') : ''}
+                  </th>
+                  <th className="px-3 py-3 cursor-pointer select-none" onClick={() => onEntrySort('paidDate')}>
+                    Paid date {entrySortBy === 'paidDate' ? (entrySortDir === 'asc' ? '▲' : '▼') : ''}
+                  </th>
+                  <th className="px-3 py-3 cursor-pointer select-none" onClick={() => onEntrySort('destination')}>
+                    Canteen / destination {entrySortBy === 'destination' ? (entrySortDir === 'asc' ? '▲' : '▼') : ''}
+                  </th>
+                  <th className="px-3 py-3 text-right cursor-pointer select-none" onClick={() => onEntrySort('quantity')}>
+                    Qty {entrySortBy === 'quantity' ? (entrySortDir === 'asc' ? '▲' : '▼') : ''}
+                  </th>
+                  <th className="px-3 py-3 text-right cursor-pointer select-none" onClick={() => onEntrySort('cost')}>
+                    Cost (ex GST) {entrySortBy === 'cost' ? (entrySortDir === 'asc' ? '▲' : '▼') : ''}
+                  </th>
+                  <th className="px-3 py-3 text-right cursor-pointer select-none" onClick={() => onEntrySort('cgstAmount')}>
+                    CGST {entrySortBy === 'cgstAmount' ? (entrySortDir === 'asc' ? '▲' : '▼') : ''}
+                  </th>
+                  <th className="px-3 py-3 text-right cursor-pointer select-none" onClick={() => onEntrySort('sgstAmount')}>
+                    SGST {entrySortBy === 'sgstAmount' ? (entrySortDir === 'asc' ? '▲' : '▼') : ''}
+                  </th>
+                  <th className="px-3 py-3 text-right cursor-pointer select-none" onClick={() => onEntrySort('total')}>
+                    Total {entrySortBy === 'total' ? (entrySortDir === 'asc' ? '▲' : '▼') : ''}
+                  </th>
+                  <th className="px-3 py-3 cursor-pointer select-none" onClick={() => onEntrySort('referenceNo')}>
+                    Ref {entrySortBy === 'referenceNo' ? (entrySortDir === 'asc' ? '▲' : '▼') : ''}
+                  </th>
                   <th className="px-3 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
+                {sortedEntryRows.map((r) => {
                   const dest =
                     r.canteenName ||
                     (r.destinationNote ? r.destinationNote : '—');
                   return (
                     <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50/80">
                       <td className="px-3 py-3 whitespace-nowrap">{r.courierDate}</td>
+                      <td className="px-3 py-3 whitespace-nowrap">{r.paidDate || r.courierDate}</td>
                       <td className="px-3 py-3">
                         <div className="font-medium text-slate-900">{dest}</div>
                         {r.canteenName && r.canteenCity && (

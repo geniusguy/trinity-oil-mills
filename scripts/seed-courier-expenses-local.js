@@ -78,6 +78,7 @@ async function run() {
       { name: 'gst_amount', def: 'DECIMAL(12,2) NOT NULL DEFAULT 0' },
       { name: 'cgst_amount', def: 'DECIMAL(12,2) NOT NULL DEFAULT 0' },
       { name: 'sgst_amount', def: 'DECIMAL(12,2) NOT NULL DEFAULT 0' },
+      { name: 'paid_date', def: 'DATE NULL' },
       { name: 'reference_pdf_path', def: 'VARCHAR(500) NULL' },
       { name: 'reference_pdf_original_name', def: 'VARCHAR(255) NULL' },
     ];
@@ -91,6 +92,11 @@ async function run() {
         await conn.query(`ALTER TABLE courier_expenses ADD COLUMN ${c.name} ${c.def}`);
       }
     }
+
+    try {
+      await conn.query('UPDATE courier_expenses SET paid_date = COALESCE(paid_date, courier_date)');
+      await conn.query('ALTER TABLE courier_expenses MODIFY COLUMN paid_date DATE NOT NULL');
+    } catch (_) {}
 
     const [users] = await conn.query(
       'SELECT id FROM users ORDER BY created_at ASC LIMIT 1'
@@ -140,11 +146,12 @@ async function run() {
 
     await conn.query(
       `INSERT INTO courier_expenses (
-        id, courier_date, quantity, cost, gst_rate, gst_amount, cgst_amount, sgst_amount,
+        id, courier_date, paid_date, quantity, cost, gst_rate, gst_amount, cgst_amount, sgst_amount,
         canteen_address_id, destination_note, notes, payment_method, reference_no, user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
       [
         DEMO_IDS[0],
+        ymd(d1),
         ymd(d1),
         2,
         row1Cost,
@@ -163,11 +170,12 @@ async function run() {
 
     await conn.query(
       `INSERT INTO courier_expenses (
-        id, courier_date, quantity, cost, gst_rate, gst_amount, cgst_amount, sgst_amount,
+        id, courier_date, paid_date, quantity, cost, gst_rate, gst_amount, cgst_amount, sgst_amount,
         canteen_address_id, destination_note, notes, payment_method, reference_no, user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
       [
         DEMO_IDS[1],
+        ymd(d2),
         ymd(d2),
         1,
         row2Cost,
