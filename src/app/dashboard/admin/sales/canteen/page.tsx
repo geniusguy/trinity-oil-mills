@@ -163,7 +163,7 @@ export default function CanteenSalesPage() {
     dateFrom: '',
     dateTo: '',
     month: '',
-    year: ''
+    year: getFinancialYearLabelForDate(new Date())
   });
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -630,7 +630,7 @@ export default function CanteenSalesPage() {
       dateFrom: '',
       dateTo: '',
       month: '',
-      year: ''
+      year: getFinancialYearLabelForDate(new Date())
     });
   };
 

@@ -113,6 +113,21 @@ const SORT_OPTIONS = [
   { id: 'canteen', label: 'Canteen name' },
 ] as const;
 
+const FY_MONTHS = [
+  { fyIndex: 1, label: 'April' },
+  { fyIndex: 2, label: 'May' },
+  { fyIndex: 3, label: 'June' },
+  { fyIndex: 4, label: 'July' },
+  { fyIndex: 5, label: 'August' },
+  { fyIndex: 6, label: 'September' },
+  { fyIndex: 7, label: 'October' },
+  { fyIndex: 8, label: 'November' },
+  { fyIndex: 9, label: 'December' },
+  { fyIndex: 10, label: 'January' },
+  { fyIndex: 11, label: 'February' },
+  { fyIndex: 12, label: 'March' },
+] as const;
+
 export default function CourierExpensesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -703,6 +718,40 @@ export default function CourierExpensesPage() {
     };
   }, [rows]);
 
+  const monthlyCourierData = useMemo(() => {
+    const perMonth = FY_MONTHS.map((m) => ({
+      fyIndex: m.fyIndex,
+      label: m.label,
+      entries: 0,
+      quantity: 0,
+      total: 0,
+    }));
+
+    const matchFy = (d: Date) => {
+      const fyStart = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+      return fyStart === selectedFyStartYear;
+    };
+    const getFyMonthIndex = (d: Date) => ((d.getMonth() + 9) % 12) + 1; // Apr=1 ... Mar=12
+
+    rows.forEach((r) => {
+      const d = new Date(String(r.courierDate || ''));
+      if (Number.isNaN(d.getTime()) || !matchFy(d)) return;
+      const idx = getFyMonthIndex(d);
+      const slot = perMonth.find((m) => m.fyIndex === idx);
+      if (!slot) return;
+      slot.entries += 1;
+      slot.quantity += Number(r.quantity || 0);
+      slot.total += round2(Math.round(Number(r.cost || 0) + Number(r.gstAmount || 0)));
+    });
+
+    return perMonth;
+  }, [rows, selectedFyStartYear]);
+
+  const monthlyCourierMax = useMemo(
+    () => monthlyCourierData.reduce((max, m) => (m.total > max ? m.total : max), 0),
+    [monthlyCourierData],
+  );
+
   const sortedEntryRows = useMemo(() => {
     const dir = entrySortDir === 'asc' ? 1 : -1;
     const text = (v: unknown) => String(v ?? '').toLowerCase();
@@ -940,6 +989,66 @@ export default function CourierExpensesPage() {
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
             <p className="text-xs font-medium text-slate-500 uppercase">Entries</p>
             <p className="text-2xl font-bold text-slate-900 mt-1">{summary.count}</p>
+          </div>
+        </div>
+
+        {/* FY monthly register (similar to canteen register) */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6">
+          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+            <h2 className="text-sm font-semibold text-slate-800">
+              Courier register by month ({formatFinancialYearLabel(selectedFyStartYear)})
+            </h2>
+          </div>
+          <div className="p-4 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-slate-500 uppercase border-b border-slate-200">
+                  <th className="px-3 py-2">Month</th>
+                  <th className="px-3 py-2 text-right">Entries</th>
+                  <th className="px-3 py-2 text-right">Qty</th>
+                  <th className="px-3 py-2 text-right">Total amount (₹)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyCourierData.map((m) => (
+                  <tr key={m.fyIndex} className="border-b border-slate-50">
+                    <td className="px-3 py-2 font-medium text-slate-800">{m.label}</td>
+                    <td className="px-3 py-2 text-right">{m.entries > 0 ? m.entries : '—'}</td>
+                    <td className="px-3 py-2 text-right">
+                      {m.quantity > 0 ? m.quantity.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right font-medium">
+                      {m.total > 0
+                        ? `₹${m.total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* FY monthly chart (similar to canteen register) */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-6">
+          <h2 className="text-sm font-semibold text-slate-800 mb-3">
+            Monthly courier expense comparison ({formatFinancialYearLabel(selectedFyStartYear)})
+          </h2>
+          <div className="h-56 flex items-end gap-2 border-t border-slate-200 pt-4">
+            {monthlyCourierData.map((m) => {
+              const ratio = monthlyCourierMax > 0 ? m.total / monthlyCourierMax : 0;
+              const height = 20 + ratio * 180;
+              return (
+                <div key={m.fyIndex} className="flex-1 flex flex-col items-center justify-end">
+                  <div
+                    className="w-4 sm:w-5 md:w-6 rounded-t bg-indigo-500"
+                    style={{ height }}
+                    title={`${m.label}: ₹${m.total.toFixed(2)}`}
+                  />
+                  <div className="mt-1 text-[10px] text-slate-700 text-center leading-tight">{m.label.slice(0, 3)}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
