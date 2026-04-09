@@ -705,7 +705,7 @@ export default function CanteenSalesPage() {
     setEditForm({
       paymentStatus: sale.paymentStatus,
       shipmentStatus: sale.shipmentStatus || 'pending', // Default to pending for canteen
-      notes: '',
+      notes: sale.notes || '',
       invoiceNumber: sale.invoiceNumber,
       poNumber: sale.poNumber || '',
       poDate: normalizeDate(sale.poDate),
@@ -1361,6 +1361,11 @@ export default function CanteenSalesPage() {
                     Shipment
                     {sortBy === 'shipmentStatus' && (sortOrder === 'asc' ? ' ▲' : ' ▼')}
                   </th>
+
+                  {/* Notes - Hidden on mobile, visible on desktop */}
+                  <th className="hidden lg:table-cell px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Notes
+                  </th>
                   
                   {/* Actions - Always visible */}
                   <th className="sticky right-0 z-20 bg-slate-50 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-l border-slate-200 shadow-[-4px_0_14px_-6px_rgba(15,23,42,0.18)]">
@@ -1519,6 +1524,17 @@ export default function CanteenSalesPage() {
                       }`}>
                         {sale.shipmentStatus}
                       </span>
+                    </td>
+
+                    {/* Notes - Hidden on mobile */}
+                    <td className="hidden lg:table-cell px-3 py-4 text-sm text-gray-700 max-w-[16rem]">
+                      {sale.notes ? (
+                        <div className="truncate" title={sale.notes}>
+                          {sale.notes}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
                     </td>
                     
                     {/* Actions */}
