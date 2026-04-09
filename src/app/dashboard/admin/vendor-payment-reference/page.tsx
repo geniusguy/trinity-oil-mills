@@ -7,6 +7,7 @@ import { formatFinancialYearLabel, getFinancialYearStartYear } from '@/lib/finan
 
 type RefPayment = {
   id: string;
+  entryType: 'purchase' | 'outstanding_payment';
   vendorName: string;
   productName: string;
   tinsCount: number;
@@ -14,7 +15,7 @@ type RefPayment = {
   paymentDate: string;
   purchasedAmount: number;
   paidAmount: number;
-  paymentType: 'full' | 'partial';
+  paymentType: 'full' | 'partial' | 'pending';
   paymentEvents: Array<{
     date: string;
     amount: number;
@@ -39,8 +40,6 @@ type TableSortKey =
   | 'balance'
   | 'paymentType';
 
-const STORAGE_KEY = 'tom_vendor_payment_reference_v1';
-const STORAGE_KEY_SESSION = 'tom_vendor_payment_reference_v1_session';
 
 function toYmd(d: Date) {
   const y = d.getFullYear();
@@ -55,18 +54,6 @@ function fyFromDate(dateLike: string) {
   return getFinancialYearStartYear(d);
 }
 
-function parseStoredRows(raw: string | null): any[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && Array.isArray(parsed.rows)) return parsed.rows;
-    return [];
-  } catch {
-    return [];
-  }
-}
-
 export default function VendorPaymentReferencePage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -77,13 +64,14 @@ export default function VendorPaymentReferencePage() {
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [loadingMasters, setLoadingMasters] = useState(false);
   const [vendorName, setVendorName] = useState('');
+  const [entryType, setEntryType] = useState<'purchase' | 'outstanding_payment'>('purchase');
   const [productName, setProductName] = useState('');
   const [tinsCount, setTinsCount] = useState('');
   const [purchasedDate, setPurchasedDate] = useState(toYmd(new Date()));
   const [paymentDate, setPaymentDate] = useState(toYmd(new Date()));
   const [purchasedAmount, setPurchasedAmount] = useState('');
   const [paidAmount, setPaidAmount] = useState('');
-  const [paymentType, setPaymentType] = useState<'full' | 'partial'>('full');
+  const [paymentType, setPaymentType] = useState<'full' | 'partial' | 'pending'>('full');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -95,7 +83,9 @@ export default function VendorPaymentReferencePage() {
   const [fundNotes, setFundNotes] = useState('');
   const [sortBy, setSortBy] = useState<TableSortKey>('paymentDate');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [isHydrated, setIsHydrated] = useState(false);
+  const [fyPreviousBalance, setFyPreviousBalance] = useState<Record<string, number>>({});
+  const [fyPreviousBalanceDraft, setFyPreviousBalanceDraft] = useState('');
+  const [fyPreviousBalanceYear, setFyPreviousBalanceYear] = useState<number>(getFinancialYearStartYear(new Date()));
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -106,62 +96,39 @@ export default function VendorPaymentReferencePage() {
     if (!allowed.includes(session.user?.role || '')) router.push('/dashboard');
   }, [session, status, router]);
 
-  useEffect(() => {
-    try {
-      const localRows = parseStoredRows(localStorage.getItem(STORAGE_KEY));
-      const sessionRows = parseStoredRows(sessionStorage.getItem(STORAGE_KEY_SESSION));
-      const sourceRows = localRows.length >= sessionRows.length ? localRows : sessionRows;
-      if (sourceRows.length > 0) {
-        const migrated: RefPayment[] = sourceRows.map((r: any) => {
-          const oldAmount = Number(r?.amount || 0);
-          const existingPurchased = Number(r?.purchasedAmount || 0);
-          const existingPaid = Number(r?.paidAmount || 0);
-          const purchased = existingPurchased > 0 ? existingPurchased : oldAmount;
-          const paid = existingPaid > 0 ? existingPaid : oldAmount;
-          const type: 'full' | 'partial' =
-            r?.paymentType === 'partial' || paid < purchased ? 'partial' : 'full';
-          const eventsRaw = Array.isArray(r?.paymentEvents) ? r.paymentEvents : [];
-          const events =
-            eventsRaw.length > 0
-              ? eventsRaw
-                  .map((e: any) => ({
-                    date: String(e?.date || ''),
-                    amount: Number(e?.amount || 0),
-                    note: String(e?.note || ''),
-                  }))
-                  .filter((e: any) => e.date && Number.isFinite(e.amount) && e.amount > 0)
-              : [{ date: String(r?.paymentDate || toYmd(new Date())), amount: paid, note: 'Initial payment' }];
-          return {
-            id: String(r?.id || `vpr-${Date.now()}`),
-            vendorName: String(r?.vendorName || ''),
-            productName: String(r?.productName || ''),
-            tinsCount: Number(r?.tinsCount || 0),
-            purchasedDate: String(r?.purchasedDate || r?.paymentDate || toYmd(new Date())),
-            paymentDate: String(r?.paymentDate || toYmd(new Date())),
-            purchasedAmount: purchased,
-            paidAmount: paid,
-            paymentType: type,
-            paymentEvents: events,
-            notes: String(r?.notes || ''),
-            fyStartYear: Number(r?.fyStartYear || getFinancialYearStartYear(new Date())),
-            createdAt: String(r?.createdAt || new Date().toISOString()),
-          };
-        });
-        setRows(migrated);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsHydrated(true);
+  const fetchReferenceData = async () => {
+    const res = await fetch('/api/vendor-payment-reference', { credentials: 'include' });
+    const json = await res.json();
+    if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load reference data');
+    const entries: RefPayment[] = Array.isArray(json.entries)
+      ? json.entries.map((r: any) => ({
+          id: String(r.id),
+          entryType: r.entryType === 'outstanding_payment' ? 'outstanding_payment' : 'purchase',
+          vendorName: String(r.vendorName || ''),
+          productName: String(r.productName || ''),
+          tinsCount: Number(r.tinsCount || 0),
+          purchasedDate: r.purchasedDate ? String(r.purchasedDate).slice(0, 10) : '',
+          paymentDate: r.paymentDate ? String(r.paymentDate).slice(0, 10) : '',
+          purchasedAmount: Number(r.purchasedAmount || 0),
+          paidAmount: Number(r.paidAmount || 0),
+          paymentType: (r.paymentType === 'partial' || r.paymentType === 'pending') ? r.paymentType : 'full',
+          paymentEvents: Array.isArray(r.paymentEvents) ? r.paymentEvents : [],
+          notes: String(r.notes || ''),
+          fyStartYear: Number(r.fyStartYear || getFinancialYearStartYear(new Date())),
+          createdAt: String(r.createdAt || ''),
+        }))
+      : [];
+    const balanceMap: Record<string, number> = {};
+    if (Array.isArray(json.fyBalances)) {
+      json.fyBalances.forEach((b: any) => {
+        const fy = Number(b.fyStartYear);
+        const val = Number(b.previousBalance || 0);
+        if (Number.isFinite(fy) && Number.isFinite(val)) balanceMap[String(fy)] = val;
+      });
     }
-  }, []);
-
-  useEffect(() => {
-    if (!isHydrated) return;
-    const payload = JSON.stringify(rows);
-    localStorage.setItem(STORAGE_KEY, payload);
-    sessionStorage.setItem(STORAGE_KEY_SESSION, payload);
-  }, [rows, isHydrated]);
+    setRows(entries);
+    setFyPreviousBalance(balanceMap);
+  };
 
   useEffect(() => {
     if (!session?.user || !allowed.includes(session.user.role || '')) return;
@@ -193,13 +160,14 @@ export default function VendorPaymentReferencePage() {
       }
     };
     void loadMasters();
+    void fetchReferenceData().catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load reference data'));
   }, [session]);
 
   const fyOptions = useMemo(() => {
     const set = new Set<number>();
     rows.forEach((r) => set.add(r.fyStartYear));
     const current = getFinancialYearStartYear(new Date());
-    set.add(current);
+    for (let y = current + 1; y >= current - 20; y--) set.add(y);
     return Array.from(set).sort((a, b) => b - a);
   }, [rows]);
 
@@ -209,19 +177,49 @@ export default function VendorPaymentReferencePage() {
   );
 
   useEffect(() => {
-    if (!isHydrated) return;
     if (rows.length === 0) return;
     if (fyFilter === 'all') return;
     const hasInSelectedFy = rows.some((r) => r.fyStartYear === fyFilter);
-    if (!hasInSelectedFy) {
-      setFyFilter('all');
-      setNotice('Showing Overall (All FY) because no entries exist in current FY.');
-    }
-  }, [rows, fyFilter, isHydrated]);
+    if (!hasInSelectedFy) setFyFilter('all');
+  }, [rows, fyFilter]);
 
   const total = useMemo(
     () => filteredRows.reduce((acc, r) => acc + Number(r.paidAmount || 0), 0),
     [filteredRows],
+  );
+  const totalPurchased = useMemo(
+    () => filteredRows.reduce((acc, r) => acc + Number(r.purchasedAmount || 0), 0),
+    [filteredRows],
+  );
+  const totalBalance = useMemo(
+    () =>
+      filteredRows.reduce(
+        (acc, r) => acc + Math.max(0, Number(r.purchasedAmount || 0) - Number(r.paidAmount || 0)),
+        0,
+      ),
+    [filteredRows],
+  );
+  const outstandingPaidOnly = useMemo(
+    () =>
+      filteredRows.reduce(
+        (acc, r) =>
+          acc +
+          (r.entryType === 'outstanding_payment'
+            ? Math.max(0, Number(r.paidAmount || 0))
+            : 0),
+        0,
+      ),
+    [filteredRows],
+  );
+  const selectedFyKey = String(fyFilter === 'all' ? getFinancialYearStartYear(new Date()) : fyFilter);
+  const selectedFyPreviousBalance = Number(fyPreviousBalance[selectedFyKey] || 0);
+  const fyBalanceRows = useMemo(
+    () =>
+      Object.entries(fyPreviousBalance)
+        .map(([k, v]) => ({ fyStartYear: Number(k), amount: Number(v || 0) }))
+        .filter((r) => Number.isFinite(r.fyStartYear))
+        .sort((a, b) => b.fyStartYear - a.fyStartYear),
+    [fyPreviousBalance],
   );
 
   const sortedRows = useMemo(() => {
@@ -254,7 +252,49 @@ export default function VendorPaymentReferencePage() {
     }
   };
 
-  const submit = (e: React.FormEvent) => {
+  const saveFyPreviousBalance = async () => {
+    const v = Number(fyPreviousBalanceDraft);
+    if (!Number.isFinite(v) || v < 0) {
+      setError('Previous balance must be 0 or more.');
+      return;
+    }
+    const res = await fetch('/api/vendor-payment-reference/fy-balance', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fyStartYear: fyPreviousBalanceYear, previousBalance: v }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.success) {
+      setError(json?.error || 'Failed to save FY balance');
+      return;
+    }
+    await fetchReferenceData();
+    setError('');
+    setNotice(`Previous balance saved for FY ${formatFinancialYearLabel(fyPreviousBalanceYear)}.`);
+    setFyPreviousBalanceDraft('');
+  };
+
+  const editFyPreviousBalance = (fyStartYear: number, amount: number) => {
+    setFyPreviousBalanceYear(fyStartYear);
+    setFyPreviousBalanceDraft(String(amount));
+  };
+
+  const deleteFyPreviousBalance = async (fyStartYear: number) => {
+    const res = await fetch(`/api/vendor-payment-reference/fy-balance?fyStartYear=${encodeURIComponent(String(fyStartYear))}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.success) {
+      setError(json?.error || 'Failed to delete FY balance');
+      return;
+    }
+    await fetchReferenceData();
+    setNotice(`Previous balance removed for FY ${formatFinancialYearLabel(fyStartYear)}.`);
+  };
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setNotice('');
@@ -262,42 +302,87 @@ export default function VendorPaymentReferencePage() {
     const product = productName.trim();
     const tins = Number(tinsCount);
     const purchasedAmt = Number(purchasedAmount);
-    const paidAmt = Number(paymentType === 'full' ? purchasedAmount : paidAmount);
+    const paidAmt = paymentType === 'pending' ? 0 : Number(paymentType === 'full' ? purchasedAmount : paidAmount);
     if (!name) return setError('Vendor name is required');
-    if (!product) return setError('Product is required');
-    if (!Number.isFinite(tins) || tins <= 0) return setError('No. of tins must be greater than 0');
-    if (!purchasedDate) return setError('Purchased date is required');
-    if (!paymentDate) return setError('Payment date is required');
-    if (!Number.isFinite(purchasedAmt) || purchasedAmt <= 0) return setError('Purchased amount must be greater than 0');
-    if (!Number.isFinite(paidAmt) || paidAmt <= 0) return setError('Paid amount must be greater than 0');
-    if (paidAmt > purchasedAmt) return setError('Paid amount cannot be greater than purchased amount');
+    if (entryType === 'purchase') {
+      if (!product) return setError('Product is required');
+      if (!Number.isFinite(tins) || tins <= 0) return setError('No. of tins must be greater than 0');
+      if (!purchasedDate) return setError('Purchased date is required');
+      if (paymentType !== 'pending' && !paymentDate) return setError('Payment date is required');
+      if (!Number.isFinite(purchasedAmt) || purchasedAmt <= 0) return setError('Purchased amount must be greater than 0');
+      if (paymentType !== 'pending' && (!Number.isFinite(paidAmt) || paidAmt <= 0)) {
+        return setError('Paid amount must be greater than 0');
+      }
+      if (paidAmt > purchasedAmt) return setError('Paid amount cannot be greater than purchased amount');
+    } else {
+      const outPaid = Number(paidAmount);
+      if (!paymentDate) return setError('Payment date is required');
+      if (!Number.isFinite(outPaid) || outPaid <= 0) return setError('Paid amount must be greater than 0');
+    }
+
+    const finalPurchasedAmount = entryType === 'purchase' ? purchasedAmt : 0;
+    const finalPaidAmount = entryType === 'purchase' ? paidAmt : Number(paidAmount);
+    const finalPaymentType: 'full' | 'partial' | 'pending' =
+      entryType === 'purchase' ? paymentType : 'full';
 
     const row: RefPayment = {
       id: editingId || `vpr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      entryType,
       vendorName: name,
-      productName: product,
-      tinsCount: tins,
-      purchasedDate,
-      paymentDate,
-      purchasedAmount: purchasedAmt,
-      paidAmount: paidAmt,
-      paymentType,
+      productName: entryType === 'purchase' ? product : 'Outstanding payment',
+      tinsCount: entryType === 'purchase' ? tins : 0,
+      purchasedDate: entryType === 'purchase' ? purchasedDate : '',
+      paymentDate: paymentType === 'pending' ? '' : paymentDate,
+      purchasedAmount: finalPurchasedAmount,
+      paidAmount: finalPaidAmount,
+      paymentType: finalPaymentType,
       paymentEvents: [
         {
-          date: paymentDate,
-          amount: paidAmt,
-          note: paymentType === 'partial' ? 'Initial partial payment' : 'Initial full payment',
+          date: paymentType === 'pending' ? '' : paymentDate,
+          amount: finalPaidAmount,
+          note: entryType === 'outstanding_payment'
+            ? 'Outstanding payment adjustment'
+            : paymentType === 'pending'
+              ? 'Pending payment'
+              : paymentType === 'partial'
+              ? 'Initial partial payment'
+              : 'Initial full payment',
         },
       ],
       notes: notes.trim(),
-      fyStartYear: fyFromDate(paymentDate),
+      fyStartYear: fyFromDate(purchasedDate || paymentDate),
       createdAt: new Date().toISOString(),
     };
-    setRows((prev) => {
-      if (!editingId) return [row, ...prev];
-      return prev.map((r) => (r.id === editingId ? { ...r, ...row, createdAt: r.createdAt } : r));
+    const payload = {
+      entryType: row.entryType,
+      vendorName: row.vendorName,
+      productName: row.productName,
+      tinsCount: row.tinsCount,
+      purchasedDate: row.purchasedDate || null,
+      paymentDate: row.paymentDate || null,
+      purchasedAmount: row.purchasedAmount,
+      paidAmount: row.paidAmount,
+      paymentType: row.paymentType,
+      paymentEvents: row.paymentEvents,
+      notes: row.notes,
+      fyStartYear: row.fyStartYear,
+    };
+    const url = editingId ? `/api/vendor-payment-reference/${editingId}` : '/api/vendor-payment-reference';
+    const method = editingId ? 'PUT' : 'POST';
+    const res = await fetch(url, {
+      method,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
+    const json = await res.json();
+    if (!res.ok || !json?.success) {
+      setError(json?.error || 'Save failed');
+      return;
+    }
+    await fetchReferenceData();
     setVendorName('');
+    setEntryType('purchase');
     setProductName('');
     setTinsCount('');
     setPurchasedDate(toYmd(new Date()));
@@ -309,10 +394,19 @@ export default function VendorPaymentReferencePage() {
     setNotice(editingId ? 'Reference entry updated.' : 'Reference payment entry saved.');
   };
 
-  const remove = (id: string) => setRows((prev) => prev.filter((r) => r.id !== id));
+  const remove = async (id: string) => {
+    const res = await fetch(`/api/vendor-payment-reference/${id}`, { method: 'DELETE', credentials: 'include' });
+    const json = await res.json();
+    if (!res.ok || !json?.success) {
+      setError(json?.error || 'Delete failed');
+      return;
+    }
+    await fetchReferenceData();
+  };
 
   const startEdit = (r: RefPayment) => {
     setEditingId(r.id);
+    setEntryType(r.entryType || 'purchase');
     setVendorName(r.vendorName);
     setProductName(r.productName);
     setTinsCount(String(r.tinsCount));
@@ -327,40 +421,49 @@ export default function VendorPaymentReferencePage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const saveTopup = () => {
+  const saveTopup = async () => {
     if (!fundTargetId) return;
     const add = Number(fundAmount);
     if (!Number.isFinite(add) || add <= 0) {
       setError('Add funds amount must be greater than 0');
       return;
     }
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== fundTargetId) return r;
-        const nextPaid = Math.min(r.purchasedAmount, Number(r.paidAmount || 0) + add);
-        const nextType: 'full' | 'partial' = nextPaid + 0.0001 >= r.purchasedAmount ? 'full' : 'partial';
-        const mergedNotes = [r.notes, fundNotes ? `Top-up: ${fundNotes}` : '']
-          .filter(Boolean)
-          .join(' | ')
-          .slice(0, 500);
-        return {
-          ...r,
-          paidAmount: nextPaid,
-          paymentType: nextType,
-          paymentDate: fundDate || r.paymentDate,
-          paymentEvents: [
-            ...(Array.isArray(r.paymentEvents) ? r.paymentEvents : []),
-            {
-              date: fundDate || toYmd(new Date()),
-              amount: add,
-              note: fundNotes || 'Top-up payment',
-            },
-          ],
-          notes: mergedNotes,
-          fyStartYear: fyFromDate(fundDate || r.paymentDate),
-        };
-      }),
-    );
+    const target = rows.find((r) => r.id === fundTargetId);
+    if (!target) return;
+    const nextPaid = Math.min(target.purchasedAmount, Number(target.paidAmount || 0) + add);
+    const nextType: 'full' | 'partial' = nextPaid + 0.0001 >= target.purchasedAmount ? 'full' : 'partial';
+    const mergedNotes = [target.notes, fundNotes ? `Top-up: ${fundNotes}` : '']
+      .filter(Boolean)
+      .join(' | ')
+      .slice(0, 500);
+    const updated = {
+      ...target,
+      paidAmount: nextPaid,
+      paymentType: nextType,
+      paymentDate: fundDate || target.paymentDate,
+      paymentEvents: [
+        ...(Array.isArray(target.paymentEvents) ? target.paymentEvents : []),
+        {
+          date: fundDate || toYmd(new Date()),
+          amount: add,
+          note: fundNotes || 'Top-up payment',
+        },
+      ],
+      notes: mergedNotes,
+      fyStartYear: fyFromDate(fundDate || target.paymentDate),
+    };
+    const res = await fetch(`/api/vendor-payment-reference/${fundTargetId}`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updated),
+    });
+    const json = await res.json();
+    if (!res.ok || !json?.success) {
+      setError(json?.error || 'Failed to add funds');
+      return;
+    }
+    await fetchReferenceData();
     setFundTargetId(null);
     setFundAmount('');
     setFundDate(toYmd(new Date()));
@@ -403,11 +506,35 @@ export default function VendorPaymentReferencePage() {
               </select>
             </div>
             <div className="xl:col-span-1">
+              <label className="block text-xs text-slate-600 mb-1">Entry type *</label>
+              <select
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                value={entryType}
+                onChange={(e) => {
+                  const v = e.target.value as 'purchase' | 'outstanding_payment';
+                  setEntryType(v);
+                  if (v === 'outstanding_payment') {
+                    setProductName('');
+                    setTinsCount('');
+                    setPurchasedDate('');
+                    setPurchasedAmount('');
+                    setPaymentType('full');
+                  } else {
+                    setPurchasedDate(toYmd(new Date()));
+                  }
+                }}
+              >
+                <option value="purchase">Purchase + Payment</option>
+                <option value="outstanding_payment">Pay vendor without purchase (adjust pending outstanding)</option>
+              </select>
+            </div>
+            <div className="xl:col-span-1">
               <label className="block text-xs text-slate-600 mb-1">Product *</label>
               <select
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 value={productName}
                 onChange={(e) => setProductName(e.target.value)}
+                disabled={entryType === 'outstanding_payment'}
               >
                 <option value="">{loadingMasters ? 'Loading products...' : 'Select product'}</option>
                 {products.map((p) => (
@@ -428,6 +555,7 @@ export default function VendorPaymentReferencePage() {
                 value={tinsCount}
                 onChange={(e) => setTinsCount(e.target.value)}
                 placeholder="0"
+                disabled={entryType === 'outstanding_payment'}
               />
             </div>
             <div className="xl:col-span-1">
@@ -437,6 +565,7 @@ export default function VendorPaymentReferencePage() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 value={purchasedDate}
                 onChange={(e) => setPurchasedDate(e.target.value)}
+                disabled={entryType === 'outstanding_payment'}
               />
             </div>
             <div className="xl:col-span-1">
@@ -452,15 +581,19 @@ export default function VendorPaymentReferencePage() {
                   if (paymentType === 'full') setPaidAmount(e.target.value);
                 }}
                 placeholder="0.00"
+                disabled={entryType === 'outstanding_payment'}
               />
             </div>
             <div className="xl:col-span-1">
-              <label className="block text-xs text-slate-600 mb-1">Payment date *</label>
+              <label className="block text-xs text-slate-600 mb-1">
+                Payment date {paymentType === 'pending' ? '(optional)' : '*'}
+              </label>
               <input
                 type="date"
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 value={paymentDate}
                 onChange={(e) => setPaymentDate(e.target.value)}
+                disabled={paymentType === 'pending'}
               />
             </div>
             <div className="xl:col-span-1">
@@ -469,13 +602,16 @@ export default function VendorPaymentReferencePage() {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
                 value={paymentType}
                 onChange={(e) => {
-                  const v = e.target.value as 'full' | 'partial';
+                  const v = e.target.value as 'full' | 'partial' | 'pending';
                   setPaymentType(v);
                   if (v === 'full') setPaidAmount(purchasedAmount);
+                  if (v === 'pending') setPaidAmount('');
                 }}
+                disabled={entryType === 'outstanding_payment'}
               >
                 <option value="full">Full payment</option>
                 <option value="partial">Partial payment</option>
+                <option value="pending">Pending</option>
               </select>
             </div>
             <div className="xl:col-span-1">
@@ -485,10 +621,18 @@ export default function VendorPaymentReferencePage() {
                 min={0.01}
                 step="0.01"
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
-                value={paymentType === 'full' ? purchasedAmount : paidAmount}
+                value={
+                  entryType === 'outstanding_payment'
+                    ? paidAmount
+                    : paymentType === 'pending'
+                    ? ''
+                    : paymentType === 'full'
+                    ? purchasedAmount
+                    : paidAmount
+                }
                 onChange={(e) => setPaidAmount(e.target.value)}
                 placeholder="0.00"
-                disabled={paymentType === 'full'}
+                disabled={entryType === 'purchase' && (paymentType === 'full' || paymentType === 'pending')}
               />
             </div>
             <div className="md:col-span-2 xl:col-span-4">
@@ -561,6 +705,87 @@ export default function VendorPaymentReferencePage() {
           </div>
         )}
 
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+            <div>
+              <label className="block text-xs text-slate-600 mb-1">FY for previous balance</label>
+              <select
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                value={fyPreviousBalanceYear}
+                onChange={(e) => setFyPreviousBalanceYear(Number(e.target.value))}
+              >
+                {fyOptions.map((fy) => (
+                  <option key={fy} value={fy}>
+                    {formatFinancialYearLabel(fy)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-600 mb-1">Previous balance amount</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"
+                value={fyPreviousBalanceDraft}
+                onChange={(e) => setFyPreviousBalanceDraft(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <button type="button" onClick={saveFyPreviousBalance} className="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800">
+                Save / Update
+              </button>
+            </div>
+            <div className="md:col-span-2 text-sm text-slate-700">
+              Current FY previous balance: <span className="font-semibold">₹{selectedFyPreviousBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+
+          {fyBalanceRows.length > 0 && (
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+                <thead className="bg-slate-50">
+                  <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                    <th className="px-3 py-2">FY</th>
+                    <th className="px-3 py-2 text-right">Previous balance</th>
+                    <th className="px-3 py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fyBalanceRows.map((r) => (
+                    <tr key={r.fyStartYear} className="border-t border-slate-100">
+                      <td className="px-3 py-2">{formatFinancialYearLabel(r.fyStartYear)}</td>
+                      <td className="px-3 py-2 text-right">
+                        ₹{r.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="inline-flex gap-3">
+                          <button
+                            type="button"
+                            className="text-indigo-600 hover:text-indigo-700 text-xs font-medium"
+                            onClick={() => editFyPreviousBalance(r.fyStartYear, r.amount)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="text-red-600 hover:text-red-700 text-xs font-medium"
+                            onClick={() => deleteFyPreviousBalance(r.fyStartYear)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <div className="mb-4 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
             <div>
@@ -579,7 +804,9 @@ export default function VendorPaymentReferencePage() {
               </select>
             </div>
             <div className="text-sm text-slate-700">
-              Paid total: <span className="font-semibold">₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              Paid total: <span className="font-semibold">₹{(total + selectedFyPreviousBalance).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              {' · '}Purchased total: <span className="font-semibold">₹{totalPurchased.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              {' · '}Outstanding: <span className="font-semibold">₹{Math.max(0, totalBalance + selectedFyPreviousBalance - outstandingPaidOnly).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
           </div>
 
@@ -609,7 +836,7 @@ export default function VendorPaymentReferencePage() {
                     <td className="px-3 py-2">{r.productName}</td>
                     <td className="px-3 py-2 text-right">{r.tinsCount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2">{r.purchasedDate}</td>
-                    <td className="px-3 py-2">{r.paymentDate}</td>
+                    <td className="px-3 py-2">{r.paymentDate || '—'}</td>
                     <td className="px-3 py-2">{formatFinancialYearLabel(r.fyStartYear)}</td>
                     <td className="px-3 py-2 text-right">₹{r.purchasedAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-right">₹{r.paidAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -619,10 +846,14 @@ export default function VendorPaymentReferencePage() {
                     <td className="px-3 py-2">
                       <span
                         className={`inline-flex px-2 py-1 text-xs rounded-full ${
-                          r.paymentType === 'partial' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                          r.paymentType === 'pending'
+                            ? 'bg-slate-100 text-slate-800'
+                            : r.paymentType === 'partial'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-emerald-100 text-emerald-800'
                         }`}
                       >
-                        {r.paymentType === 'partial' ? 'Partial' : 'Full'}
+                        {r.paymentType === 'pending' ? 'Pending' : r.paymentType === 'partial' ? 'Partial' : 'Full'}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-xs text-slate-700">
