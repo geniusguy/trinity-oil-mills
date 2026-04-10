@@ -63,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuClick, onToggleSidebar }) 
               className="h-8 w-8 object-contain rounded lg:hidden"
             />
             <h1 className="text-xl font-semibold text-gray-900">
-              TOM management
+              TOM Management
             </h1>
           </div>
         </div>

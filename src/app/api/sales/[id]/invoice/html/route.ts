@@ -173,13 +173,23 @@ export async function GET(
             font-size: 11pt;
             color: #000;
             background: #fff;
-            width: 210mm;
-            height: 297mm;
+            width: 100%;
+            min-height: 100%;
             line-height: 1.3;
+            margin: 0;
+            padding: 0;
+        }
+
+        .invoice-sheet {
+            width: 198mm; /* A4 width minus @page margins */
+            max-width: 198mm;
+            min-height: 285mm; /* A4 height minus @page margins */
+            margin: 0 auto;
         }
         
         .invoice-table {
             width: 100%;
+            height: 285mm;
             border-collapse: collapse;
             table-layout: auto;
             border: 2px solid #2d4e52;
@@ -349,11 +359,52 @@ export async function GET(
         }
         
         @media print {
+            @page {
+                size: A4;
+                margin: 4mm; /* extra printable space so final 2 lines don't spill */
+            }
+
             body { 
                 -webkit-print-color-adjust: exact; 
                 print-color-adjust: exact;
                 margin: 0;
                 padding: 0;
+            }
+
+            .invoice-sheet {
+                width: 100%;
+                max-width: 100%;
+                min-height: 285mm;
+            }
+
+            /* Slightly compact footer/signatures to prevent overflow without shrinking whole page */
+            .signature-box { min-height: 40px !important; padding: 5px !important; }
+            .signature-line { height: 14px !important; margin-bottom: 3px !important; }
+            .signature-label { font-size: 8pt !important; line-height: 1.05 !important; }
+
+            /* Keep final footer lines on same page */
+            .invoice-table tr:nth-last-child(2) td,
+            .invoice-table tr:last-child td {
+                font-size: 8.5pt !important;
+                line-height: 1.1 !important;
+                padding-top: 2px !important;
+                padding-bottom: 2px !important;
+                page-break-inside: avoid !important;
+            }
+
+            .invoice-table tr:nth-last-child(2) {
+                height: 44px !important;
+            }
+
+            .invoice-table tr:last-child {
+                height: 16px !important;
+            }
+
+            .invoice-table tr:last-child td {
+                font-size: 8pt !important;
+                font-weight: 700 !important;
+                line-height: 1 !important;
+                border-bottom: 1px solid #000 !important;
             }
             
             .invoice-table { 
@@ -423,6 +474,7 @@ export async function GET(
         </button>
     </div>
 
+    <div class="invoice-sheet">
     <table class="invoice-table">
         <!-- HEADER: Logo and Invoice Title (4 columns) -->
         <tr style="height: 110px;">
@@ -803,6 +855,7 @@ export async function GET(
             <td class="bg-white text-center font-bold" style="border-bottom: 1px solid #000;" colspan="4">Thank you for your business!</td>
         </tr>
     </table>
+    </div>
 
     <script>
         function savePDF() {

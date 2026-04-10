@@ -170,10 +170,12 @@ export default function MaterialBalancePage() {
   const getFyStart = (d: Date) => (d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1);
   const getFyStartFromDateLike = (value: string | null | undefined): number | null => {
     const raw = String(value || '').trim();
-    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (m) {
-      const y = Number(m[1]);
-      const mm = Number(m[2]); // 1..12
+    // For timestamp values (e.g. "...Z"), prefer Date parsing so timezone is respected.
+    // For plain YYYY-MM-DD, parse directly without timezone conversion.
+    const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateOnly) {
+      const y = Number(dateOnly[1]);
+      const mm = Number(dateOnly[2]); // 1..12
       if (Number.isFinite(y) && Number.isFinite(mm)) return mm >= 4 ? y : y - 1;
     }
     const d = new Date(raw);
