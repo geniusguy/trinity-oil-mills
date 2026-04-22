@@ -12,6 +12,11 @@ import {
 import { CANTEEN_LITERS_PER_TIN } from '@/lib/canteenSupply';
 
 type SaleRow = {
+  id?: string | null;
+  invoiceNumber?: string | null;
+  saleType?: string | null;
+  canteenName?: string | null;
+  customerName?: string | null;
   totalBottles?: number | null;
   totalTins?: number | null;
   invoiceDate?: string | null;
@@ -77,7 +82,7 @@ const ITEM_CONFIG: ItemMatcher[] = [
     soldUnit: 'Bottles',
     balanceUnit: 'Nos',
     purchaseProductIds: ['pack_pet_bottle_5l', 'pack_pet_bottle_1l', 'pack_pet_bottle_500ml', 'pack_pet_bottle_200ml', 'prod_bottle_1l', 'prod_bottle_500ml'],
-    purchaseKeywords: [],
+    purchaseKeywords: ['pet bottle', 'bottle'],
     soldMode: 'bottles',
   },
   {
@@ -86,7 +91,7 @@ const ITEM_CONFIG: ItemMatcher[] = [
     soldUnit: 'Nos',
     balanceUnit: 'Nos',
     purchaseProductIds: ['pack_inner_cap_5l', 'pack_inner_cap_1l', 'pack_inner_cap_500ml', 'pack_inner_cap_200ml'],
-    purchaseKeywords: [],
+    purchaseKeywords: ['inner cap', 'cap'],
     soldMode: 'bottles',
   },
   {
@@ -120,7 +125,7 @@ const ITEM_CONFIG: ItemMatcher[] = [
       'pack_flip_top_cap_500ml_yellow',
       'pack_flip_top_cap_200ml_yellow',
     ],
-    purchaseKeywords: [],
+    purchaseKeywords: ['label', 'flip top'],
     soldMode: 'bottles',
   },
   {
@@ -129,7 +134,7 @@ const ITEM_CONFIG: ItemMatcher[] = [
     soldUnit: 'Nos',
     balanceUnit: 'Nos',
     purchaseProductIds: ['pack_carton_box'],
-    purchaseKeywords: [],
+    purchaseKeywords: ['carton', 'box'],
     soldMode: 'none',
   },
   {
@@ -147,7 +152,7 @@ const ITEM_CONFIG: ItemMatcher[] = [
     soldUnit: 'Nos',
     balanceUnit: 'Nos',
     purchaseProductIds: [],
-    purchaseKeywords: [],
+    purchaseKeywords: ['packing bag', 'bag'],
     soldMode: 'bottles',
   },
 ];
@@ -164,6 +169,7 @@ export default function MaterialBalancePage() {
   const [sales, setSales] = useState<SaleRow[]>([]);
   const [purchases, setPurchases] = useState<StockPurchaseRow[]>([]);
   const [salesReturns, setSalesReturns] = useState<SalesReturnRow[]>([]);
+  const [selectedBreakupItemKey, setSelectedBreakupItemKey] = useState<string | null>(null);
 
   const [selectedFyStartYear, setSelectedFyStartYear] = useState<number | 'all'>(() => getFinancialYearStartYear(new Date()));
 
@@ -196,6 +202,23 @@ export default function MaterialBalancePage() {
   const inFy = (value: string | null | undefined, fyStart: number) => {
     const fy = getFyStartFromDateLike(value);
     return fy !== null && fy === fyStart;
+  };
+
+  const isBottleLikeReturn = (unit: string, productName: string) => {
+    const u = unit.trim().toLowerCase();
+    const p = productName.trim().toLowerCase();
+    return (
+      u.includes('bottle') ||
+      u === 'nos' ||
+      u === 'no' ||
+      u === 'pcs' ||
+      u === 'piece' ||
+      u === 'pieces' ||
+      /\b\d+(\.\d+)?\s*ml\b/.test(u) ||
+      /\b\d+(\.\d+)?\s*l(it(er|re))?\b/.test(u) ||
+      p.includes('castor') ||
+      p.includes('bottle')
+    );
   };
 
   const fyOptions = useMemo(() => {
@@ -279,30 +302,13 @@ export default function MaterialBalancePage() {
         ? salesReturns
         : salesReturns.filter((r) => inFy(String(r.returnDate || ''), selectedFyStartYear));
 
-    const isBottleUnit = (unit: string, productName: string) => {
-      const u = unit.trim().toLowerCase();
-      const p = productName.trim().toLowerCase();
-      return (
-        u.includes('bottle') ||
-        u === 'nos' ||
-        u === 'no' ||
-        u === 'pcs' ||
-        u === 'piece' ||
-        u === 'pieces' ||
-        /\b\d+(\.\d+)?\s*ml\b/.test(u) ||
-        /\b\d+(\.\d+)?\s*l(it(er|re))?\b/.test(u) ||
-        p.includes('castor') ||
-        p.includes('bottle')
-      );
-    };
-
     const totalBottlesReturnedInFy = returnsInFy.reduce((acc, r) => {
       const nature = String(r.returnNature || '').trim().toLowerCase();
       // Include dedicated free sample + existing/legacy return entries for material adjustment.
       if (!['sales_return', 'sales return', 'free_sample', 'free sample', 'expiry'].includes(nature)) return acc;
       const unit = String(r.unit || '');
       const productName = String(r.productName || '');
-      if (!isBottleUnit(unit, productName)) return acc;
+      if (!isBottleLikeReturn(unit, productName)) return acc;
       return acc + num(r.quantity);
     }, 0);
 
@@ -310,25 +316,29 @@ export default function MaterialBalancePage() {
     const totalBottlesSoldInFy = salesInFy.reduce((acc, s) => acc + num(s.totalBottles), 0) - totalBottlesReturnedInFy;
     const netBottlesSoldInFy = Math.max(0, totalBottlesSoldInFy);
 
-    const getMatchTotalQty = (productIds: string[]) =>
+    const matchesPurchase = (p: StockPurchaseRow, productIds: string[], keywords: string[]) => {
+      const productId = String(p.productId || '').trim().toLowerCase();
+      const productName = String(p.productName || '').trim().toLowerCase();
+      const byId = productIds.some((id) => productId === id.toLowerCase());
+      const byKeyword = keywords.some((kw) => productName.includes(kw.toLowerCase()));
+      return byId || byKeyword;
+    };
+
+    const getMatchTotalQty = (productIds: string[], keywords: string[]) =>
       purchasesInFy.reduce((acc, p) => {
-        const productId = String(p.productId || '').trim().toLowerCase();
-        const byId = productIds.some((id) => productId === id.toLowerCase());
-        if (!byId) return acc;
+        if (!matchesPurchase(p, productIds, keywords)) return acc;
         return acc + num(p.quantity);
       }, 0);
 
-    const getMatchTotalPurchaseAmount = (productIds: string[]) =>
+    const getMatchTotalPurchaseAmount = (productIds: string[], keywords: string[]) =>
       purchasesInFy.reduce((acc, p) => {
-        const productId = String(p.productId || '').trim().toLowerCase();
-        const byId = productIds.some((id) => productId === id.toLowerCase());
-        if (!byId) return acc;
+        if (!matchesPurchase(p, productIds, keywords)) return acc;
         return acc + num(p.totalAmount);
       }, 0);
 
     return ITEM_CONFIG.map((cfg) => {
-      const purchasedRaw = getMatchTotalQty(cfg.purchaseProductIds);
-      const purchasedAmount = getMatchTotalPurchaseAmount(cfg.purchaseProductIds);
+      const purchasedRaw = getMatchTotalQty(cfg.purchaseProductIds, cfg.purchaseKeywords);
+      const purchasedAmount = getMatchTotalPurchaseAmount(cfg.purchaseProductIds, cfg.purchaseKeywords);
       const sold =
         cfg.soldMode === 'tins' ? totalTinsSoldInFy : cfg.soldMode === 'bottles' ? netBottlesSoldInFy : 0;
       const returned = cfg.soldMode === 'bottles' ? totalBottlesReturnedInFy : null;
@@ -351,6 +361,71 @@ export default function MaterialBalancePage() {
       };
     });
   }, [purchases, sales, salesReturns, selectedFyStartYear]);
+
+  const returnsReductionSummary = useMemo(() => {
+    const returnsInFy =
+      selectedFyStartYear === 'all'
+        ? salesReturns
+        : salesReturns.filter((r) => inFy(String(r.returnDate || ''), selectedFyStartYear));
+
+    const toLabel = (nature: string) => {
+      if (nature === 'sales_return' || nature === 'sales return') return 'Sales Return';
+      if (nature === 'free_sample' || nature === 'free sample') return 'Free Sample';
+      if (nature === 'expiry') return 'Expiry';
+      return nature || 'Other';
+    };
+
+    const bucket = new Map<string, number>();
+    for (const r of returnsInFy) {
+      const nature = String(r.returnNature || '').trim().toLowerCase();
+      if (!['sales_return', 'sales return', 'free_sample', 'free sample', 'expiry'].includes(nature)) continue;
+      const unit = String(r.unit || '');
+      const productName = String(r.productName || '');
+      if (!isBottleLikeReturn(unit, productName)) continue;
+      const label = toLabel(nature);
+      bucket.set(label, (bucket.get(label) || 0) + num(r.quantity));
+    }
+
+    const rows = Array.from(bucket.entries())
+      .map(([label, quantity]) => ({ label, quantity }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    const total = rows.reduce((acc, r) => acc + r.quantity, 0);
+    return { rows, total };
+  }, [salesReturns, selectedFyStartYear]);
+
+  const salesInSelectedFy = useMemo(
+    () =>
+      selectedFyStartYear === 'all'
+        ? sales
+        : sales.filter((s) => inFy(String(s.invoiceDate || s.createdAt || ''), selectedFyStartYear)),
+    [sales, selectedFyStartYear],
+  );
+
+  const soldBreakupByItem = useMemo(() => {
+    const map: Record<string, Array<{ date: string; invoice: string; party: string; qty: number; unit: string }>> = {};
+    ITEM_CONFIG.forEach((cfg) => {
+      const lines = salesInSelectedFy
+        .map((s) => {
+          const qty = cfg.soldMode === 'tins' ? num(s.totalTins) : cfg.soldMode === 'bottles' ? num(s.totalBottles) : 0;
+          const dateRaw = String(s.invoiceDate || s.createdAt || '');
+          const dt = new Date(dateRaw);
+          const date = Number.isNaN(dt.getTime()) ? dateRaw.slice(0, 10) : dt.toLocaleDateString('en-GB');
+          const party = String(s.canteenName || s.customerName || '—');
+          const invoice = String(s.invoiceNumber || '—');
+          return { date, invoice, party, qty, unit: cfg.soldUnit };
+        })
+        .filter((x) => x.qty > 0);
+      map[cfg.key] = lines;
+    });
+    return map;
+  }, [salesInSelectedFy]);
+
+  const selectedBreakupConfig = selectedBreakupItemKey
+    ? ITEM_CONFIG.find((x) => x.key === selectedBreakupItemKey) || null
+    : null;
+  const selectedBreakupLines = selectedBreakupItemKey ? soldBreakupByItem[selectedBreakupItemKey] || [] : [];
+  const selectedBreakupTotal = selectedBreakupLines.reduce((acc, x) => acc + x.qty, 0);
 
   if (status === 'loading' || loading) {
     return (
@@ -417,7 +492,19 @@ export default function MaterialBalancePage() {
                   <td className="px-4 py-3 text-slate-700">{r.quantityDetails}</td>
                   <td className="px-4 py-3 text-right text-slate-700">
                     {r.soldValue > 0
-                      ? `${r.soldValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${r.soldUnit}`
+                      ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const cfg = ITEM_CONFIG.find((x) => x.label === r.item);
+                            if (cfg) setSelectedBreakupItemKey(cfg.key);
+                          }}
+                          className="text-indigo-700 hover:text-indigo-900 underline underline-offset-2 font-medium"
+                          title="Click to view sold breakup"
+                        >
+                          {`${r.soldValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${r.soldUnit}`}
+                        </button>
+                      )
                       : '—'}
                   </td>
                   <td className="px-4 py-3 text-right text-slate-700">
@@ -441,6 +528,65 @@ export default function MaterialBalancePage() {
           </table>
         </div>
       </div>
+
+      {selectedBreakupConfig && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-3xl bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="text-base font-semibold text-slate-900">
+                Sold breakup - {selectedBreakupConfig.label}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSelectedBreakupItemKey(null)}
+                className="text-slate-500 hover:text-slate-700 text-sm"
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-4 max-h-[70vh] overflow-auto">
+              {selectedBreakupLines.length === 0 ? (
+                <p className="text-sm text-slate-600">No sold entries for selected FY.</p>
+              ) : (
+                <table className="min-w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+                  <thead className="bg-slate-50 text-slate-600">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Date</th>
+                      <th className="px-3 py-2 text-left">Invoice</th>
+                      <th className="px-3 py-2 text-left">Sold To</th>
+                      <th className="px-3 py-2 text-right">Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedBreakupLines.map((x, idx) => (
+                      <tr key={`${x.invoice}-${idx}`} className="border-t border-slate-100">
+                        <td className="px-3 py-2">{x.date}</td>
+                        <td className="px-3 py-2">{x.invoice}</td>
+                        <td className="px-3 py-2">{x.party}</td>
+                        <td className="px-3 py-2 text-right">
+                          {x.qty.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {x.unit}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              <div className="mt-3 text-sm text-slate-700">
+                <span className="font-semibold">Total sold:</span>{' '}
+                {selectedBreakupTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 })} {selectedBreakupConfig.soldUnit}
+              </div>
+
+              {selectedBreakupConfig.soldMode === 'bottles' && (
+                <div className="mt-2 text-sm text-slate-700">
+                  <span className="font-semibold">Reduced total (returns/free sample/expiry):</span>{' '}
+                  {returnsReductionSummary.total.toLocaleString('en-IN', { maximumFractionDigits: 2 })} Bottles
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

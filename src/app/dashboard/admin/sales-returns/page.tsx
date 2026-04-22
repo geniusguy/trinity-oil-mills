@@ -149,6 +149,30 @@ export default function SalesReturnsPage() {
     );
   }, [rows]);
 
+  const totalBottles = useMemo(() => {
+    const isBottleLike = (unit?: string | null, productName?: string | null) => {
+      const u = String(unit || '').trim().toLowerCase();
+      const p = String(productName || '').trim().toLowerCase();
+      return (
+        u.includes('bottle') ||
+        u === 'nos' ||
+        u === 'no' ||
+        u === 'pcs' ||
+        u === 'piece' ||
+        u === 'pieces' ||
+        /\b\d+(\.\d+)?\s*ml\b/.test(u) ||
+        /\b\d+(\.\d+)?\s*l(it(er|re))?\b/.test(u) ||
+        p.includes('castor') ||
+        p.includes('bottle')
+      );
+    };
+
+    return rows.reduce((acc, r) => {
+      if (!isBottleLike(r.unit, r.productName)) return acc;
+      return acc + Number(r.quantity || 0);
+    }, 0);
+  }, [rows]);
+
   const sortedRows = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1;
     return [...rows].sort((a, b) => {
@@ -471,7 +495,7 @@ export default function SalesReturnsPage() {
             </div>
           </div>
           <div className="mt-3 text-sm text-gray-700">
-            Totals: Ex GST <span className="font-semibold">₹{totals.exGst.toFixed(2)}</span>, GST <span className="font-semibold">₹{totals.gst.toFixed(2)}</span>, Total <span className="font-semibold">₹{totals.total.toFixed(2)}</span>
+            Totals: Ex GST <span className="font-semibold">₹{totals.exGst.toFixed(2)}</span>, GST <span className="font-semibold">₹{totals.gst.toFixed(2)}</span>, Total <span className="font-semibold">₹{totals.total.toFixed(2)}</span>, Total Bottles <span className="font-semibold">{totalBottles.toFixed(2)}</span>
           </div>
         </div>
 
