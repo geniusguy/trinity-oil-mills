@@ -18,7 +18,7 @@ type SalesReturnRow = {
   returnGstAmount: number;
   otherExpenses?: number;
   returnTotalAmount: number;
-  returnNature: 'sales_return' | 'expiry';
+  returnNature: 'sales_return' | 'expiry' | 'free_sample';
   accountingImpact: 'revenue_reversal' | 'expense_writeoff' | 'both';
   reason?: string | null;
   returnDate: string;
@@ -45,7 +45,7 @@ export default function SalesReturnsPage() {
     unitPriceExGst: '',
     gstRate: '5',
     otherExpenses: '',
-    returnNature: 'expiry' as 'sales_return' | 'expiry',
+    returnNature: 'expiry' as 'sales_return' | 'expiry' | 'free_sample',
     accountingImpact: 'revenue_reversal' as 'revenue_reversal' | 'expense_writeoff' | 'both',
     reason: '',
     returnDate: new Date().toISOString().slice(0, 10),
@@ -420,8 +420,9 @@ export default function SalesReturnsPage() {
               {fieldErrors.otherExpenses && <div className="text-xs text-red-600 mt-1">{fieldErrors.otherExpenses}</div>}
             </div>
 
-            <select className="px-3 py-2 border rounded" value={form.returnNature} onChange={(e) => setForm({ ...form, returnNature: e.target.value as 'sales_return' | 'expiry' })}>
+            <select className="px-3 py-2 border rounded" value={form.returnNature} onChange={(e) => setForm({ ...form, returnNature: e.target.value as 'sales_return' | 'expiry' | 'free_sample' })}>
               <option value="sales_return">Sales Return</option>
+              <option value="free_sample">Free Sample</option>
               <option value="expiry">Expiry</option>
             </select>
             <select className="px-3 py-2 border rounded" value={form.accountingImpact} onChange={(e) => setForm({ ...form, accountingImpact: e.target.value as 'revenue_reversal' | 'expense_writeoff' | 'both' })}>

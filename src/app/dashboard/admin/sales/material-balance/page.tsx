@@ -27,11 +27,21 @@ type StockPurchaseRow = {
   purchaseDate?: string | null;
 };
 
+type SalesReturnRow = {
+  quantity?: number | string | null;
+  unit?: string | null;
+  returnNature?: string | null;
+  returnDate?: string | null;
+  productName?: string | null;
+};
+
 type MaterialRow = {
   item: string;
   quantityDetails: string;
   soldValue: number;
   soldUnit: string;
+  returnedValue: number | null;
+  returnedUnit: string;
   balanceValue: number | null;
   balanceUnit: string;
   paymentValue: number;
@@ -153,6 +163,7 @@ export default function MaterialBalancePage() {
   const [error, setError] = useState('');
   const [sales, setSales] = useState<SaleRow[]>([]);
   const [purchases, setPurchases] = useState<StockPurchaseRow[]>([]);
+  const [salesReturns, setSalesReturns] = useState<SalesReturnRow[]>([]);
 
   const [selectedFyStartYear, setSelectedFyStartYear] = useState<number | 'all'>(() => getFinancialYearStartYear(new Date()));
 
@@ -197,11 +208,15 @@ export default function MaterialBalancePage() {
       const d = new Date(String(p.purchaseDate || ''));
       if (!Number.isNaN(d.getTime())) years.add(getFyStart(d));
     });
+    salesReturns.forEach((r) => {
+      const d = new Date(String(r.returnDate || ''));
+      if (!Number.isNaN(d.getTime())) years.add(getFyStart(d));
+    });
     const arr = Array.from(years).sort((a, b) => b - a);
     const current = getFinancialYearStartYear(new Date());
     if (!arr.includes(current)) arr.unshift(current);
     return arr;
-  }, [sales, purchases]);
+  }, [sales, purchases, salesReturns]);
 
   useEffect(() => {
     if (!session?.user || !allowed.includes(session.user.role || '')) return;
@@ -211,28 +226,34 @@ export default function MaterialBalancePage() {
         setLoading(true);
         setError('');
 
-        const [salesRes, purchasesRes] = await Promise.all([
+        const [salesRes, purchasesRes, returnsRes] = await Promise.all([
           fetch('/api/sales?category=canteen&limit=5000', { credentials: 'include' }),
           fetch('/api/stock-purchases?limit=5000', {
             credentials: 'include',
           }),
+          fetch('/api/sales-returns?saleType=canteen&limit=5000', { credentials: 'include' }),
         ]);
 
         const salesJson = await salesRes.json();
         const purchasesJson = await purchasesRes.json();
+        const returnsJson = await returnsRes.json();
 
         if (!salesRes.ok) throw new Error(salesJson.error || 'Failed to load sales');
         if (!purchasesRes.ok) throw new Error(purchasesJson.error || 'Failed to load stock purchases');
+        if (!returnsRes.ok) throw new Error(returnsJson.error || 'Failed to load sales returns');
 
         const allSales = Array.isArray(salesJson.sales) ? salesJson.sales : [];
         const allPurchases = Array.isArray(purchasesJson.purchases) ? purchasesJson.purchases : [];
+        const allReturns = Array.isArray(returnsJson.returns) ? returnsJson.returns : [];
         setSales(allSales);
         setPurchases(allPurchases);
+        setSalesReturns(allReturns);
 
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Failed to load data');
         setSales([]);
         setPurchases([]);
+        setSalesReturns([]);
       } finally {
         setLoading(false);
       }
@@ -253,8 +274,41 @@ export default function MaterialBalancePage() {
       selectedFyStartYear === 'all'
         ? purchases
         : purchases.filter((p) => inFy(String(p.purchaseDate || ''), selectedFyStartYear));
+    const returnsInFy =
+      selectedFyStartYear === 'all'
+        ? salesReturns
+        : salesReturns.filter((r) => inFy(String(r.returnDate || ''), selectedFyStartYear));
+
+    const isBottleUnit = (unit: string, productName: string) => {
+      const u = unit.trim().toLowerCase();
+      const p = productName.trim().toLowerCase();
+      return (
+        u.includes('bottle') ||
+        u === 'nos' ||
+        u === 'no' ||
+        u === 'pcs' ||
+        u === 'piece' ||
+        u === 'pieces' ||
+        /\b\d+(\.\d+)?\s*ml\b/.test(u) ||
+        /\b\d+(\.\d+)?\s*l(it(er|re))?\b/.test(u) ||
+        p.includes('castor') ||
+        p.includes('bottle')
+      );
+    };
+
+    const totalBottlesReturnedInFy = returnsInFy.reduce((acc, r) => {
+      const nature = String(r.returnNature || '').trim().toLowerCase();
+      // Include dedicated free sample + existing/legacy return entries for material adjustment.
+      if (!['sales_return', 'sales return', 'free_sample', 'free sample', 'expiry'].includes(nature)) return acc;
+      const unit = String(r.unit || '');
+      const productName = String(r.productName || '');
+      if (!isBottleUnit(unit, productName)) return acc;
+      return acc + num(r.quantity);
+    }, 0);
+
     const totalTinsSoldInFy = salesInFy.reduce((acc, s) => acc + num(s.totalTins), 0);
-    const totalBottlesSoldInFy = salesInFy.reduce((acc, s) => acc + num(s.totalBottles), 0);
+    const totalBottlesSoldInFy = salesInFy.reduce((acc, s) => acc + num(s.totalBottles), 0) - totalBottlesReturnedInFy;
+    const netBottlesSoldInFy = Math.max(0, totalBottlesSoldInFy);
 
     const getMatchTotalQty = (productIds: string[]) =>
       purchasesInFy.reduce((acc, p) => {
@@ -276,7 +330,8 @@ export default function MaterialBalancePage() {
       const purchasedRaw = getMatchTotalQty(cfg.purchaseProductIds);
       const purchasedAmount = getMatchTotalPurchaseAmount(cfg.purchaseProductIds);
       const sold =
-        cfg.soldMode === 'tins' ? totalTinsSoldInFy : cfg.soldMode === 'bottles' ? totalBottlesSoldInFy : 0;
+        cfg.soldMode === 'tins' ? totalTinsSoldInFy : cfg.soldMode === 'bottles' ? netBottlesSoldInFy : 0;
+      const returned = cfg.soldMode === 'bottles' ? totalBottlesReturnedInFy : null;
       const purchasedDisplay = purchasedRaw / (cfg.purchaseToDisplayFactor ?? 1);
       const balance = purchasedDisplay > 0 ? purchasedDisplay - sold : null;
 
@@ -288,12 +343,14 @@ export default function MaterialBalancePage() {
             : '—',
         soldValue: sold,
         soldUnit: cfg.soldUnit,
+        returnedValue: returned,
+        returnedUnit: 'Bottles',
         balanceValue: balance,
         balanceUnit: cfg.balanceUnit,
         paymentValue: purchasedAmount,
       };
     });
-  }, [purchases, sales, selectedFyStartYear]);
+  }, [purchases, sales, salesReturns, selectedFyStartYear]);
 
   if (status === 'loading' || loading) {
     return (
@@ -347,7 +404,8 @@ export default function MaterialBalancePage() {
               <tr className="text-left text-xs uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
                 <th className="px-4 py-3">Item</th>
                 <th className="px-4 py-3">Quantity / Details</th>
-                <th className="px-4 py-3 text-right">Sold</th>
+                <th className="px-4 py-3 text-right">Net Sold</th>
+                <th className="px-4 py-3 text-right">Returned</th>
                 <th className="px-4 py-3 text-right">Balance</th>
                 <th className="px-4 py-3 text-right">Payment</th>
               </tr>
@@ -360,6 +418,11 @@ export default function MaterialBalancePage() {
                   <td className="px-4 py-3 text-right text-slate-700">
                     {r.soldValue > 0
                       ? `${r.soldValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${r.soldUnit}`
+                      : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-700">
+                    {r.returnedValue != null && r.returnedValue > 0
+                      ? `${r.returnedValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${r.returnedUnit}`
                       : '—'}
                   </td>
                   <td className="px-4 py-3 text-right text-slate-700">

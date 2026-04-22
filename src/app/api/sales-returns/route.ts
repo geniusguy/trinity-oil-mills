@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
     const unitPriceExGst = toNum(body.unitPriceExGst);
     const gstRate = toNum(body.gstRate || 5);
     const otherExpenses = toNum(body.otherExpenses || 0);
-    const returnNature = String(body.returnNature || 'sales_return').trim().toLowerCase(); // sales_return | expiry
+    const returnNature = String(body.returnNature || 'sales_return').trim().toLowerCase(); // sales_return | free_sample | expiry
     const accountingImpact = String(body.accountingImpact || 'revenue_reversal').trim().toLowerCase(); // revenue_reversal | expense_writeoff | both
     const reason = body.reason == null ? null : String(body.reason).trim();
     const returnDate = normalizeMySqlDate(
@@ -166,7 +166,7 @@ export async function POST(request: NextRequest) {
     if (!productName) return NextResponse.json({ error: 'Product name is required' }, { status: 400 });
     if (!returnDate) return NextResponse.json({ error: 'Valid return date is required' }, { status: 400 });
     if (!['canteen', 'retail'].includes(saleType)) return NextResponse.json({ error: 'Invalid saleType' }, { status: 400 });
-    if (!['sales_return', 'expiry'].includes(returnNature)) return NextResponse.json({ error: 'Invalid returnNature' }, { status: 400 });
+    if (!['sales_return', 'free_sample', 'expiry'].includes(returnNature)) return NextResponse.json({ error: 'Invalid returnNature' }, { status: 400 });
     if (!['revenue_reversal', 'expense_writeoff', 'both'].includes(accountingImpact)) {
       return NextResponse.json({ error: 'Invalid accountingImpact' }, { status: 400 });
     }
@@ -270,7 +270,7 @@ export async function PUT(request: NextRequest) {
     if (!productName) return NextResponse.json({ error: 'Product name is required' }, { status: 400 });
     if (!returnDate) return NextResponse.json({ error: 'Valid return date is required' }, { status: 400 });
     if (!['canteen', 'retail'].includes(saleType)) return NextResponse.json({ error: 'Invalid saleType' }, { status: 400 });
-    if (!['sales_return', 'expiry'].includes(returnNature)) return NextResponse.json({ error: 'Invalid returnNature' }, { status: 400 });
+    if (!['sales_return', 'free_sample', 'expiry'].includes(returnNature)) return NextResponse.json({ error: 'Invalid returnNature' }, { status: 400 });
     if (!['revenue_reversal', 'expense_writeoff', 'both'].includes(accountingImpact)) {
       return NextResponse.json({ error: 'Invalid accountingImpact' }, { status: 400 });
     }
