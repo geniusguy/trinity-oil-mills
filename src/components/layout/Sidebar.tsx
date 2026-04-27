@@ -567,7 +567,24 @@ const navigationSections: NavSection[] = [
       }
     ],
     roles: ['admin']
-  }
+  },
+  {
+    title: '',
+    items: [
+      {
+        name: 'Rough Sheet',
+        href: '/dashboard/admin/rough-sheet',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 8h8M8 12h8M8 16h5" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff'],
+      },
+    ],
+    roles: ['admin', 'accountant', 'retail_staff'],
+  },
 ];
 
 interface SidebarProps {
