@@ -6,7 +6,7 @@
     "clean": "node -e \"try{require('fs').rmSync(require('path').join(process.cwd(),'.next'),{recursive:true,force:true});console.log('Removed .next');}catch(e){console.log(e.message);process.exit(1)}\"",
     "dev": "node scripts/ensure-next-manifests.js && cross-env NODE_ENV=development node node_modules/next/dist/bin/next dev -p 3001 --webpack",
     "dev:turbo": "node scripts/ensure-next-manifests.js && cross-env NODE_ENV=development node node_modules/next/dist/bin/next dev -p 3001 --turbopack",
-    "build": "node node_modules/next/dist/bin/next build",
+    "build": "node node_modules/next/dist/bin/next build --webpack",
     "start": "node start-server.js",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",

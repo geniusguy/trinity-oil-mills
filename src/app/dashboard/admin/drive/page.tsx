@@ -26,6 +26,15 @@ type DriveFolder = {
 
 type SortBy = 'name' | 'date' | 'size' | 'type';
 type FolderOption = { name: string; path: string };
+type ViewMode = 'grid' | 'list';
+type ContextMenuState =
+  | {
+      x: number;
+      y: number;
+      kind: 'file' | 'folder';
+      item: DriveFile | DriveFolder;
+    }
+  | null;
 
 const ALLOWED_ROLES = ['admin', 'accountant', 'retail_staff'];
 
@@ -50,7 +59,10 @@ export default function DrivePage() {
   const [newFolderName, setNewFolderName] = useState('');
   const [sortBy, setSortBy] = useState<SortBy>('date');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [allFolders, setAllFolders] = useState<FolderOption[]>([]);
+  const [brokenThumbs, setBrokenThumbs] = useState<Record<string, boolean>>({});
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
 
   const canAccess = Boolean(session?.user?.role && ALLOWED_ROLES.includes(session.user.role));
 
@@ -87,6 +99,12 @@ export default function DrivePage() {
   useEffect(() => {
     if (canAccess) void fetchFiles();
   }, [canAccess]);
+
+  useEffect(() => {
+    const closeContextMenu = () => setContextMenu(null);
+    window.addEventListener('click', closeContextMenu);
+    return () => window.removeEventListener('click', closeContextMenu);
+  }, []);
 
   const breadcrumbs = useMemo(() => {
     const parts = currentFolder ? currentFolder.split('/').filter(Boolean) : [];
@@ -244,13 +262,6 @@ export default function DrivePage() {
     }
   };
 
-  const pickAndMove = async (kind: 'file' | 'folder', item: DriveFile | DriveFolder) => {
-    const options = allFolders.map((f) => f.path || '/').join('\n');
-    const destination = window.prompt(`Move to folder path (empty for root).\nAvailable:\n${options}`, currentFolder)?.trim() ?? '';
-    if (destination === null) return;
-    await moveItemToFolder(kind, item, destination);
-  };
-
   const removeFolder = async (folder: DriveFolder) => {
     if (!window.confirm(`Delete folder "${folder.name}" and all contents?`)) return;
     setError('');
@@ -273,6 +284,8 @@ export default function DrivePage() {
     return <div className="min-h-screen flex items-center justify-center text-gray-600">Loading...</div>;
   }
 
+  const getDepth = (path: string) => path.split('/').filter(Boolean).length;
+
   return (
     <div className="min-h-screen bg-slate-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
@@ -281,17 +294,41 @@ export default function DrivePage() {
             <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Drive</h1>
             <p className="text-slate-600">Upload and manage PDF, image, and text files.</p>
           </div>
-          <label className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 cursor-pointer">
-            {uploading ? 'Uploading...' : 'Upload File'}
-            <input
-              type="file"
-              accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,application/pdf,image/*,text/plain"
-              className="hidden"
-              onChange={onUpload}
-              disabled={uploading}
-            />
-          </label>
+          {!currentFolder && (
+            <label className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 cursor-pointer">
+              {uploading ? 'Uploading...' : 'Upload to Drive'}
+              <input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,application/pdf,image/*,text/plain"
+                className="hidden"
+                onChange={onUpload}
+                disabled={uploading}
+              />
+            </label>
+          )}
         </div>
+
+        {currentFolder && (
+          <div className="bg-white border border-indigo-200 rounded-xl p-5 shadow-sm">
+            <p className="text-xs uppercase tracking-wide text-indigo-600 font-semibold mb-1">Current folder</p>
+            <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 break-all">
+              You are inside: {currentFolder}
+            </h2>
+            <p className="text-slate-600 mt-2">Upload files directly here, just like Google Drive folder view.</p>
+            <div className="mt-4">
+              <label className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 cursor-pointer">
+                {uploading ? 'Uploading...' : `Upload in ${currentFolder.split('/').filter(Boolean).pop() || 'folder'}`}
+                <input
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,application/pdf,image/*,text/plain"
+                  className="hidden"
+                  onChange={onUpload}
+                  disabled={uploading}
+                />
+              </label>
+            </div>
+          </div>
+        )}
 
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -318,6 +355,13 @@ export default function DrivePage() {
                 className="px-3 py-2 rounded-lg border border-slate-300 text-sm text-slate-700 bg-white hover:bg-slate-50"
               >
                 {sortDir === 'asc' ? 'Asc' : 'Desc'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode((v) => (v === 'grid' ? 'list' : 'grid'))}
+                className="px-3 py-2 rounded-lg border border-slate-300 text-sm text-slate-700 bg-white hover:bg-slate-50 whitespace-nowrap"
+              >
+                {viewMode === 'grid' ? 'List view' : 'Grid view'}
               </button>
             </div>
           </div>
@@ -353,14 +397,54 @@ export default function DrivePage() {
         {error && <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>}
         {notice && <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm">{notice}</div>}
 
-        {loading ? (
-          <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-600">Loading files...</div>
-        ) : filtered.folders.length === 0 && filtered.files.length === 0 ? (
-          <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500">No files found.</div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <aside className="lg:col-span-3 bg-white border border-slate-200 rounded-xl p-4 shadow-sm h-fit">
+            <h3 className="text-sm font-semibold text-slate-800 mb-3">Folders</h3>
+            <div className="space-y-1 max-h-[65vh] overflow-auto pr-1">
+              <button
+                type="button"
+                onClick={() => fetchFiles('')}
+                className={`w-full text-left px-3 py-2 rounded-lg text-sm ${
+                  currentFolder === '' ? 'bg-indigo-100 text-indigo-800' : 'text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                My Drive
+              </button>
+              {allFolders
+                .slice()
+                .sort((a, b) => a.path.localeCompare(b.path))
+                .map((f) => (
+                  <button
+                    key={f.path || 'root'}
+                    type="button"
+                    onClick={() => fetchFiles(f.path)}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm break-all ${
+                      currentFolder === f.path ? 'bg-indigo-100 text-indigo-800' : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                    style={{ paddingLeft: `${12 + getDepth(f.path) * 12}px` }}
+                  >
+                    {f.path ? f.path.split('/').pop() : 'My Drive'}
+                  </button>
+                ))}
+            </div>
+          </aside>
+
+          <section className="lg:col-span-9">
+            {loading ? (
+              <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-600">Loading files...</div>
+            ) : filtered.folders.length === 0 && filtered.files.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500">No files found.</div>
+            ) : viewMode === 'grid' ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {filtered.folders.map((folder) => (
-              <div key={folder.id} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm">
+              <div
+                key={folder.id}
+                className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm"
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextMenu({ x: e.clientX, y: e.clientY, kind: 'folder', item: folder });
+                }}
+              >
                 <button
                   type="button"
                   onClick={() => fetchFiles(folder.path)}
@@ -382,32 +466,45 @@ export default function DrivePage() {
                   <p className="text-sm font-medium text-slate-900 truncate" title={folder.name}>{folder.name}</p>
                   <p className="text-xs text-slate-500">{new Date(folder.updatedAt).toLocaleString('en-IN')}</p>
                 </div>
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => fetchFiles(folder.path)}
-                    className="flex-1 text-center px-3 py-1.5 rounded-md bg-slate-100 text-slate-700 text-xs font-medium hover:bg-slate-200"
+                    className="flex-1 min-w-[92px] text-center px-3 py-1.5 rounded-md bg-slate-100 text-slate-700 text-xs font-medium hover:bg-slate-200"
                   >
                     Open
                   </button>
                   <button
                     type="button"
                     onClick={() => renameItem('folder', folder)}
-                    className="flex-1 text-center px-3 py-1.5 rounded-md bg-indigo-100 text-indigo-700 text-xs font-medium hover:bg-indigo-200"
+                    className="flex-1 min-w-[92px] text-center px-3 py-1.5 rounded-md bg-indigo-100 text-indigo-700 text-xs font-medium hover:bg-indigo-200"
                   >
                     Rename
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => pickAndMove('folder', folder)}
-                    className="flex-1 text-center px-3 py-1.5 rounded-md bg-violet-100 text-violet-700 text-xs font-medium hover:bg-violet-200"
+                  <select
+                    className="flex-1 min-w-[120px] px-2 py-1.5 rounded-md border border-slate-300 text-xs text-slate-700 bg-white"
+                    defaultValue=""
+                    onChange={(e) => {
+                      const destination = e.target.value;
+                      if (!destination) return;
+                      void moveItemToFolder('folder', folder, destination);
+                      e.currentTarget.value = '';
+                    }}
                   >
-                    Move
-                  </button>
+                    <option value="">Move to...</option>
+                    <option value="">My Drive</option>
+                    {allFolders
+                      .filter((f) => f.path !== folder.path && !f.path.startsWith(`${folder.path}/`))
+                      .map((f) => (
+                        <option key={`${folder.id}-${f.path || 'root'}`} value={f.path}>
+                          {f.path || 'My Drive'}
+                        </option>
+                      ))}
+                  </select>
                   <button
                     type="button"
                     onClick={() => removeFolder(folder)}
-                    className="flex-1 text-center px-3 py-1.5 rounded-md bg-red-100 text-red-700 text-xs font-medium hover:bg-red-200"
+                    className="flex-1 min-w-[92px] text-center px-3 py-1.5 rounded-md bg-red-100 text-red-700 text-xs font-medium hover:bg-red-200"
                   >
                     Delete
                   </button>
@@ -420,6 +517,10 @@ export default function DrivePage() {
                 className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm"
                 draggable
                 onDragStart={(e) => e.dataTransfer.setData('text/drive-file-path', file.path)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextMenu({ x: e.clientX, y: e.clientY, kind: 'file', item: file });
+                }}
               >
                 <button
                   type="button"
@@ -428,10 +529,17 @@ export default function DrivePage() {
                   title="Preview"
                 >
                   <div className="h-32 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
-                    {file.fileType === 'image' ? (
-                      <img src={file.url} alt={file.name} className="w-full h-full object-cover" />
+                    {file.fileType === 'image' && !brokenThumbs[file.id] ? (
+                      <img
+                        src={file.url}
+                        alt={file.name}
+                        className="w-full h-full object-cover"
+                        onError={() => setBrokenThumbs((prev) => ({ ...prev, [file.id]: true }))}
+                      />
                     ) : (
-                      <span className="text-slate-500 text-sm font-medium">{file.fileType.toUpperCase()}</span>
+                      <span className="text-slate-500 text-sm font-medium">
+                        {file.fileType === 'image' ? 'IMAGE PREVIEW UNAVAILABLE' : file.fileType.toUpperCase()}
+                      </span>
                     )}
                   </div>
                 </button>
@@ -439,49 +547,173 @@ export default function DrivePage() {
                   <p className="text-sm font-medium text-slate-900 truncate" title={file.name}>{file.name}</p>
                   <p className="text-xs text-slate-500">{formatSize(file.size)} · {new Date(file.uploadedAt).toLocaleString('en-IN')}</p>
                 </div>
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <a
                     href={file.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex-1 text-center px-3 py-1.5 rounded-md bg-slate-100 text-slate-700 text-xs font-medium hover:bg-slate-200"
+                    className="flex-1 min-w-[92px] text-center px-3 py-1.5 rounded-md bg-slate-100 text-slate-700 text-xs font-medium hover:bg-slate-200"
                   >
                     Open
                   </a>
                   <a
                     href={file.url}
                     download={file.name}
-                    className="flex-1 text-center px-3 py-1.5 rounded-md bg-indigo-100 text-indigo-700 text-xs font-medium hover:bg-indigo-200"
+                    className="flex-1 min-w-[92px] text-center px-3 py-1.5 rounded-md bg-indigo-100 text-indigo-700 text-xs font-medium hover:bg-indigo-200"
                   >
                     Download
                   </a>
                   <button
                     type="button"
                     onClick={() => renameItem('file', file)}
-                    className="px-3 py-1.5 rounded-md bg-violet-100 text-violet-700 text-xs font-medium hover:bg-violet-200"
+                    className="flex-1 min-w-[92px] px-3 py-1.5 rounded-md bg-violet-100 text-violet-700 text-xs font-medium hover:bg-violet-200"
                   >
                     Rename
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => pickAndMove('file', file)}
-                    className="px-3 py-1.5 rounded-md bg-fuchsia-100 text-fuchsia-700 text-xs font-medium hover:bg-fuchsia-200"
+                  <select
+                    className="flex-1 min-w-[120px] px-2 py-1.5 rounded-md border border-slate-300 text-xs text-slate-700 bg-white"
+                    defaultValue=""
+                    onChange={(e) => {
+                      const destination = e.target.value;
+                      if (destination === currentFolder) {
+                        e.currentTarget.value = '';
+                        return;
+                      }
+                      if (!destination && currentFolder === '') {
+                        e.currentTarget.value = '';
+                        return;
+                      }
+                      void moveItemToFolder('file', file, destination);
+                      e.currentTarget.value = '';
+                    }}
                   >
-                    Move
-                  </button>
+                    <option value="">Move to...</option>
+                    <option value="">My Drive</option>
+                    {allFolders.map((f) => (
+                      <option key={`${file.id}-${f.path || 'root'}`} value={f.path}>
+                        {f.path || 'My Drive'}
+                      </option>
+                    ))}
+                  </select>
                   <button
                     type="button"
                     onClick={() => removeFile(file)}
-                    className="px-3 py-1.5 rounded-md bg-red-100 text-red-700 text-xs font-medium hover:bg-red-200"
+                    className="flex-1 min-w-[92px] px-3 py-1.5 rounded-md bg-red-100 text-red-700 text-xs font-medium hover:bg-red-200"
                   >
                     Delete
                   </button>
                 </div>
               </div>
             ))}
-          </div>
-        )}
+              </div>
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Name</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Type</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Size</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600">Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filtered.folders.map((folder) => (
+                      <tr
+                        key={`list-folder-${folder.id}`}
+                        className="hover:bg-slate-50 cursor-pointer"
+                        onDoubleClick={() => fetchFiles(folder.path)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContextMenu({ x: e.clientX, y: e.clientY, kind: 'folder', item: folder });
+                        }}
+                      >
+                        <td className="px-4 py-2 text-sm text-slate-800">📁 {folder.name}</td>
+                        <td className="px-4 py-2 text-sm text-slate-500">Folder</td>
+                        <td className="px-4 py-2 text-sm text-slate-500">-</td>
+                        <td className="px-4 py-2 text-sm text-slate-500">{new Date(folder.updatedAt).toLocaleString('en-IN')}</td>
+                      </tr>
+                    ))}
+                    {filtered.files.map((file) => (
+                      <tr
+                        key={`list-file-${file.id}`}
+                        className="hover:bg-slate-50 cursor-pointer"
+                        onDoubleClick={() => setSelected(file)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContextMenu({ x: e.clientX, y: e.clientY, kind: 'file', item: file });
+                        }}
+                      >
+                        <td className="px-4 py-2 text-sm text-slate-800">{file.name}</td>
+                        <td className="px-4 py-2 text-sm text-slate-500">{file.fileType.toUpperCase()}</td>
+                        <td className="px-4 py-2 text-sm text-slate-500">{formatSize(file.size)}</td>
+                        <td className="px-4 py-2 text-sm text-slate-500">{new Date(file.uploadedAt).toLocaleString('en-IN')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
       </div>
+
+      {contextMenu && (
+        <div
+          className="fixed z-50 min-w-[180px] bg-white border border-slate-200 rounded-lg shadow-lg p-1"
+          style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 rounded"
+            onClick={() => {
+              if (contextMenu.kind === 'file') {
+                setSelected(contextMenu.item as DriveFile);
+              } else {
+                void fetchFiles((contextMenu.item as DriveFolder).path);
+              }
+              setContextMenu(null);
+            }}
+          >
+            Open
+          </button>
+          <button
+            type="button"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 rounded"
+            onClick={() => {
+              void renameItem(contextMenu.kind, contextMenu.item);
+              setContextMenu(null);
+            }}
+          >
+            Rename
+          </button>
+          <button
+            type="button"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 rounded"
+            onClick={() => {
+              void moveItemToFolder(contextMenu.kind, contextMenu.item, '');
+              setContextMenu(null);
+            }}
+          >
+            Move to My Drive
+          </button>
+          <button
+            type="button"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-red-50 text-red-600 rounded"
+            onClick={() => {
+              if (contextMenu.kind === 'file') {
+                void removeFile(contextMenu.item as DriveFile);
+              } else {
+                void removeFolder(contextMenu.item as DriveFolder);
+              }
+              setContextMenu(null);
+            }}
+          >
+            Delete
+          </button>
+        </div>
+      )}
 
       {selected && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setSelected(null)}>
@@ -491,8 +723,26 @@ export default function DrivePage() {
               <button type="button" className="text-slate-500 hover:text-slate-700" onClick={() => setSelected(null)}>Close</button>
             </div>
             <div className="h-[calc(100%-2.5rem)] border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
-              {selected.fileType === 'image' && (
-                <img src={selected.url} alt={selected.name} className="w-full h-full object-contain" />
+              {selected.fileType === 'image' && !brokenThumbs[selected.id] && (
+                <img
+                  src={selected.url}
+                  alt={selected.name}
+                  className="w-full h-full object-contain"
+                  onError={() => setBrokenThumbs((prev) => ({ ...prev, [selected.id]: true }))}
+                />
+              )}
+              {selected.fileType === 'image' && brokenThumbs[selected.id] && (
+                <div className="w-full h-full flex flex-col items-center justify-center text-slate-600 gap-3">
+                  <p className="text-sm">Image preview not available.</p>
+                  <a
+                    href={selected.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-3 py-1.5 rounded-md bg-indigo-100 text-indigo-700 text-xs font-medium hover:bg-indigo-200"
+                  >
+                    Open image in new tab
+                  </a>
+                </div>
               )}
               {selected.fileType === 'pdf' && (
                 <iframe src={selected.url} className="w-full h-full" title={selected.name} />

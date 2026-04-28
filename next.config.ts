@@ -1,18 +1,9 @@
 import type { NextConfig } from 'next';
-import path from 'path';
-import { fileURLToPath } from 'url';
 
 // Suppress dotenv warnings during build
 process.env.DOTENV_CONFIG_QUIET = 'true';
 
-// Pin Turbopack workspace root to this app. Parent folder (TrintyOilMills) has its own
-// package-lock.json — without this, Next warns that the inferred root may be wrong.
-const appRoot = path.dirname(fileURLToPath(import.meta.url));
-
 const config: NextConfig = {
-  turbopack: {
-    root: appRoot,
-  },
   typescript: {
     ignoreBuildErrors: true,
   },

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs/promises';
-import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,23 +11,14 @@ function isAllowedUploadPath(p: string) {
 }
 
 function getUploadsRootDir() {
-  const envDir = String(process.env.UPLOADS_ROOT_DIR || '').trim();
-  if (envDir) return envDir;
-  return path.join(process.cwd(), 'storage', 'uploads');
+  // Keep this static to avoid broad NFT tracing warnings in Turbopack builds.
+  return 'storage/uploads';
 }
 
 function getCandidatePaths(requestedPath: string) {
   const normalized = requestedPath.replace(/^\/+/, ''); // uploads/sales/file.pdf
   const suffix = normalized.replace(/^uploads\//, ''); // sales/file.pdf
-  const cwd = process.cwd();
-  return [
-    // New canonical storage path
-    path.join(getUploadsRootDir(), suffix),
-    // Backward-compat: previous public/uploads storage
-    path.join(cwd, 'public', normalized),
-    path.join(cwd, '.next', 'standalone', 'public', normalized),
-    path.join(cwd, '..', 'public', normalized),
-  ];
+  return [`${getUploadsRootDir()}/${suffix}`];
 }
 
 export async function GET(request: NextRequest) {
@@ -45,7 +35,7 @@ export async function GET(request: NextRequest) {
     for (const fullPath of candidates) {
       try {
         file = await fs.readFile(fullPath);
-        filename = path.basename(fullPath);
+        filename = fullPath.split('/').pop() || filename;
         break;
       } catch {
         // try next path
