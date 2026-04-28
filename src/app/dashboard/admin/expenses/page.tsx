@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { getQueueCount } from '@/lib/offlineQueue';
 import { Card, Button, Input, Select, LoadingSpinner } from '@/components/ui';
 
@@ -15,12 +15,19 @@ interface Expense {
   createdAt: string;
 }
 
+type SortKey = 'expenseDate' | 'category' | 'description' | 'amount' | 'paymentMethod';
+type SortDirection = 'asc' | 'desc';
+
 const ExpensesPage: React.FC = () => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({
+    key: 'expenseDate',
+    direction: 'desc',
+  });
   const [formData, setFormData] = useState({
     category: '',
     description: '',
@@ -184,6 +191,42 @@ const ExpensesPage: React.FC = () => {
   // Helper function to safely parse amounts
   const parseAmount = (amount: number | string): number => {
     return typeof amount === 'string' ? parseFloat(amount) || 0 : amount || 0;
+  };
+
+  const requestSort = (key: SortKey) => {
+    setSortConfig((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
+  const sortedExpenses = useMemo(() => {
+    const sorted = [...expenses];
+
+    sorted.sort((a, b) => {
+      let compareValue = 0;
+
+      if (sortConfig.key === 'expenseDate') {
+        compareValue = new Date(a.expenseDate).getTime() - new Date(b.expenseDate).getTime();
+      } else if (sortConfig.key === 'amount') {
+        compareValue = parseAmount(a.amount) - parseAmount(b.amount);
+      } else if (sortConfig.key === 'category') {
+        compareValue = a.category.localeCompare(b.category);
+      } else if (sortConfig.key === 'description') {
+        compareValue = a.description.localeCompare(b.description);
+      } else if (sortConfig.key === 'paymentMethod') {
+        compareValue = a.paymentMethod.localeCompare(b.paymentMethod);
+      }
+
+      return sortConfig.direction === 'asc' ? compareValue : -compareValue;
+    });
+
+    return sorted;
+  }, [expenses, sortConfig]);
+
+  const getSortIndicator = (key: SortKey) => {
+    if (sortConfig.key !== key) return '↕';
+    return sortConfig.direction === 'asc' ? '↑' : '↓';
   };
 
   const getTotalByCategory = () => {
@@ -423,19 +466,54 @@ const ExpensesPage: React.FC = () => {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Date
+                      <button
+                        type="button"
+                        onClick={() => requestSort('expenseDate')}
+                        className="inline-flex items-center gap-1 hover:text-gray-700"
+                      >
+                        Date
+                        <span className="text-[10px]">{getSortIndicator('expenseDate')}</span>
+                      </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Category
+                      <button
+                        type="button"
+                        onClick={() => requestSort('category')}
+                        className="inline-flex items-center gap-1 hover:text-gray-700"
+                      >
+                        Category
+                        <span className="text-[10px]">{getSortIndicator('category')}</span>
+                      </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Description
+                      <button
+                        type="button"
+                        onClick={() => requestSort('description')}
+                        className="inline-flex items-center gap-1 hover:text-gray-700"
+                      >
+                        Description
+                        <span className="text-[10px]">{getSortIndicator('description')}</span>
+                      </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Amount
+                      <button
+                        type="button"
+                        onClick={() => requestSort('amount')}
+                        className="inline-flex items-center gap-1 hover:text-gray-700"
+                      >
+                        Amount
+                        <span className="text-[10px]">{getSortIndicator('amount')}</span>
+                      </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Payment
+                      <button
+                        type="button"
+                        onClick={() => requestSort('paymentMethod')}
+                        className="inline-flex items-center gap-1 hover:text-gray-700"
+                      >
+                        Payment
+                        <span className="text-[10px]">{getSortIndicator('paymentMethod')}</span>
+                      </button>
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
@@ -443,7 +521,7 @@ const ExpensesPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {expenses.map((expense) => (
+                  {sortedExpenses.map((expense) => (
                     <tr key={expense.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {formatDate(expense.expenseDate)}
