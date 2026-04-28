@@ -557,7 +557,7 @@ export default function DrivePage() {
                     Open
                   </a>
                   <a
-                    href={file.url}
+                    href={`${file.url}&download=1`}
                     download={file.name}
                     className="flex-1 min-w-[92px] text-center px-3 py-1.5 rounded-md bg-indigo-100 text-indigo-700 text-xs font-medium hover:bg-indigo-200"
                   >

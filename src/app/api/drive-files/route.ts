@@ -56,6 +56,16 @@ function getFileType(mimeType: string) {
   return 'text';
 }
 
+function getMimeTypeFromName(name: string) {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.txt')) return 'text/plain; charset=utf-8';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.gif')) return 'image/gif';
+  return 'image/jpeg';
+}
+
 async function ensureUploadsDir() {
   await fs.mkdir(uploadsDir, { recursive: true });
 }
@@ -83,6 +93,28 @@ export async function GET(request: NextRequest) {
 
     await ensureUploadsDir();
     const { searchParams } = new URL(request.url);
+    const filePathParam = searchParams.get('filePath') || '';
+    const download = searchParams.get('download') === '1';
+
+    if (filePathParam) {
+      const { normalized, resolved } = resolveSafeTarget(filePathParam);
+      const stat = await fs.stat(resolved);
+      if (!stat.isFile()) {
+        return NextResponse.json({ success: false, error: 'File not found' }, { status: 404 });
+      }
+      const file = await fs.readFile(resolved);
+      const filename = path.posix.basename(normalized);
+      const mimeType = getMimeTypeFromName(filename);
+      return new NextResponse(file, {
+        status: 200,
+        headers: {
+          'Content-Type': mimeType,
+          'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${filename}"`,
+          'Cache-Control': 'private, max-age=300',
+        },
+      });
+    }
+
     const folderParam = searchParams.get('folder') || '';
     const { normalized: currentFolder, resolved: currentFolderPath } = resolveSafeTarget(folderParam);
     await fs.mkdir(currentFolderPath, { recursive: true });
@@ -129,7 +161,7 @@ export async function GET(request: NextRequest) {
             filename: entry.name,
             path: relPath,
             kind: 'file' as const,
-            url: `/uploads/drive/${relPath.split('/').map((part) => encodeURIComponent(part)).join('/')}`,
+            url: `/api/drive-files?filePath=${encodeURIComponent(relPath)}`,
             size: stats.size,
             mimeType,
             fileType: getFileType(mimeType),
@@ -205,7 +237,7 @@ export async function POST(request: NextRequest) {
         name: `${base || 'file'}${ext}`,
         filename,
         path: relPath,
-        url: `/uploads/drive/${relPath.split('/').map((part) => encodeURIComponent(part)).join('/')}`,
+        url: `/api/drive-files?filePath=${encodeURIComponent(relPath)}`,
         size: file.size,
         mimeType: file.type,
         fileType: getFileType(file.type),
