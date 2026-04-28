@@ -28,6 +28,13 @@ const ExpensesPage: React.FC = () => {
     key: 'expenseDate',
     direction: 'desc',
   });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState('all');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [minAmount, setMinAmount] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
   const [formData, setFormData] = useState({
     category: '',
     description: '',
@@ -200,8 +207,64 @@ const ExpensesPage: React.FC = () => {
     }));
   };
 
+  const filteredExpenses = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    return expenses.filter((expense) => {
+      const categoryInfo = getCategoryInfo(expense.category);
+      const paymentInfo = getPaymentMethodInfo(expense.paymentMethod);
+      const expenseDateTime = new Date(expense.expenseDate).getTime();
+
+      const matchesSearch =
+        !normalizedSearch ||
+        expense.description.toLowerCase().includes(normalizedSearch) ||
+        categoryInfo.name.toLowerCase().includes(normalizedSearch) ||
+        paymentInfo.name.toLowerCase().includes(normalizedSearch) ||
+        (expense.receiptNumber || '').toLowerCase().includes(normalizedSearch);
+
+      const matchesCategory =
+        selectedCategory === 'all' || expense.category === selectedCategory;
+
+      const matchesPaymentMethod =
+        selectedPaymentMethod === 'all' || expense.paymentMethod === selectedPaymentMethod;
+
+      const matchesFromDate =
+        !fromDate || expenseDateTime >= new Date(fromDate).getTime();
+
+      const matchesToDate =
+        !toDate || expenseDateTime <= new Date(toDate).getTime();
+
+      const amount = parseAmount(expense.amount);
+      const parsedMinAmount = minAmount === '' ? null : parseFloat(minAmount);
+      const parsedMaxAmount = maxAmount === '' ? null : parseFloat(maxAmount);
+      const matchesMinAmount =
+        parsedMinAmount === null || amount >= parsedMinAmount;
+      const matchesMaxAmount =
+        parsedMaxAmount === null || amount <= parsedMaxAmount;
+
+      return (
+        matchesSearch &&
+        matchesCategory &&
+        matchesPaymentMethod &&
+        matchesFromDate &&
+        matchesToDate &&
+        matchesMinAmount &&
+        matchesMaxAmount
+      );
+    });
+  }, [
+    expenses,
+    searchTerm,
+    selectedCategory,
+    selectedPaymentMethod,
+    fromDate,
+    toDate,
+    minAmount,
+    maxAmount,
+  ]);
+
   const sortedExpenses = useMemo(() => {
-    const sorted = [...expenses];
+    const sorted = [...filteredExpenses];
 
     sorted.sort((a, b) => {
       let compareValue = 0;
@@ -222,7 +285,7 @@ const ExpensesPage: React.FC = () => {
     });
 
     return sorted;
-  }, [expenses, sortConfig]);
+  }, [filteredExpenses, sortConfig]);
 
   const getSortIndicator = (key: SortKey) => {
     if (sortConfig.key !== key) return '↕';
@@ -449,6 +512,100 @@ const ExpensesPage: React.FC = () => {
       <Card>
         <div className="p-6">
           <h2 className="text-xl font-semibold mb-4">All Expenses</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-8 gap-3 mb-4">
+            <div className="lg:col-span-2">
+              <Input
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search description, category, payment, receipt..."
+              />
+            </div>
+            <div>
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-sm"
+              >
+                <option value="all">All Categories</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <select
+                value={selectedPaymentMethod}
+                onChange={(e) => setSelectedPaymentMethod(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white text-sm"
+              >
+                <option value="all">All Payments</option>
+                {paymentMethods.map((method) => (
+                  <option key={method.id} value={method.id}>
+                    {method.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <Input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+              />
+            </div>
+            <div>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={minAmount}
+                onChange={(e) => setMinAmount(e.target.value)}
+                placeholder="Min Amount"
+              />
+            </div>
+            <div>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={maxAmount}
+                onChange={(e) => setMaxAmount(e.target.value)}
+                placeholder="Max Amount"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <p className="text-sm text-gray-600">
+              Showing {sortedExpenses.length} of {expenses.length} expenses
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSearchTerm('');
+                setSelectedCategory('all');
+                setSelectedPaymentMethod('all');
+                setFromDate('');
+                setToDate('');
+                setMinAmount('');
+                setMaxAmount('');
+              }}
+            >
+              Clear Filters
+            </Button>
+          </div>
           
           {expenses.length === 0 ? (
             <div className="text-center py-12">
@@ -459,6 +616,12 @@ const ExpensesPage: React.FC = () => {
                 <span className="mr-2">➕</span>
                 Add Your First Expense
               </Button>
+            </div>
+          ) : sortedExpenses.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-5xl mb-3">🔎</div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No matching expenses</h3>
+              <p className="text-gray-500">Try changing search text or filter values.</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
