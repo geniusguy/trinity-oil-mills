@@ -71,6 +71,8 @@ export async function ensureVendorPaymentReferenceTables(connection: {
   // Ensure nullable dates for pending/outstanding rows.
   await safeExec(`ALTER TABLE vendor_payment_reference MODIFY COLUMN purchased_date DATE NULL`);
   await safeExec(`ALTER TABLE vendor_payment_reference MODIFY COLUMN payment_date DATE NULL`);
+  // Force legacy enum/text variants to a plain VARCHAR so new values do not fail on mixed deployments.
+  await safeExec(`ALTER TABLE vendor_payment_reference MODIFY COLUMN payment_type VARCHAR(20) NOT NULL DEFAULT 'full'`);
 
   await safeExec(`CREATE INDEX idx_vpr_fy ON vendor_payment_reference (fy_start_year)`);
   await safeExec(`CREATE INDEX idx_vpr_vendor ON vendor_payment_reference (vendor_name)`);

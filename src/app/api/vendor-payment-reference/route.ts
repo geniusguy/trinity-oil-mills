@@ -5,6 +5,11 @@ import { ensureVendorPaymentReferenceTables } from '@/lib/vendorPaymentReference
 
 const ROLES = ['admin', 'accountant', 'retail_staff'];
 const canAccess = (role?: string) => Boolean(role && ROLES.includes(role));
+const PAYMENT_TYPES = new Set(['full', 'partial', 'pending']);
+const normalizePaymentType = (value: unknown): 'full' | 'partial' | 'pending' => {
+  const normalized = String(value || 'full').trim().toLowerCase();
+  return PAYMENT_TYPES.has(normalized) ? (normalized as 'full' | 'partial' | 'pending') : 'full';
+};
 
 export async function GET() {
   try {
@@ -61,6 +66,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const id = `vpr-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const paymentType = normalizePaymentType(body.paymentType);
     const connection = await createConnection();
     await ensureVendorPaymentReferenceTables(connection);
 
@@ -79,7 +85,7 @@ export async function POST(request: NextRequest) {
         body.paymentDate ? String(body.paymentDate) : null,
         Number(body.purchasedAmount || 0),
         Number(body.paidAmount || 0),
-        String(body.paymentType || 'full'),
+        paymentType,
         JSON.stringify(Array.isArray(body.paymentEvents) ? body.paymentEvents : []),
         body.notes ? String(body.notes) : null,
         Number(body.fyStartYear || 0),

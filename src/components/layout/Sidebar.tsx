@@ -45,6 +45,17 @@ const navigationSections: NavSection[] = [
         ),
         roles: ['admin', 'accountant', 'retail_staff'],
       }
+      ,
+      {
+        name: 'Drive',
+        href: '/dashboard/admin/drive',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h18M5 7l4 10m10-10l-4 10M9 17h6" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff'],
+      }
     ]
   },
 

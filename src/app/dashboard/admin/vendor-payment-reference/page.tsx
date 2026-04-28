@@ -222,6 +222,47 @@ export default function VendorPaymentReferencePage() {
     [fyPreviousBalance],
   );
 
+  const fyOutstandingSummary = useMemo(() => {
+    const years = new Set<number>();
+    rows.forEach((r) => years.add(Number(r.fyStartYear || 0)));
+    Object.keys(fyPreviousBalance).forEach((k) => years.add(Number(k)));
+
+    const orderedYears = Array.from(years)
+      .filter((y) => Number.isFinite(y) && y > 0)
+      .sort((a, b) => a - b);
+
+    let carryForward = 0;
+    const outstandingByFy: Record<string, number> = {};
+
+    for (const year of orderedYears) {
+      const yearRows = rows.filter((r) => Number(r.fyStartYear) === year);
+      const explicitOpening = Number(fyPreviousBalance[String(year)]);
+      const opening = Number.isFinite(explicitOpening) ? explicitOpening : carryForward;
+
+      const purchaseOutstanding = yearRows.reduce(
+        (acc, r) =>
+          acc +
+          (r.entryType === 'purchase'
+            ? Math.max(0, Number(r.purchasedAmount || 0) - Number(r.paidAmount || 0))
+            : 0),
+        0,
+      );
+      const outstandingAdjustmentsPaid = yearRows.reduce(
+        (acc, r) => acc + (r.entryType === 'outstanding_payment' ? Math.max(0, Number(r.paidAmount || 0)) : 0),
+        0,
+      );
+
+      const closing = Math.max(0, opening + purchaseOutstanding - outstandingAdjustmentsPaid);
+      outstandingByFy[String(year)] = closing;
+      carryForward = closing;
+    }
+
+    const latestYear = orderedYears.length > 0 ? orderedYears[orderedYears.length - 1] : getFinancialYearStartYear(new Date());
+    const overallOutstanding = outstandingByFy[String(latestYear)] ?? 0;
+
+    return { outstandingByFy, overallOutstanding };
+  }, [rows, fyPreviousBalance]);
+
   const sortedRows = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1;
     const txt = (v: unknown) => String(v ?? '').toLowerCase();
@@ -806,7 +847,10 @@ export default function VendorPaymentReferencePage() {
             <div className="text-sm text-slate-700">
               Paid total: <span className="font-semibold">₹{(total + selectedFyPreviousBalance).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               {' · '}Purchased total: <span className="font-semibold">₹{totalPurchased.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-              {' · '}Outstanding: <span className="font-semibold">₹{Math.max(0, totalBalance + selectedFyPreviousBalance - outstandingPaidOnly).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              {' · '}Outstanding: <span className="font-semibold">₹{(fyFilter === 'all'
+                ? fyOutstandingSummary.overallOutstanding
+                : (fyOutstandingSummary.outstandingByFy[String(fyFilter)] ?? Math.max(0, totalBalance + selectedFyPreviousBalance - outstandingPaidOnly))
+              ).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
           </div>
 
@@ -818,7 +862,7 @@ export default function VendorPaymentReferencePage() {
                   <th className="px-3 py-2 cursor-pointer select-none" onClick={() => onSort('productName')}>Product {sortBy === 'productName' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
                   <th className="px-3 py-2 text-right cursor-pointer select-none" onClick={() => onSort('tinsCount')}>No. of tins {sortBy === 'tinsCount' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
                   <th className="px-3 py-2 cursor-pointer select-none" onClick={() => onSort('purchasedDate')}>Purchased date {sortBy === 'purchasedDate' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
-                  <th className="px-3 py-2 cursor-pointer select-none" onClick={() => onSort('paymentDate')}>Date {sortBy === 'paymentDate' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
+                  <th className="px-3 py-2 cursor-pointer select-none" onClick={() => onSort('paymentDate')}>Payment date {sortBy === 'paymentDate' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
                   <th className="px-3 py-2 cursor-pointer select-none" onClick={() => onSort('fyStartYear')}>FY {sortBy === 'fyStartYear' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
                   <th className="px-3 py-2 text-right cursor-pointer select-none" onClick={() => onSort('purchasedAmount')}>Purchased amt {sortBy === 'purchasedAmount' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
                   <th className="px-3 py-2 text-right cursor-pointer select-none" onClick={() => onSort('paidAmount')}>Paid amt {sortBy === 'paidAmount' ? (sortDir === 'asc' ? '▲' : '▼') : ''}</th>
