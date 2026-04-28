@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { jsPDF } from "jspdf";
 import { Card, Button, Input } from "@/components/ui";
 
 interface SelectedImage {
@@ -87,6 +86,7 @@ const JpgToPdfPage: React.FC = () => {
     setError(null);
 
     try {
+      const { jsPDF } = await import("jspdf/dist/jspdf.es.min.js");
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
