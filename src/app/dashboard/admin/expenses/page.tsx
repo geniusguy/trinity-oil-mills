@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { getQueueCount } from '@/lib/offlineQueue';
 import { Card, Button, Input, Select, LoadingSpinner } from '@/components/ui';
 
@@ -327,10 +328,17 @@ const ExpensesPage: React.FC = () => {
             <p className="text-gray-600">Track and manage all your business expenses easily</p>
           </div>
         </div>
-        <Button onClick={() => setShowForm(true)} className="bg-green-600 hover:bg-green-700">
-          <span className="mr-2">➕</span>
-          Add Expense
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link href="/dashboard/admin/jpg-to-pdf">
+            <Button type="button" variant="outline">
+              JPG to PDF
+            </Button>
+          </Link>
+          <Button onClick={() => setShowForm(true)} className="bg-green-600 hover:bg-green-700">
+            <span className="mr-2">➕</span>
+            Add Expense
+          </Button>
+        </div>
       </div>
 
       {/* Expense Form */}

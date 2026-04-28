@@ -320,6 +320,16 @@ const navigationSections: NavSection[] = [
         roles: ['admin', 'accountant'],
       },
       {
+        name: 'JPG to PDF',
+        href: '/dashboard/admin/jpg-to-pdf',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 12l-3-3m3 3l3-3M17 8v12m0-12l-3 3m3-3l3 3M4 20h16" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff'],
+      },
+      {
         name: 'Credited to Account',
         href: '/dashboard/admin/credited-to-account',
         icon: (
