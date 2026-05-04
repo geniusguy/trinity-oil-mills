@@ -87,7 +87,12 @@ export async function GET(request: NextRequest) {
     const monthlyPayments = allPayments
       .filter(payment => payment.paymentStatus === 'paid')
       .reduce((acc, payment) => {
-        const month = payment.paymentDate.slice(0, 7); // YYYY-MM format
+        const paymentDateValue = payment.paymentDate;
+        const month = typeof paymentDateValue === 'string'
+          ? paymentDateValue.slice(0, 7)
+          : paymentDateValue instanceof Date
+            ? paymentDateValue.toISOString().slice(0, 7)
+            : String(paymentDateValue).slice(0, 7); // YYYY-MM format
         if (!acc[month]) {
           acc[month] = {
             totalAmount: 0,

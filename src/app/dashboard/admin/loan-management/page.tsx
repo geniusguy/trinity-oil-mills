@@ -35,6 +35,8 @@ interface LoanPayment {
   notes: string | null;
   loanName: string;
   lenderName: string;
+  transactionId?: string | null;
+  receiptNumber?: string | null;
 }
 
 interface LoanSummary {
@@ -48,7 +50,19 @@ interface LoanSummary {
 export default function LoanManagementPage() {
   const { data: session } = useSession();
   const [loans, setLoans] = useState<Loan[]>([]);
-  const [recentPayments, setRecentPayments] = useState<LoanPayment[]>([]);
+  const [payments, setPayments] = useState<LoanPayment[]>([]);
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+  const [editPaymentForm, setEditPaymentForm] = useState({
+    paymentDate: '',
+    paymentAmount: '',
+    principalAmount: '',
+    interestAmount: '',
+    paymentMethod: 'bank_transfer',
+    transactionId: '',
+    receiptNumber: '',
+    lateFee: '0',
+    notes: '',
+  });
   const [summary, setSummary] = useState<LoanSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'loans' | 'payments' | 'add-loan' | 'add-payment'>('overview');
@@ -95,13 +109,12 @@ export default function LoanManagementPage() {
     }
   };
 
-  // Fetch recent payments
-  const fetchRecentPayments = async () => {
+  const fetchPayments = async () => {
     try {
       const response = await fetch('/api/loans/payments');
       if (response.ok) {
         const data = await response.json();
-        setRecentPayments(data.payments.slice(0, 10)); // Last 10 payments
+        setPayments(data.payments ?? []);
       }
     } catch (error) {
       console.error('Error fetching payments:', error);
@@ -109,12 +122,34 @@ export default function LoanManagementPage() {
   };
 
   useEffect(() => {
-    const fetchData = async () => {
+    let cancelled = false;
+    const loadInitialData = async () => {
       setLoading(true);
-      await Promise.all([fetchLoans(), fetchRecentPayments()]);
-      setLoading(false);
+      try {
+        const [loansRes, paymentsRes] = await Promise.all([
+          fetch('/api/loans'),
+          fetch('/api/loans/payments'),
+        ]);
+        if (cancelled) return;
+        if (loansRes.ok) {
+          const data = await loansRes.json();
+          setLoans(data.loans);
+          setSummary(data.summary);
+        }
+        if (paymentsRes.ok) {
+          const payData = await paymentsRes.json();
+          setPayments(payData.payments ?? []);
+        }
+      } catch (error) {
+        console.error('Error loading loan management data:', error);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
-    fetchData();
+    loadInitialData();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Handle form submission for new loan
@@ -192,7 +227,7 @@ export default function LoanManagementPage() {
         setSelectedLoan('');
         setActiveTab('payments');
         fetchLoans();
-        fetchRecentPayments();
+        fetchPayments();
       } else {
         const error = await response.json();
         alert(`Error: ${error.error}`);
@@ -220,9 +255,89 @@ export default function LoanManagementPage() {
     }).format(typeof amount === 'string' ? parseFloat(amount) : amount);
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-IN');
+  const formatDate = (value: string | Date) => {
+    const d = value instanceof Date ? value : new Date(value);
+    return d.toLocaleDateString('en-IN');
   };
+
+  const toNumber = (value: string | number) => (
+    typeof value === 'string' ? parseFloat(value) : value
+  );
+
+  const selectedLoanData = loans.find((loan) => loan.id === selectedLoan);
+  const selectedLoanOutstanding = selectedLoanData ? parseFloat(selectedLoanData.remainingBalance) : null;
+  const enteredPrincipalAmount = paymentFormData.principalAmount ? parseFloat(paymentFormData.principalAmount) : 0;
+  const projectedRemainingAmount = selectedLoanOutstanding !== null
+    ? Math.max(selectedLoanOutstanding - enteredPrincipalAmount, 0)
+    : null;
+  const isPrincipalGreaterThanOutstanding = selectedLoanOutstanding !== null && enteredPrincipalAmount > selectedLoanOutstanding;
+
+  const canManagePayments = ['admin', 'accountant'].includes(session?.user?.role ?? '');
+
+  const toInputDate = (value: string | Date) => {
+    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    const s = String(value);
+    return s.length >= 10 ? s.slice(0, 10) : s;
+  };
+
+  const openEditPayment = (payment: LoanPayment) => {
+    setEditingPaymentId(payment.id);
+    setEditPaymentForm({
+      paymentDate: toInputDate(payment.paymentDate as string | Date),
+      paymentAmount: String(payment.paymentAmount),
+      principalAmount: String(payment.principalAmount),
+      interestAmount: String(payment.interestAmount),
+      paymentMethod: payment.paymentMethod,
+      transactionId: payment.transactionId ?? '',
+      receiptNumber: payment.receiptNumber ?? '',
+      lateFee: payment.lateFee ?? '0',
+      notes: payment.notes ?? '',
+    });
+  };
+
+  const handleSaveEditPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPaymentId) return;
+    try {
+      const response = await fetch(`/api/loans/payments/${editingPaymentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editPaymentForm),
+      });
+      if (response.ok) {
+        setEditingPaymentId(null);
+        await fetchPayments();
+        await fetchLoans();
+      } else {
+        const err = await response.json();
+        alert(err.error ?? 'Failed to update payment');
+      }
+    } catch {
+      alert('Failed to update payment');
+    }
+  };
+
+  const handleDeletePayment = async (payment: LoanPayment) => {
+    const dateLabel = formatDate(payment.paymentDate as string | Date);
+    if (!confirm(`Delete payment on ${dateLabel} for "${payment.loanName}"? Loan balances will be recalculated.`)) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/loans/payments/${payment.id}`, { method: 'DELETE' });
+      if (response.ok) {
+        if (editingPaymentId === payment.id) setEditingPaymentId(null);
+        await fetchPayments();
+        await fetchLoans();
+      } else {
+        const err = await response.json();
+        alert(err.error ?? 'Failed to delete payment');
+      }
+    } catch {
+      alert('Failed to delete payment');
+    }
+  };
+
+  const overviewPayments = payments.slice(0, 10);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -337,13 +452,18 @@ export default function LoanManagementPage() {
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lender</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total loan</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid so far</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outstanding</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">EMI</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Next Payment</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {loans.filter(loan => loan.status === 'active').map((loan) => (
+                    {loans.filter(loan => loan.status === 'active').map((loan) => {
+                      const paidSoFar = Math.max(toNumber(loan.principalAmount) - toNumber(loan.remainingBalance), 0);
+
+                      return (
                       <tr key={loan.id}>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div>
@@ -352,13 +472,15 @@ export default function LoanManagementPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{loan.lenderName}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(loan.principalAmount)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(paidSoFar)}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(loan.remainingBalance)}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(loan.emiAmount)}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {loan.nextPaymentDate ? formatDate(loan.nextPaymentDate) : 'N/A'}
                         </td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>
@@ -379,12 +501,15 @@ export default function LoanManagementPage() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Method</th>
+                      {canManagePayments && (
+                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {recentPayments.map((payment) => (
+                    {overviewPayments.map((payment) => (
                       <tr key={payment.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatDate(payment.paymentDate)}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatDate(payment.paymentDate as string | Date)}</td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div>
                             <div className="text-sm font-medium text-gray-900">{payment.loanName}</div>
@@ -399,6 +524,24 @@ export default function LoanManagementPage() {
                             {payment.paymentMethod.replace('_', ' ')}
                           </span>
                         </td>
+                        {canManagePayments && (
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                            <button
+                              type="button"
+                              onClick={() => openEditPayment(payment)}
+                              className="text-green-600 hover:text-green-800 font-medium mr-3"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeletePayment(payment)}
+                              className="text-red-600 hover:text-red-800 font-medium"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -420,7 +563,8 @@ export default function LoanManagementPage() {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Loan Details</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lender</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Principal</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total loan</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Paid so far</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outstanding</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">EMI</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -428,7 +572,12 @@ export default function LoanManagementPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {loans.map((loan) => (
+                  {loans.map((loan) => {
+                    const originalPrincipal = toNumber(loan.principalAmount);
+                    const remainingPrincipal = toNumber(loan.remainingBalance);
+                    const repaidPrincipal = Math.max(originalPrincipal - remainingPrincipal, 0);
+
+                    return (
                     <tr key={loan.id}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
@@ -439,6 +588,7 @@ export default function LoanManagementPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{loan.lenderName}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(loan.principalAmount)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(repaidPrincipal)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(loan.remainingBalance)}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(loan.emiAmount)}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -454,7 +604,7 @@ export default function LoanManagementPage() {
                         {loan.nextPaymentDate ? formatDate(loan.nextPaymentDate) : 'N/A'}
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
@@ -478,12 +628,15 @@ export default function LoanManagementPage() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Interest</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Outstanding</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Method</th>
+                    {canManagePayments && (
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {recentPayments.map((payment) => (
+                  {payments.map((payment) => (
                     <tr key={payment.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatDate(payment.paymentDate)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatDate(payment.paymentDate as string | Date)}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
                           <div className="text-sm font-medium text-gray-900">{payment.loanName}</div>
@@ -499,6 +652,24 @@ export default function LoanManagementPage() {
                           {payment.paymentMethod.replace('_', ' ')}
                         </span>
                       </td>
+                      {canManagePayments && (
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
+                          <button
+                            type="button"
+                            onClick={() => openEditPayment(payment)}
+                            className="text-green-600 hover:text-green-800 font-medium mr-3"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePayment(payment)}
+                            className="text-red-600 hover:text-red-800 font-medium"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -725,6 +896,11 @@ export default function LoanManagementPage() {
                     </option>
                   ))}
                 </select>
+                {selectedLoanData && (
+                  <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                    Current Outstanding: <span className="font-semibold">{formatCurrency(selectedLoanData.remainingBalance)}</span>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -763,6 +939,13 @@ export default function LoanManagementPage() {
                     className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
                     placeholder="15000"
                   />
+                  {selectedLoanData && paymentFormData.principalAmount && (
+                    <p className={`mt-2 text-sm ${isPrincipalGreaterThanOutstanding ? 'text-red-600' : 'text-gray-700'}`}>
+                      {isPrincipalGreaterThanOutstanding
+                        ? 'Principal amount cannot be greater than outstanding balance.'
+                        : `Remaining after this payment: ${formatCurrency(projectedRemainingAmount ?? 0)}`}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -858,6 +1041,160 @@ export default function LoanManagementPage() {
           </div>
         )}
       </div>
+
+      {editingPaymentId && canManagePayments && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-payment-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setEditingPaymentId(null);
+          }}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="edit-payment-title" className="text-lg font-semibold text-gray-900 mb-4">
+              Edit payment
+            </h3>
+            <form onSubmit={handleSaveEditPayment} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment date *</label>
+                <input
+                  type="date"
+                  required
+                  value={editPaymentForm.paymentDate}
+                  onChange={(e) =>
+                    setEditPaymentForm({ ...editPaymentForm, paymentDate: e.target.value })
+                  }
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Total amount (₹) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={editPaymentForm.paymentAmount}
+                    onChange={(e) =>
+                      setEditPaymentForm({ ...editPaymentForm, paymentAmount: e.target.value })
+                    }
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Principal (₹) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={editPaymentForm.principalAmount}
+                    onChange={(e) =>
+                      setEditPaymentForm({ ...editPaymentForm, principalAmount: e.target.value })
+                    }
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Interest (₹) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={editPaymentForm.interestAmount}
+                    onChange={(e) =>
+                      setEditPaymentForm({ ...editPaymentForm, interestAmount: e.target.value })
+                    }
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Method *</label>
+                  <select
+                    required
+                    value={editPaymentForm.paymentMethod}
+                    onChange={(e) =>
+                      setEditPaymentForm({ ...editPaymentForm, paymentMethod: e.target.value })
+                    }
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  >
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="cash">Cash</option>
+                    <option value="cheque">Cheque</option>
+                    <option value="upi">UPI</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Late fee (₹)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editPaymentForm.lateFee}
+                    onChange={(e) =>
+                      setEditPaymentForm({ ...editPaymentForm, lateFee: e.target.value })
+                    }
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Transaction ID</label>
+                  <input
+                    type="text"
+                    value={editPaymentForm.transactionId}
+                    onChange={(e) =>
+                      setEditPaymentForm({ ...editPaymentForm, transactionId: e.target.value })
+                    }
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Receipt number</label>
+                  <input
+                    type="text"
+                    value={editPaymentForm.receiptNumber}
+                    onChange={(e) =>
+                      setEditPaymentForm({ ...editPaymentForm, receiptNumber: e.target.value })
+                    }
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <textarea
+                  value={editPaymentForm.notes}
+                  onChange={(e) =>
+                    setEditPaymentForm({ ...editPaymentForm, notes: e.target.value })
+                  }
+                  rows={2}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="submit"
+                  className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingPaymentId(null)}
+                  className="bg-gray-200 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-300"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

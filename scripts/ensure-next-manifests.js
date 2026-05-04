@@ -2,22 +2,40 @@
 const fs = require('fs');
 const path = require('path');
 
+function ensureValidJsonFile(filePath, defaultObj) {
+  try {
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, JSON.stringify(defaultObj, null, 2));
+      return;
+    }
+    const raw = fs.readFileSync(filePath, 'utf8');
+    if (!raw || !String(raw).trim()) {
+      fs.writeFileSync(filePath, JSON.stringify(defaultObj, null, 2));
+      return;
+    }
+    JSON.parse(raw);
+  } catch {
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(defaultObj, null, 2));
+    } catch {
+      // non-fatal
+    }
+  }
+}
+
 try {
   const nextDir = path.join(__dirname, '..', '.next');
   if (!fs.existsSync(nextDir)) fs.mkdirSync(nextDir);
 
-  const prerenderPath = path.join(nextDir, 'prerender-manifest.json');
-  if (!fs.existsSync(prerenderPath)) {
-    fs.writeFileSync(
-      prerenderPath,
-      JSON.stringify({ version: 4, routes: {}, dynamicRoutes: {}, notFoundRoutes: [] }, null, 2)
-    );
-  }
+  ensureValidJsonFile(
+    path.join(nextDir, 'prerender-manifest.json'),
+    { version: 4, routes: {}, dynamicRoutes: {}, notFoundRoutes: [] }
+  );
 
-  const routesManifest = path.join(nextDir, 'routes-manifest.json');
-  if (!fs.existsSync(routesManifest)) {
-    fs.writeFileSync(routesManifest, JSON.stringify({ version: 5, pages404: true }, null, 2));
-  }
+  ensureValidJsonFile(path.join(nextDir, 'routes-manifest.json'), {
+    version: 5,
+    pages404: true,
+  });
 } catch (e) {
   // non-fatal in dev
 }

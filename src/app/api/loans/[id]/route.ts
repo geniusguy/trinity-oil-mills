@@ -4,6 +4,8 @@ import { db } from '@/db/db';
 import { loans, loanPayments } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 
+export const dynamic = 'force-dynamic';
+
 // GET /api/loans/[id] - Get a specific loan with its payment history
 export async function GET(
   request: NextRequest,

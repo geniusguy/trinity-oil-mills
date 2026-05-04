@@ -5,6 +5,8 @@ import { loans, loanPayments } from '@/db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 
+export const dynamic = 'force-dynamic';
+
 // GET /api/loans/[id]/payments - Get all payments for a specific loan
 export async function GET(
   request: NextRequest,
