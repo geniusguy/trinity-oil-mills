@@ -468,6 +468,18 @@ const navigationSections: NavSection[] = [
         ),
         roles: ['admin', 'accountant', 'retail_staff'],
         description: 'Production cost calculation tool'
+      },
+      {
+        name: 'Tin / Bottle P&L',
+        href: '/dashboard/admin/tin-bottle-pnl',
+        icon: (
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8V7m0 1v8m0 0v1m0-1h.01" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5h14v14H5z" />
+          </svg>
+        ),
+        roles: ['admin', 'accountant', 'retail_staff'],
+        description: 'Per tin and per bottle profit calculator'
       }
     ],
     roles: ['admin', 'accountant']
