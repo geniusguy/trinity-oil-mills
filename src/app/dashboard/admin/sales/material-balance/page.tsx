@@ -9,7 +9,8 @@ import {
   getFinancialYearStartDate,
   getFinancialYearStartYear,
 } from '@/lib/financialYear';
-import { CANTEEN_LITERS_PER_TIN } from '@/lib/canteenSupply';
+import { CANTEEN_LITERS_PER_TIN, isCastor200mlProduct, tinEquivalentForCanteenLine } from '@/lib/canteenSupply';
+import { tinsForPurchaseRow } from '@/lib/purchaseVolume';
 
 type SaleRow = {
   id?: string | null;
@@ -27,6 +28,7 @@ type StockPurchaseRow = {
   id?: string | null;
   productId?: string | null;
   productName?: string | null;
+  unit?: string | null;
   quantity?: number | string | null;
   totalAmount?: number | string | null;
   purchaseDate?: string | null;
@@ -38,6 +40,28 @@ type SalesReturnRow = {
   returnNature?: string | null;
   returnDate?: string | null;
   productName?: string | null;
+};
+
+type ReportSaleItem = {
+  productId?: string | null;
+  productName?: string | null;
+  quantity?: number | null;
+};
+
+type ReportSaleRow = {
+  id?: string | null;
+  saleType?: string | null;
+  invoiceNumber?: string | null;
+  createdAt?: string | null;
+  items?: ReportSaleItem[];
+};
+
+const CASTOR_PURCHASE_IDS = new Set(['castor-200ml', '55336', '68539', 'purch-castor']);
+
+const isCastorOilLine = (productId: string, productName: string) => {
+  const pid = String(productId || '').trim();
+  if (CASTOR_PURCHASE_IDS.has(pid)) return true;
+  return isCastor200mlProduct({ name: productName, unit: '' }, pid);
 };
 
 type MaterialRow = {
@@ -57,13 +81,24 @@ type ItemMatcher = {
   label: string;
   soldUnit: string;
   balanceUnit: string;
+  /** `tins` = same conversion as Purchases (15200 ml/tin). `qty` = raw quantity sum. */
+  purchaseMode?: 'tins' | 'qty';
   purchaseToDisplayFactor?: number;
   purchaseProductIds: string[];
   purchaseKeywords: string[];
   soldMode: 'tins' | 'bottles' | 'none';
 };
 
-const CASTOR_200ML_BOTTLES_PER_TIN = CANTEEN_LITERS_PER_TIN / 0.2;
+const BOTTLES_PER_TIN = CANTEEN_LITERS_PER_TIN / 0.2;
+
+/** Tins billed on invoice; fallback from total bottles when total_tins is empty. */
+const tinsSoldFromSale = (s: SaleRow) => {
+  const tins = num(s.totalTins);
+  if (tins > 0) return tins;
+  const bottles = num(s.totalBottles);
+  if (bottles > 0) return bottles / BOTTLES_PER_TIN;
+  return 0;
+};
 
 const ITEM_CONFIG: ItemMatcher[] = [
   {
@@ -71,7 +106,7 @@ const ITEM_CONFIG: ItemMatcher[] = [
     label: 'TOM Castor Oil',
     soldUnit: 'Tins',
     balanceUnit: 'Tins',
-    purchaseToDisplayFactor: CASTOR_200ML_BOTTLES_PER_TIN,
+    purchaseMode: 'tins',
     purchaseProductIds: ['castor-200ml', '55336', '68539', 'purch-castor'],
     purchaseKeywords: [],
     soldMode: 'tins',
@@ -169,6 +204,7 @@ export default function MaterialBalancePage() {
   const [sales, setSales] = useState<SaleRow[]>([]);
   const [purchases, setPurchases] = useState<StockPurchaseRow[]>([]);
   const [salesReturns, setSalesReturns] = useState<SalesReturnRow[]>([]);
+  const [reportSales, setReportSales] = useState<ReportSaleRow[]>([]);
   const [selectedBreakupItemKey, setSelectedBreakupItemKey] = useState<string | null>(null);
 
   const [selectedFyStartYear, setSelectedFyStartYear] = useState<number | 'all'>(() => getFinancialYearStartYear(new Date()));
@@ -285,7 +321,33 @@ export default function MaterialBalancePage() {
     void run();
   }, [session]);
 
-  const totalTinsSold = useMemo(() => sales.reduce((acc, s) => acc + num(s.totalTins), 0), [sales]);
+  useEffect(() => {
+    if (!session?.user || !allowed.includes(session.user.role || '')) return;
+
+    const run = async () => {
+      try {
+        let reportUrl = '/api/reports/sales';
+        if (selectedFyStartYear !== 'all') {
+          const start = getFinancialYearStartDate(selectedFyStartYear).toISOString().slice(0, 10);
+          const end = getFinancialYearEndDate(selectedFyStartYear).toISOString().slice(0, 10);
+          reportUrl += `?startDate=${start}&endDate=${end}`;
+        }
+        const res = await fetch(reportUrl, { credentials: 'include' });
+        const json = await res.json();
+        if (!res.ok || !json.success) {
+          setReportSales([]);
+          return;
+        }
+        setReportSales(Array.isArray(json.data?.sales) ? json.data.sales : []);
+      } catch {
+        setReportSales([]);
+      }
+    };
+
+    void run();
+  }, [session, selectedFyStartYear]);
+
+  const totalTinsSold = useMemo(() => sales.reduce((acc, s) => acc + tinsSoldFromSale(s), 0), [sales]);
   const totalBottlesSold = useMemo(() => sales.reduce((acc, s) => acc + num(s.totalBottles), 0), [sales]);
 
   const rows = useMemo<MaterialRow[]>(() => {
@@ -312,7 +374,36 @@ export default function MaterialBalancePage() {
       return acc + num(r.quantity);
     }, 0);
 
-    const totalTinsSoldInFy = salesInFy.reduce((acc, s) => acc + num(s.totalTins), 0);
+    const salesInFyIds = new Set(salesInFy.map((s) => String(s.id || '').trim()).filter(Boolean));
+
+    const castorTinsSoldGrossInFy = reportSales.reduce((acc, sale) => {
+      const saleId = String(sale.id || '').trim();
+      if (!saleId || !salesInFyIds.has(saleId)) return acc;
+      if (String(sale.saleType || '').toLowerCase() !== 'canteen') return acc;
+      const items = Array.isArray(sale.items) ? sale.items : [];
+      const lineTins = items.reduce((itemAcc, item) => {
+        const pid = String(item.productId || '');
+        const pname = String(item.productName || '');
+        if (!isCastorOilLine(pid, pname)) return itemAcc;
+        const te = tinEquivalentForCanteenLine(num(item.quantity), pname, '', pid);
+        return itemAcc + (te ?? 0);
+      }, 0);
+      return acc + lineTins;
+    }, 0);
+
+    const castorTinsReturnedInFy = returnsInFy.reduce((acc, r) => {
+      const nature = String(r.returnNature || '').trim().toLowerCase();
+      if (!['sales_return', 'sales return', 'free_sample', 'free sample', 'expiry'].includes(nature)) return acc;
+      const name = String(r.productName || '');
+      const unit = String(r.unit || '');
+      if (!name.toLowerCase().includes('castor')) return acc;
+      const tins = tinsForPurchaseRow(num(r.quantity), name, unit, 'produced');
+      return acc + (tins ?? 0);
+    }, 0);
+
+    const castorTinsSoldNetInFy = Math.max(0, castorTinsSoldGrossInFy - castorTinsReturnedInFy);
+
+    const totalTinsSoldInFy = salesInFy.reduce((acc, s) => acc + tinsSoldFromSale(s), 0);
     const totalBottlesSoldInFy = salesInFy.reduce((acc, s) => acc + num(s.totalBottles), 0) - totalBottlesReturnedInFy;
     const netBottlesSoldInFy = Math.max(0, totalBottlesSoldInFy);
 
@@ -330,6 +421,16 @@ export default function MaterialBalancePage() {
         return acc + num(p.quantity);
       }, 0);
 
+    const getMatchTotalTins = (productIds: string[], keywords: string[]) =>
+      purchasesInFy.reduce((acc, p) => {
+        if (!matchesPurchase(p, productIds, keywords)) return acc;
+        const qty = num(p.quantity);
+        const name = String(p.productName || '');
+        const unit = String(p.unit || '');
+        const tins = tinsForPurchaseRow(qty, name, unit, 'produced');
+        return acc + (tins ?? 0);
+      }, 0);
+
     const getMatchTotalPurchaseAmount = (productIds: string[], keywords: string[]) =>
       purchasesInFy.reduce((acc, p) => {
         if (!matchesPurchase(p, productIds, keywords)) return acc;
@@ -340,9 +441,31 @@ export default function MaterialBalancePage() {
       const purchasedRaw = getMatchTotalQty(cfg.purchaseProductIds, cfg.purchaseKeywords);
       const purchasedAmount = getMatchTotalPurchaseAmount(cfg.purchaseProductIds, cfg.purchaseKeywords);
       const sold =
-        cfg.soldMode === 'tins' ? totalTinsSoldInFy : cfg.soldMode === 'bottles' ? netBottlesSoldInFy : 0;
-      const returned = cfg.soldMode === 'bottles' ? totalBottlesReturnedInFy : null;
-      const purchasedDisplay = purchasedRaw / (cfg.purchaseToDisplayFactor ?? 1);
+        cfg.key === 'castor_oil'
+          ? castorTinsSoldNetInFy
+          : cfg.soldMode === 'tins'
+            ? totalTinsSoldInFy
+            : cfg.soldMode === 'bottles'
+              ? netBottlesSoldInFy
+              : 0;
+      const returned =
+        cfg.key === 'castor_oil'
+          ? castorTinsReturnedInFy > 0
+            ? castorTinsReturnedInFy
+            : null
+          : cfg.soldMode === 'bottles'
+            ? totalBottlesReturnedInFy
+            : null;
+
+      let purchasedDisplay = 0;
+      if (cfg.purchaseMode === 'tins') {
+        purchasedDisplay = getMatchTotalTins(cfg.purchaseProductIds, cfg.purchaseKeywords);
+      } else if (cfg.purchaseToDisplayFactor && cfg.purchaseToDisplayFactor > 0) {
+        purchasedDisplay = purchasedRaw / cfg.purchaseToDisplayFactor;
+      } else {
+        purchasedDisplay = purchasedRaw;
+      }
+
       const balance = purchasedDisplay > 0 ? purchasedDisplay - sold : null;
 
       return {
@@ -354,13 +477,13 @@ export default function MaterialBalancePage() {
         soldValue: sold,
         soldUnit: cfg.soldUnit,
         returnedValue: returned,
-        returnedUnit: 'Bottles',
+        returnedUnit: cfg.key === 'castor_oil' ? 'Tins' : 'Bottles',
         balanceValue: balance,
         balanceUnit: cfg.balanceUnit,
         paymentValue: purchasedAmount,
       };
     });
-  }, [purchases, sales, salesReturns, selectedFyStartYear]);
+  }, [purchases, sales, salesReturns, reportSales, selectedFyStartYear]);
 
   const returnsReductionSummary = useMemo(() => {
     const returnsInFy =
@@ -404,10 +527,43 @@ export default function MaterialBalancePage() {
 
   const soldBreakupByItem = useMemo(() => {
     const map: Record<string, Array<{ date: string; invoice: string; party: string; qty: number; unit: string }>> = {};
+    const salesById = new Map(salesInSelectedFy.map((s) => [String(s.id || ''), s]));
+
     ITEM_CONFIG.forEach((cfg) => {
+      if (cfg.key === 'castor_oil') {
+        const lines = reportSales
+          .map((sale) => {
+            const saleId = String(sale.id || '');
+            const header = salesById.get(saleId);
+            if (!header) return null;
+            const items = Array.isArray(sale.items) ? sale.items : [];
+            const qty = items.reduce((acc, item) => {
+              const pid = String(item.productId || '');
+              const pname = String(item.productName || '');
+              if (!isCastorOilLine(pid, pname)) return acc;
+              const te = tinEquivalentForCanteenLine(num(item.quantity), pname, '', pid);
+              return acc + (te ?? 0);
+            }, 0);
+            if (qty <= 0) return null;
+            const dateRaw = String(header.invoiceDate || header.createdAt || '');
+            const dt = new Date(dateRaw);
+            const date = Number.isNaN(dt.getTime()) ? dateRaw.slice(0, 10) : dt.toLocaleDateString('en-GB');
+            return {
+              date,
+              invoice: String(header.invoiceNumber || '—'),
+              party: String(header.canteenName || header.customerName || '—'),
+              qty,
+              unit: cfg.soldUnit,
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => x != null);
+        map[cfg.key] = lines;
+        return;
+      }
+
       const lines = salesInSelectedFy
         .map((s) => {
-          const qty = cfg.soldMode === 'tins' ? num(s.totalTins) : cfg.soldMode === 'bottles' ? num(s.totalBottles) : 0;
+          const qty = cfg.soldMode === 'tins' ? tinsSoldFromSale(s) : cfg.soldMode === 'bottles' ? num(s.totalBottles) : 0;
           const dateRaw = String(s.invoiceDate || s.createdAt || '');
           const dt = new Date(dateRaw);
           const date = Number.isNaN(dt.getTime()) ? dateRaw.slice(0, 10) : dt.toLocaleDateString('en-GB');
@@ -419,7 +575,7 @@ export default function MaterialBalancePage() {
       map[cfg.key] = lines;
     });
     return map;
-  }, [salesInSelectedFy]);
+  }, [salesInSelectedFy, reportSales]);
 
   const selectedBreakupConfig = selectedBreakupItemKey
     ? ITEM_CONFIG.find((x) => x.key === selectedBreakupItemKey) || null
@@ -449,7 +605,10 @@ export default function MaterialBalancePage() {
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">Material Balance Sheet</h1>
-            <p className="text-slate-600 mt-1">FY-wise live view for oil, packing materials, sold quantity, balance, and payments.</p>
+            <p className="text-slate-600 mt-1">
+              FY-wise live view for oil, packing materials, sold quantity, balance, and payments. Castor oil: purchased
+              tins match Purchases page; sold tins count only Castor invoice lines (not whole-invoice total_tins).
+            </p>
           </div>
           <div className="w-full sm:w-64">
             <label className="block text-sm font-medium text-slate-700 mb-1">Financial year (Apr-Mar)</label>
@@ -491,8 +650,7 @@ export default function MaterialBalancePage() {
                   <td className="px-4 py-3 font-medium text-slate-900">{r.item}</td>
                   <td className="px-4 py-3 text-slate-700">{r.quantityDetails}</td>
                   <td className="px-4 py-3 text-right text-slate-700">
-                    {r.soldValue > 0
-                      ? (
+                    {r.soldValue > 0 || r.item === 'TOM Castor Oil' ? (
                         <button
                           type="button"
                           onClick={() => {
@@ -504,8 +662,9 @@ export default function MaterialBalancePage() {
                         >
                           {`${r.soldValue.toLocaleString('en-IN', { maximumFractionDigits: 2 })} ${r.soldUnit}`}
                         </button>
-                      )
-                      : '—'}
+                      ) : (
+                        '—'
+                      )}
                   </td>
                   <td className="px-4 py-3 text-right text-slate-700">
                     {r.returnedValue != null && r.returnedValue > 0
