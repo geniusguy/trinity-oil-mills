@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 
 interface Product {
@@ -26,6 +26,7 @@ interface Product {
 export default function AdminProductsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -101,10 +102,11 @@ export default function AdminProductsPage() {
   }, [session, status, router]);
 
   useEffect(() => {
+    if (pathname !== '/dashboard/admin/products') return;
     if (['admin', 'retail_staff'].includes(session?.user?.role || '')) {
       fetchProducts();
     }
-  }, [session]);
+  }, [session, pathname]);
 
   // Apply filters and sorting whenever products or filters change
   useEffect(() => {
@@ -114,7 +116,7 @@ export default function AdminProductsPage() {
   const fetchProducts = async () => {
     try {
       setIsLoading(true);
-      const res = await fetch('/api/products?isActive=true');
+      const res = await fetch('/api/products?isActive=true', { cache: 'no-store' });
       const data = await res.json();
       if (res.ok) setProducts(data.products || []);
       else setError(data.error || 'Failed to load products');

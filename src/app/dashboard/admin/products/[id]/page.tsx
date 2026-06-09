@@ -51,11 +51,21 @@ export default function AdminProductEditPage() {
       if (isNew) return;
       try {
         setLoading(true);
-        const res = await fetch('/api/products');
+        const res = await fetch(`/api/products/${encodeURIComponent(productId)}`, {
+          cache: 'no-store',
+        });
         const data = await res.json();
-        const prod = (data.products || []).find((p: any) => p.id === productId);
+        if (!res.ok) {
+          setError(data.error || 'Product not found');
+          return;
+        }
+        const prod = data.product;
         if (!prod) {
           setError('Product not found');
+          return;
+        }
+        if (String(prod.id) !== String(productId)) {
+          setError('Product id mismatch — please open edit from the products list again.');
           return;
         }
         const basePrice = String(prod.basePrice ?? '');
@@ -134,15 +144,17 @@ export default function AdminProductEditPage() {
         hsnCode: form.hsnCode.trim() || null,
         isActive: Boolean(form.isActive),
       };
-      const res = await fetch(isNew ? '/api/products' : `/api/products/${productId}`, {
+      const res = await fetch(isNew ? '/api/products' : `/api/products/${encodeURIComponent(productId)}`, {
         method: isNew ? 'POST' : 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        cache: 'no-store',
       });
       const data = await res.json();
       if (res.ok) {
         setSuccess('Saved successfully');
         router.push('/dashboard/admin/products');
+        router.refresh();
       } else {
         setError(data.error || 'Failed to save');
       }
@@ -181,6 +193,12 @@ export default function AdminProductEditPage() {
         {success && <div className="mb-4 bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded-md">{success}</div>}
 
         <form onSubmit={handleSubmit} className="bg-white shadow rounded-lg p-6 space-y-4">
+          {!isNew && (
+            <p className="text-xs text-gray-500">
+              Product ID: <span className="font-mono font-medium text-gray-700">{productId}</span>
+              <span className="ml-2 text-gray-400">(only this row is updated on save)</span>
+            </p>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
             <input name="name" value={form.name} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md" required />
