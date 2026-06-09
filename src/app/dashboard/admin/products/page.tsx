@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -44,6 +44,49 @@ export default function AdminProductsPage() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const availableTypes = Array.from(new Set(products.map((p) => p.type).filter(Boolean))).sort();
   const availableUnits = Array.from(new Set(products.map((p) => p.unit).filter(Boolean))).sort();
+
+  const tableTopScrollRef = useRef<HTMLDivElement>(null);
+  const tableMainScrollRef = useRef<HTMLDivElement>(null);
+  const tableScrollSpacerRef = useRef<HTMLDivElement>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
+  const tableScrollSyncing = useRef(false);
+
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    const spacer = tableScrollSpacerRef.current;
+    if (!table || !spacer) return;
+    const syncWidth = () => {
+      spacer.style.width = `${table.scrollWidth}px`;
+    };
+    syncWidth();
+    const ro = new ResizeObserver(syncWidth);
+    ro.observe(table);
+    return () => ro.disconnect();
+  }, [filteredProducts.length, isLoading]);
+
+  const onTableTopScroll = () => {
+    if (tableScrollSyncing.current) return;
+    tableScrollSyncing.current = true;
+    const top = tableTopScrollRef.current;
+    const main = tableMainScrollRef.current;
+    if (top && main) main.scrollLeft = top.scrollLeft;
+    requestAnimationFrame(() => {
+      tableScrollSyncing.current = false;
+    });
+  };
+
+  const onTableMainScroll = () => {
+    if (tableScrollSyncing.current) return;
+    tableScrollSyncing.current = true;
+    const top = tableTopScrollRef.current;
+    const main = tableMainScrollRef.current;
+    if (top && main) top.scrollLeft = main.scrollLeft;
+    requestAnimationFrame(() => {
+      tableScrollSyncing.current = false;
+    });
+  };
+
+  const isAdmin = session?.user?.role === 'admin';
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -355,146 +398,164 @@ export default function AdminProductsPage() {
               </button>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+          <div className="px-4 py-2.5 sm:px-6 border-b border-indigo-100 bg-indigo-50/90 text-xs sm:text-sm text-indigo-950 leading-snug">
+            <span className="font-semibold">Edit / Delete</span> are in the{' '}
+            <span className="whitespace-nowrap font-medium text-indigo-800">right column</span>. Scroll horizontally
+            (strip above or scrollbar under the table).{' '}
+            <span className="text-indigo-800/90">Product name stays pinned on the left.</span>
+          </div>
+          <div
+            ref={tableTopScrollRef}
+            onScroll={onTableTopScroll}
+            className="overflow-x-auto overflow-y-hidden overscroll-x-contain border-b border-gray-200 bg-gray-50"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+            aria-label="Horizontal scroll for products table (synced)"
+          >
+            <div ref={tableScrollSpacerRef} className="h-2.5 shrink-0" aria-hidden />
+          </div>
+          <div
+            ref={tableMainScrollRef}
+            onScroll={onTableMainScroll}
+            className="max-h-[min(75vh,42rem)] overflow-auto overscroll-contain [scrollbar-gutter:auto]"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+          >
+            <table ref={tableRef} className="min-w-max w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50 sticky top-0 z-10 shadow-[0_1px_0_0_rgb(229,231,235)]">
                 <tr>
-                  <th 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  <th
+                    className="sticky top-0 left-0 z-30 bg-gray-50 px-3 py-2 sm:px-4 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap border-r border-gray-200 shadow-[4px_0_12px_-6px_rgba(15,23,42,0.12)] hover:bg-gray-100"
                     onClick={() => handleSortChange('name')}
                   >
-                    <div className="flex items-center gap-1">
-                      Name
-                      {sortBy === 'name' && (
-                        <span className="text-indigo-600">
-                          {sortOrder === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
-                    </div>
+                    Name {sortBy === 'name' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                   </th>
-                  <th 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  <th
+                    className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap hover:bg-gray-100"
                     onClick={() => handleSortChange('category')}
                   >
-                    <div className="flex items-center gap-1">
-                      Category
-                      {sortBy === 'category' && (
-                        <span className="text-indigo-600">
-                          {sortOrder === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
-                    </div>
+                    Category {sortBy === 'category' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                   </th>
-                  <th 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  <th
+                    className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap hover:bg-gray-100"
                     onClick={() => handleSortChange('type')}
                   >
-                    <div className="flex items-center gap-1">
-                      Type
-                      {sortBy === 'type' && (
-                        <span className="text-indigo-600">
-                          {sortOrder === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
-                    </div>
+                    Type {sortBy === 'type' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Base Price (Canteen)</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">GST Amount</th>
-                  <th 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  <th className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    Base Price (Canteen)
+                  </th>
+                  <th className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    GST Amount
+                  </th>
+                  <th
+                    className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap hover:bg-gray-100"
                     onClick={() => handleSortChange('price')}
                   >
-                    <div className="flex items-center gap-1">
-                      Retail Price (GST Inc.)
-                      {sortBy === 'price' && (
-                        <span className="text-indigo-600">
-                          {sortOrder === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
-                    </div>
+                    Retail Price (GST Inc.) {sortBy === 'price' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">GST Rate</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HSN Code</th>
-                  <th 
-                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  <th className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    GST Rate
+                  </th>
+                  <th className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                    HSN Code
+                  </th>
+                  <th
+                    className="sticky top-0 z-10 bg-gray-50 px-3 py-2 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer select-none whitespace-nowrap hover:bg-gray-100"
                     onClick={() => handleSortChange('unit')}
                   >
-                    <div className="flex items-center gap-1">
-                      Unit
-                      {sortBy === 'unit' && (
-                        <span className="text-indigo-600">
-                          {sortOrder === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
-                    </div>
+                    Unit {sortBy === 'unit' ? (sortOrder === 'asc' ? '▲' : '▼') : ''}
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  <th
+                    className="sticky top-0 right-0 z-30 min-w-[8.5rem] bg-indigo-50 px-2 py-2 sm:px-3 sm:py-3 text-left text-xs font-semibold text-indigo-900 uppercase tracking-wide whitespace-nowrap border-l border-indigo-200 shadow-[-4px_0_14px_-6px_rgba(15,23,42,0.15)]"
+                    title="Edit, Delete"
+                  >
+                    Edit / del
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredProducts.map((p) => {
-                  // Calculate GST amount based on GST inclusion
-                  const basePrice = Number(p.basePrice || 0);
-                  const retailPrice = Number(p.retailPrice || 0);
-                  const gstRate = Number(p.gstRate || 0);
-                  const gstIncluded = p.gstIncluded;
-                  
-                  let gstAmount = 0;
-                  let actualBasePrice = basePrice;
-                  
-                  if (gstIncluded) {
-                    // If GST is included, calculate the GST amount from the retail price
-                    gstAmount = (retailPrice * gstRate) / (100 + gstRate);
-                    actualBasePrice = retailPrice - gstAmount;
-                  } else {
-                    // If GST is excluded, GST amount is added to base price
-                    gstAmount = (basePrice * gstRate) / 100;
-                    actualBasePrice = basePrice;
-                  }
-                  
-                  return (
-                    <tr key={p.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        <div className="flex items-center gap-2">
-                          <span>{p.name}</span>
-                          <span className={`px-2 py-1 text-xs rounded-full ${
-                            gstIncluded 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-blue-100 text-blue-800'
-                          }`}>
-                            {gstIncluded ? 'GST Inc.' : 'GST Exc.'}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.category}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.type}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                        <div className="flex flex-col">
-                          <span className="font-medium text-blue-600">₹ {actualBasePrice.toFixed(2)}</span>
-                          <span className="text-xs text-gray-500">GST Excluded</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">₹ {gstAmount.toFixed(2)}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                        <div className="flex flex-col">
-                          <span className="font-medium text-green-600">₹ {retailPrice.toFixed(2)}</span>
-                          <span className="text-xs text-gray-500">GST Included</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{gstRate.toFixed(2)}%</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.hsnCode || '—'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.unit}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-4">
-                      <Link href={`/dashboard/admin/products/${p.id}`} className="text-indigo-600 hover:text-indigo-900">
-                        Edit
-                      </Link>
-                      <button onClick={() => handleDelete(p.id)} className="text-red-600 hover:text-red-900">
-                        Delete
-                      </button>
+                {filteredProducts.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="px-6 py-10 text-center text-sm text-gray-500">
+                      No products match your filters.
                     </td>
-                    </tr>
-                  );
-                })}
+                  </tr>
+                ) : (
+                  filteredProducts.map((p) => {
+                    const basePrice = Number(p.basePrice || 0);
+                    const retailPrice = Number(p.retailPrice || 0);
+                    const gstRate = Number(p.gstRate || 0);
+                    const gstIncluded = p.gstIncluded;
+
+                    let gstAmount = 0;
+                    let actualBasePrice = basePrice;
+
+                    if (gstIncluded) {
+                      gstAmount = (retailPrice * gstRate) / (100 + gstRate);
+                      actualBasePrice = retailPrice - gstAmount;
+                    } else {
+                      gstAmount = (basePrice * gstRate) / 100;
+                      actualBasePrice = basePrice;
+                    }
+
+                    return (
+                      <tr key={p.id} className="group hover:bg-gray-50">
+                        <td className="sticky left-0 z-20 border-r border-gray-200 bg-white px-3 py-2 sm:px-4 sm:py-4 text-sm text-gray-900 shadow-[4px_0_12px_-8px_rgba(15,23,42,0.1)] group-hover:bg-gray-50 min-w-[12rem] max-w-[18rem]">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{p.name}</span>
+                            <span
+                              className={`px-2 py-0.5 text-xs rounded-full whitespace-nowrap ${
+                                gstIncluded ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
+                              }`}
+                            >
+                              {gstIncluded ? 'GST Inc.' : 'GST Exc.'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{p.category}</td>
+                        <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{p.type}</td>
+                        <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">
+                          <div className="flex flex-col">
+                            <span className="font-medium text-blue-600">₹ {actualBasePrice.toFixed(2)}</span>
+                            <span className="text-xs text-gray-500">GST Excluded</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">₹ {gstAmount.toFixed(2)}</td>
+                        <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">
+                          <div className="flex flex-col">
+                            <span className="font-medium text-green-600">₹ {retailPrice.toFixed(2)}</span>
+                            <span className="text-xs text-gray-500">GST Included</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{gstRate.toFixed(2)}%</td>
+                        <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{p.hsnCode || '—'}</td>
+                        <td className="px-3 py-2 sm:px-6 sm:py-4 whitespace-nowrap text-sm text-gray-700">{p.unit}</td>
+                        <td className="sticky right-0 z-20 border-l border-indigo-100 bg-indigo-50/40 px-2 py-2 sm:px-3 sm:py-3 align-top shadow-[-4px_0_14px_-8px_rgba(15,23,42,0.12)] group-hover:bg-indigo-50/70">
+                          <div className="flex flex-col gap-1.5 min-w-[7.25rem]">
+                            {isAdmin ? (
+                              <>
+                                <Link
+                                  href={`/dashboard/admin/products/${p.id}`}
+                                  className="w-full rounded-md border border-blue-200 bg-white px-2 py-1.5 text-center text-xs font-semibold text-blue-800 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+                                >
+                                  Edit
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(p.id)}
+                                  className="w-full rounded-md border border-red-200 bg-white px-2 py-1.5 text-center text-xs font-semibold text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1"
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            ) : (
+                              <span className="text-xs text-gray-500 text-center py-1">Admin only</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
