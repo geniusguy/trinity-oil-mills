@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
+  compareInvoiceNumbers,
   getFinancialYearLabelForDate,
   isDateInFinancialYear,
   parseFinancialYearLabelToStartYear,
@@ -165,7 +166,7 @@ export default function CanteenSalesPage() {
     month: '',
     year: getFinancialYearLabelForDate(new Date())
   });
-  const [sortBy, setSortBy] = useState('createdAt');
+  const [sortBy, setSortBy] = useState('invoiceNumberNumeric');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [availableMonths, setAvailableMonths] = useState<{value: string, label: string}[]>([]);
   const [availableYears, setAvailableYears] = useState<string[]>([]);
@@ -409,22 +410,6 @@ export default function CanteenSalesPage() {
     filtered.sort((a, b) => {
       let aValue: any, bValue: any;
 
-      const parseInvoiceSortKey = (s?: string) => {
-        const str = String(s || '').trim();
-        // Examples: C0001/2025-26, R0042/2024-25, legacy C0001/2026
-        const m = str.match(/^[A-Za-z]\s*(\d+)\s*\/\s*(\d{4})(?:\s*-\s*(\d{2}))?$/);
-        if (m) {
-          const seq = Number(m[1] || 0);
-          const fyStart = Number(m[2] || 0);
-          const fyEnd = m[3] ? Number(`${String(fyStart).slice(0, 2)}${m[3]}`) : fyStart;
-          return { fyStart, fyEnd, seq, raw: str };
-        }
-
-        // Fallback for unusual invoice formats
-        const seqFallback = Number((str.match(/\d+/)?.[0] || '-1'));
-        return { fyStart: -1, fyEnd: -1, seq: seqFallback, raw: str };
-      };
-
       const parseInvoiceSequence = (s?: string): number => {
         if (!s) return -1;
         const str = String(s).trim();
@@ -452,22 +437,7 @@ export default function CanteenSalesPage() {
           bValue = b.invoiceNumber.toLowerCase();
           break;
         case 'invoiceNumberNumeric':
-          {
-            const aKey = parseInvoiceSortKey(a.invoiceNumber);
-            const bKey = parseInvoiceSortKey(b.invoiceNumber);
-
-            // Always group/sort by FY first (newest FY first), then invoice sequence.
-            // This avoids mixing C0001/2024-25 between C0001/2025-26 and C0002/2025-26.
-            if (aKey.fyStart !== bKey.fyStart) return bKey.fyStart - aKey.fyStart;
-            if (aKey.fyEnd !== bKey.fyEnd) return bKey.fyEnd - aKey.fyEnd;
-
-            if (aKey.seq !== bKey.seq) {
-              return sortOrder === 'asc' ? aKey.seq - bKey.seq : bKey.seq - aKey.seq;
-            }
-
-            // Stable fallback
-            return aKey.raw.localeCompare(bKey.raw);
-          }
+          return compareInvoiceNumbers(a.invoiceNumber, b.invoiceNumber, sortOrder);
         case 'canteenName':
           aValue = (a.canteenName || '').toLowerCase();
           bValue = (b.canteenName || '').toLowerCase();

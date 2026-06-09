@@ -52,12 +52,8 @@ async function fileExists(filePath: string) {
 async function commandExists(command: string) {
   return new Promise<boolean>((resolve) => {
     const child = spawn(command, ['--version'], { windowsHide: true });
-    child.on('error', (error: NodeJS.ErrnoException) => {
-      if (error?.code === 'ENOENT') resolve(false);
-      else resolve(false);
-    });
+    child.on('error', () => resolve(false));
     child.on('close', (code) => {
-      // Most db CLI tools return 0 for --version
       resolve(code === 0);
     });
   });
@@ -70,7 +66,94 @@ function appendExeIfNeeded(cmd: string) {
   return cmd;
 }
 
-async function resolveDbBinary(kind: 'dump' | 'client') {
+/** Windows: resolve first PATH hit via `where.exe`. */
+async function whereOnPath(command: string): Promise<string | null> {
+  if (process.platform !== 'win32') return null;
+  return new Promise((resolve) => {
+    const child = spawn('where.exe', [command], { windowsHide: true });
+    const out: string[] = [];
+    child.stdout.on('data', (chunk) => out.push(chunk.toString('utf8')));
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => {
+      if (code !== 0) {
+        resolve(null);
+        return;
+      }
+      const first = out
+        .join('')
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .find(Boolean);
+      resolve(first || null);
+    });
+  });
+}
+
+/** Collect `...\bin` folders under a parent (Laragon/WAMP style versioned installs). */
+async function discoverVersionedBinDirs(parentDir: string): Promise<string[]> {
+  const bins: string[] = [];
+  try {
+    const entries = await fsPromises.readdir(parentDir, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isDirectory()) continue;
+      const binDir = path.join(parentDir, ent.name, 'bin');
+      if (await fileExists(binDir)) bins.push(binDir);
+    }
+  } catch {
+    // parent missing — skip
+  }
+  return bins;
+}
+
+async function windowsBinSearchDirs(): Promise<string[]> {
+  const dirs = new Set<string>();
+  const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+
+  for (const d of await discoverVersionedBinDirs(path.join(programFiles, 'MySQL'))) {
+    dirs.add(d);
+  }
+  for (const d of await discoverVersionedBinDirs(path.join(programFilesX86, 'MySQL'))) {
+    dirs.add(d);
+  }
+
+  const staticVendors = [
+    path.join(programFiles, 'MySQL', 'MySQL Server 9.5', 'bin'),
+    path.join(programFiles, 'MySQL', 'MySQL Server 8.4', 'bin'),
+    path.join(programFiles, 'MySQL', 'MySQL Server 8.0', 'bin'),
+    path.join(programFiles, 'MySQL', 'MySQL Server 5.7', 'bin'),
+    path.join(programFilesX86, 'MySQL', 'MySQL Server 9.5', 'bin'),
+    path.join(programFilesX86, 'MySQL', 'MySQL Server 8.4', 'bin'),
+    path.join(programFilesX86, 'MySQL', 'MySQL Server 8.0', 'bin'),
+    path.join(programFilesX86, 'MySQL', 'MySQL Server 5.7', 'bin'),
+    'C:\\xampp\\mysql\\bin',
+    'C:\\Program Files\\MariaDB 11.4\\bin',
+    'C:\\Program Files\\MariaDB 11.3\\bin',
+    'C:\\Program Files\\MariaDB 11.2\\bin',
+    'C:\\Program Files\\MariaDB 11.1\\bin',
+    'C:\\Program Files\\MariaDB 11.0\\bin',
+    'C:\\Program Files\\MariaDB 10.11\\bin',
+    'C:\\Program Files\\MariaDB 10.6\\bin',
+  ];
+
+  for (const d of staticVendors) dirs.add(d);
+
+  const laragonRoot = process.env.LARAGON_ROOT || 'C:\\laragon';
+  for (const d of await discoverVersionedBinDirs(path.join(laragonRoot, 'bin', 'mysql'))) {
+    dirs.add(d);
+  }
+  for (const d of await discoverVersionedBinDirs('C:\\wamp64\\bin\\mysql')) {
+    dirs.add(d);
+  }
+  for (const d of await discoverVersionedBinDirs('C:\\wamp\\bin\\mysql')) {
+    dirs.add(d);
+  }
+
+  return Array.from(dirs);
+}
+
+/** Returns CLI path or null (never throws — callers use SQL driver fallback). */
+async function resolveDbBinary(kind: 'dump' | 'client'): Promise<string | null> {
   const envOverride =
     kind === 'dump'
       ? process.env.MYSQLDUMP_PATH || process.env.MYSQLDUMP_BIN
@@ -82,57 +165,39 @@ async function resolveDbBinary(kind: 'dump' | 'client') {
   if (envOverride) candidates.push(envOverride);
 
   if (process.platform === 'win32') {
-    const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
-    const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
-    const windowsRoots = [programFiles, programFilesX86];
-    const vendors = [
-      'MySQL\\MySQL Server 8.4\\bin',
-      'MySQL\\MySQL Server 8.0\\bin',
-      'MySQL\\MySQL Server 5.7\\bin',
-      'MariaDB 11.4\\bin',
-      'MariaDB 11.3\\bin',
-      'MariaDB 11.2\\bin',
-      'MariaDB 11.1\\bin',
-      'MariaDB 11.0\\bin',
-      'MariaDB 10.11\\bin',
-      'MariaDB 10.6\\bin',
-    ];
-    for (const root of windowsRoots) {
-      for (const vendor of vendors) {
-        for (const name of names) {
-          candidates.push(path.join(root, vendor, appendExeIfNeeded(name)));
-        }
+    for (const name of names) {
+      const fromPath = await whereOnPath(name);
+      if (fromPath) candidates.push(fromPath);
+      const fromPathExe = await whereOnPath(appendExeIfNeeded(name));
+      if (fromPathExe) candidates.push(fromPathExe);
+    }
+    for (const binDir of await windowsBinSearchDirs()) {
+      for (const name of names) {
+        candidates.push(path.join(binDir, appendExeIfNeeded(name)));
       }
     }
   }
 
-  // PATH command names as fallback.
   for (const name of names) {
     candidates.push(name);
     candidates.push(appendExeIfNeeded(name));
   }
 
-  const bareCommands: string[] = [];
+  const seen = new Set<string>();
   for (const candidate of candidates) {
+    const key = candidate.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
     const isBareCommand = !candidate.includes('\\') && !candidate.includes('/');
     if (isBareCommand) {
-      bareCommands.push(candidate);
+      if (await commandExists(candidate)) return candidate;
       continue;
     }
     if (await fileExists(candidate)) return candidate;
   }
 
-  for (const cmd of bareCommands) {
-    if (await commandExists(cmd)) {
-      return cmd;
-    }
-  }
-
-  const hint =
-    kind === 'dump'
-      ? 'Set MYSQLDUMP_PATH to mysqldump/mariadb-dump full path.'
-      : 'Set MYSQL_PATH to mysql/mariadb full path.';
-  throw new Error(`Database binary not found. ${hint}`);
+  return null;
 }
 
 function sanitizeSqlDump(input: string) {
@@ -215,6 +280,57 @@ async function generateDumpWithoutBinary(cfg: ReturnType<typeof getDatabaseConfi
   }
 }
 
+/** Split mysqldump SQL into executable statements (handles quoted semicolons). */
+function splitSqlStatements(input: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+  let escape = false;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+
+    if (escape) {
+      current += ch;
+      escape = false;
+      continue;
+    }
+    if (ch === '\\' && (inSingle || inDouble)) {
+      current += ch;
+      escape = true;
+      continue;
+    }
+    if (ch === "'" && !inDouble && !inBacktick) {
+      inSingle = !inSingle;
+      current += ch;
+      continue;
+    }
+    if (ch === '"' && !inSingle && !inBacktick) {
+      inDouble = !inDouble;
+      current += ch;
+      continue;
+    }
+    if (ch === '`' && !inSingle && !inDouble) {
+      inBacktick = !inBacktick;
+      current += ch;
+      continue;
+    }
+    if (ch === ';' && !inSingle && !inDouble && !inBacktick) {
+      const stmt = current.trim();
+      if (stmt && !stmt.startsWith('--')) statements.push(stmt);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+
+  const tail = current.trim();
+  if (tail && !tail.startsWith('--')) statements.push(tail);
+  return statements;
+}
+
 async function restoreWithoutBinary(
   cfg: ReturnType<typeof getDatabaseConfig>,
   sanitizedSql: string,
@@ -231,17 +347,31 @@ async function restoreWithoutBinary(
   });
 
   try {
-    await connection.query('SET FOREIGN_KEY_CHECKS=0;');
+    await connection.query('SET FOREIGN_KEY_CHECKS=0');
     if (dropExisting) {
       const [tablesRows] = await connection.query('SHOW TABLES');
       const tableKey = Object.keys((tablesRows as any[])[0] || {})[0];
       const tables = (tablesRows as any[]).map((r) => String(r[tableKey])).filter(Boolean);
       if (tables.length > 0) {
-        await connection.query(`DROP TABLE IF EXISTS ${tables.map((t) => `\`${t}\``).join(', ')};`);
+        await connection.query(`DROP TABLE IF EXISTS ${tables.map((t) => `\`${t}\``).join(', ')}`);
       }
     }
-    await connection.query(sanitizedSql);
-    await connection.query('SET FOREIGN_KEY_CHECKS=1;');
+
+    const statements = splitSqlStatements(sanitizedSql);
+    for (const stmt of statements) {
+      const upper = stmt.trimStart().toUpperCase();
+      if (
+        upper.startsWith('/*!') ||
+        upper.startsWith('USE ') ||
+        upper === 'SET FOREIGN_KEY_CHECKS=0' ||
+        upper === 'SET FOREIGN_KEY_CHECKS=1'
+      ) {
+        continue;
+      }
+      await connection.query(stmt);
+    }
+
+    await connection.query('SET FOREIGN_KEY_CHECKS=1');
   } finally {
     await connection.end();
   }
@@ -276,11 +406,9 @@ export async function GET(_request: NextRequest) {
     cfg.dbName,
   ];
 
-  let dumpCmd: string | null = null;
-  try {
-    dumpCmd = await resolveDbBinary('dump');
-  } catch (error) {
-    console.warn('[database-backup] dump binary not found, falling back to SQL query backup:', error);
+  const dumpCmd = await resolveDbBinary('dump');
+  if (!dumpCmd) {
+    console.info('[database-backup] mysqldump not found — using in-app SQL backup (set MYSQLDUMP_PATH to use CLI).');
   }
 
   let dump: { sql: Buffer; stderr: string };
@@ -408,11 +536,9 @@ export async function POST(request: NextRequest) {
     MYSQL_PWD: cfg.password,
   };
 
-  let mysqlCmd: string | null = null;
-  try {
-    mysqlCmd = await resolveDbBinary('client');
-  } catch (error) {
-    console.warn('[database-backup] client binary not found, falling back to SQL restore via driver:', error);
+  const mysqlCmd = await resolveDbBinary('client');
+  if (!mysqlCmd) {
+    console.info('[database-backup] mysql client not found — using in-app SQL restore (set MYSQL_PATH to use CLI).');
   }
 
   const normalizeClientError = (errorMessage: string) => {
@@ -424,6 +550,10 @@ export async function POST(request: NextRequest) {
 
   const runMysql = (sqlText: string) =>
     new Promise<void>((resolve, reject) => {
+      if (!mysqlCmd) {
+        reject(new Error('mysql client not available'));
+        return;
+      }
       const args = ['-h', cfg.host, '-P', cfg.port, '-u', cfg.username, cfg.dbName, '--batch', '--skip-column-names', '-e', sqlText];
       const child = spawn(mysqlCmd, args, { env: mysqlEnv, windowsHide: true });
       let stderr = '';
@@ -439,6 +569,10 @@ export async function POST(request: NextRequest) {
 
   const runMysqlCapture = (sqlText: string) =>
     new Promise<string>((resolve, reject) => {
+      if (!mysqlCmd) {
+        reject(new Error('mysql client not available'));
+        return;
+      }
       const args = ['-h', cfg.host, '-P', cfg.port, '-u', cfg.username, cfg.dbName, '--batch', '--skip-column-names', '-e', sqlText];
       const child = spawn(mysqlCmd, args, { env: mysqlEnv, windowsHide: true });
       const out: Buffer[] = [];
@@ -495,6 +629,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, message: 'Database restored successfully' });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Restore failed';
+    // If CLI import failed, retry with driver-based restore.
+    if (mysqlCmd) {
+      try {
+        console.warn('[database-backup] CLI restore failed, retrying via driver:', message);
+        await restoreWithoutBinary(cfg, sanitizedText, dropExisting);
+        return NextResponse.json({
+          success: true,
+          message: 'Database restored successfully (fallback: restored without external client binary)',
+        });
+      } catch (fallbackError) {
+        const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : 'Restore failed';
+        return NextResponse.json({ success: false, error: fallbackMessage }, { status: 500 });
+      }
+    }
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   } finally {
     try {

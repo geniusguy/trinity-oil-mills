@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
 import { collectSaleLookupKeys, resolveDynamicRouteId } from '@/lib/saleRouteLookup';
 import { resolveHsnCode } from '@/lib/productHsn';
+import { formatInvoiceItemLine } from '@/lib/invoiceDisplay';
 
 // Function to convert number to words
 function convertNumberToWords(num: number): string {
@@ -688,10 +689,10 @@ export async function GET(
                   taxableLineAmount = CASTOR_200ML_NEW_BASE_PRICE * qty;
                 }
                 let itemName = (item.productName ?? item.product_name ?? item.name ?? '').toString().trim();
-                if (!itemName && (String(item.product_id || '') === '55336' || String(item.product_id || '') === '68539')) itemName = 'TOM-Castor Oil - 200ml';
-                if (!itemName) itemName = 'Product';
-                const productCode = String(item.product_id ?? '').trim();
-                const line1 = productCode ? `${productCode} : ${itemName}` : itemName;
+                if (!itemName && (String(item.product_id || '') === '55336' || String(item.product_id || '') === '68539')) {
+                  itemName = 'TOM-Castor Oil - 200ml';
+                }
+                const line1 = formatInvoiceItemLine(item.product_id, itemName);
                 const hsnCode = resolveHsnCode(item.hsnCode);
                 productRowsHTML += `
                 <tr style="height: 35px;">

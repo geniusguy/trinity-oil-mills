@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
 import { collectSaleLookupKeys, resolveDynamicRouteId } from '@/lib/saleRouteLookup';
 import { resolveHsnCode } from '@/lib/productHsn';
+import { formatInvoiceItemLine } from '@/lib/invoiceDisplay';
 // NOTE: Force ESM/browser bundle to avoid `jspdf.node` -> `fflate/lib/node.cjs`
 // dynamic Worker resolution that breaks with Next 16.2 Turbopack on server builds.
 import { jsPDF } from 'jspdf/dist/jspdf.es.min.js';
@@ -364,7 +365,7 @@ function renderRetailInvoice(doc: jsPDF, sale: any, items: any[]) {
     doc.text(String(item.quantity), 32, yPos - 1);
     
     // Product name + per-line HSN
-    const productLabel = String(item.productName || item.productId || 'Product');
+    const productLabel = formatInvoiceItemLine(item.productId, item.productName);
     doc.text(productLabel, 50, yPos - 2);
     const lineHsn = resolveHsnCode(item.hsnCode);
     doc.setFontSize(7);
@@ -729,7 +730,7 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
     doc.text(String(item.quantity), 32, yPos - 1);
     
     // Product name + per-line HSN
-    const productLabel = s(item.productName) || s(item.productId) || 'Product';
+    const productLabel = formatInvoiceItemLine(item.productId, s(item.productName) || s(item.productId));
     doc.text(productLabel, 50, yPos - 2);
     const lineHsn = resolveHsnCode(item.hsnCode);
     doc.setFontSize(7);

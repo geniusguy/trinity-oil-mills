@@ -1,6 +1,39 @@
 /** Validates C0001/2024-25 (FY) or legacy C0001/2026 (calendar year). */
 export const INVOICE_NUMBER_FULL_REGEX = /^[CR]\d{4}\/(?:\d{4}-\d{2}|\d{4})$/;
 
+export type InvoiceSortKey = {
+  fyStart: number;
+  fyEnd: number;
+  seq: number;
+  raw: string;
+};
+
+/** Parse C0013/2025-26 (or legacy C0013/2026) for numeric invoice sorting. */
+export function parseInvoiceNumberForSort(s?: string | null): InvoiceSortKey {
+  const raw = String(s ?? '').trim();
+  const m = raw.match(/^([CR])(\d+)\/(\d{4})(?:-(\d{2}))?$/i);
+  if (m) {
+    const seq = Number(m[2] || 0);
+    const fyStart = Number(m[3] || 0);
+    const fyEnd = m[4] ? Number(`${String(fyStart).slice(0, 2)}${m[4]}`) : fyStart;
+    return { fyStart, fyEnd, seq, raw };
+  }
+  const seqFallback = Number(raw.match(/\d+/)?.[0] || -1);
+  return { fyStart: -1, fyEnd: -1, seq: seqFallback, raw };
+}
+
+/** Sort invoices: FY (newest first), then sequence, then raw string. */
+export function compareInvoiceNumbers(a: string | undefined, b: string | undefined, order: 'asc' | 'desc'): number {
+  const aKey = parseInvoiceNumberForSort(a);
+  const bKey = parseInvoiceNumberForSort(b);
+  if (aKey.fyStart !== bKey.fyStart) return bKey.fyStart - aKey.fyStart;
+  if (aKey.fyEnd !== bKey.fyEnd) return bKey.fyEnd - aKey.fyEnd;
+  if (aKey.seq !== bKey.seq) {
+    return order === 'asc' ? aKey.seq - bKey.seq : bKey.seq - aKey.seq;
+  }
+  return aKey.raw.localeCompare(bKey.raw);
+}
+
 /**
  * Indian financial year: 1 April – 31 March.
  * Example: 2 Feb 2025 belongs to FY 2024-25 (1 Apr 2024 – 31 Mar 2025).
