@@ -17,7 +17,7 @@ export async function PUT(
 
     const { id: productId } = await context.params;
     const body = await request.json();
-    const { name, category, type, description, basePrice, retailPrice, gstRate, gstIncluded, unit, barcode, isActive } = body;
+    const { name, category, type, description, basePrice, retailPrice, gstRate, gstIncluded, unit, barcode, hsnCode, isActive } = body;
 
     // Validation
     if (!name || !category || !type || basePrice === undefined || retailPrice === undefined || !unit) {
@@ -28,6 +28,8 @@ export async function PUT(
     }
 
     const connection = await createConnection();
+
+    const hsnNormalized = hsnCode != null && String(hsnCode).trim() !== '' ? String(hsnCode).trim() : null;
 
     const values = [
       name,
@@ -40,6 +42,7 @@ export async function PUT(
       Boolean(gstIncluded),
       unit,
       barcode || null,
+      hsnNormalized,
       Boolean(isActive),
     ];
 
@@ -47,7 +50,7 @@ export async function PUT(
     if (CASTOR_200ML_VARIANT_IDS.has(pid)) {
       await connection.execute(
         `UPDATE products
-         SET name = ?, category = ?, type = ?, description = ?, base_price = ?, retail_price = ?, gst_rate = ?, gst_included = ?, unit = ?, barcode = ?, is_active = ?, updated_at = NOW()
+         SET name = ?, category = ?, type = ?, description = ?, base_price = ?, retail_price = ?, gst_rate = ?, gst_included = ?, unit = ?, barcode = ?, hsn_code = ?, is_active = ?, updated_at = NOW()
          WHERE id IN ('55336', '68539', 'castor-200ml')
             OR (LOWER(name) LIKE '%castor%' AND LOWER(unit) LIKE '%200ml%')`,
         values,
@@ -55,7 +58,7 @@ export async function PUT(
     } else {
       await connection.execute(
         `UPDATE products
-         SET name = ?, category = ?, type = ?, description = ?, base_price = ?, retail_price = ?, gst_rate = ?, gst_included = ?, unit = ?, barcode = ?, is_active = ?, updated_at = NOW()
+         SET name = ?, category = ?, type = ?, description = ?, base_price = ?, retail_price = ?, gst_rate = ?, gst_included = ?, unit = ?, barcode = ?, hsn_code = ?, is_active = ?, updated_at = NOW()
          WHERE id = ?`,
         [...values, productId],
       );

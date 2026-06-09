@@ -24,6 +24,7 @@ export default function AdminProductEditPage() {
     gstIncluded: false, // false = GST excluded, true = GST included
     unit: '1L',
     barcode: '',
+    hsnCode: '',
     isActive: true,
   });
   const [loading, setLoading] = useState(!isNew);
@@ -72,6 +73,7 @@ export default function AdminProductEditPage() {
           gstIncluded: Boolean(prod.gstIncluded), // Load actual GST inclusion status
           unit: prod.unit || '1L',
           barcode: prod.barcode || '',
+          hsnCode: prod.hsnCode || '',
           isActive: Boolean(prod.isActive),
         });
       } catch (e) {
@@ -129,6 +131,7 @@ export default function AdminProductEditPage() {
         gstIncluded: form.gstIncluded,
         unit: form.unit,
         barcode: form.barcode || null,
+        hsnCode: form.hsnCode.trim() || null,
         isActive: Boolean(form.isActive),
       };
       const res = await fetch(isNew ? '/api/products' : `/api/products/${productId}`, {
@@ -277,10 +280,22 @@ export default function AdminProductEditPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Barcode</label>
               <input name="barcode" value={form.barcode} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
             </div>
-            <div className="flex items-center gap-2 mt-6">
-              <input id="isActive" name="isActive" type="checkbox" checked={form.isActive} onChange={handleChange} className="h-4 w-4" />
-              <label htmlFor="isActive" className="text-sm text-gray-700">Active</label>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">HSN Code</label>
+              <input
+                name="hsnCode"
+                value={form.hsnCode}
+                onChange={handleChange}
+                placeholder="e.g. 15180011"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+              />
+              <p className="text-xs text-gray-500 mt-1">Shown on GST invoices per product. Leave blank if not applicable.</p>
             </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input id="isActive" name="isActive" type="checkbox" checked={form.isActive} onChange={handleChange} className="h-4 w-4" />
+            <label htmlFor="isActive" className="text-sm text-gray-700">Active</label>
           </div>
 
           <div className="flex justify-end gap-3 pt-2">

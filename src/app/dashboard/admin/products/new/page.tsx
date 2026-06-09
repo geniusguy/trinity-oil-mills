@@ -16,6 +16,7 @@ interface ProductFormData {
   gstIncluded: boolean;
   unit: string;
   barcode: string;
+  hsnCode: string;
   isActive: boolean;
 }
 
@@ -37,6 +38,7 @@ export default function NewProductPage() {
     gstIncluded: true,
     unit: '1L',
     barcode: '',
+    hsnCode: '',
     isActive: true
   });
 
@@ -252,6 +254,22 @@ export default function NewProductPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   placeholder="Optional barcode"
                 />
+              </div>
+
+              {/* HSN Code */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  HSN Code
+                </label>
+                <input
+                  type="text"
+                  name="hsnCode"
+                  value={formData.hsnCode}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="e.g. 15180011"
+                />
+                <p className="text-xs text-gray-500 mt-1">Shown on GST invoices. Leave blank if not applicable.</p>
               </div>
 
               {/* Base Price */}

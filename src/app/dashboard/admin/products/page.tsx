@@ -17,6 +17,7 @@ interface Product {
   gstIncluded: boolean;
   unit: string;
   barcode: string | null;
+  hsnCode: string | null;
   isActive: 0 | 1 | boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -413,6 +414,7 @@ export default function AdminProductsPage() {
                     </div>
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">GST Rate</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">HSN Code</th>
                   <th 
                     className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                     onClick={() => handleSortChange('unit')}
@@ -480,6 +482,7 @@ export default function AdminProductsPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{gstRate.toFixed(2)}%</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.hsnCode || '—'}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.unit}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium flex gap-4">
                       <Link href={`/dashboard/admin/products/${p.id}`} className="text-indigo-600 hover:text-indigo-900">

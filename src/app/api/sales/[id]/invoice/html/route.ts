@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
 import { collectSaleLookupKeys, resolveDynamicRouteId } from '@/lib/saleRouteLookup';
+import { resolveHsnCode } from '@/lib/productHsn';
 
 // Function to convert number to words
 function convertNumberToWords(num: number): string {
@@ -133,9 +134,14 @@ export async function GET(
 
     const [itemRows] = await connection.execute(
       `
-      SELECT si.*, p.name as productName, p.name as product_name, p.unit
+      SELECT si.*, p.name as productName, p.name as product_name, p.unit, p.hsn_code as hsnCode
       FROM sale_items si
-      LEFT JOIN products p ON BINARY p.id = BINARY si.product_id
+      LEFT JOIN products p ON BINARY p.id = BINARY (
+        CASE
+          WHEN si.product_id IN ('55336', '68539') THEN 'castor-200ml'
+          ELSE si.product_id
+        END
+      )
       WHERE si.sale_id = ?
       ORDER BY si.id
     `,
@@ -686,11 +692,12 @@ export async function GET(
                 if (!itemName) itemName = 'Product';
                 const productCode = String(item.product_id ?? '').trim();
                 const line1 = productCode ? `${productCode} : ${itemName}` : itemName;
+                const hsnCode = resolveHsnCode(item.hsnCode);
                 productRowsHTML += `
                 <tr style="height: 35px;">
                     <td class="${bgClass} text-left item-desc" style="padding: 6px 8px; line-height: 1.2; font-size: 10pt;">
                         <strong>${line1}</strong><br>
-                        <span style="font-size: 9pt; color: #666;">HSN Code : 15180011</span>
+                        <span style="font-size: 9pt; color: #666;">HSN Code : ${hsnCode}</span>
                     </td>
                     <td class="${bgClass} text-center item-qty">${qty.toFixed(2)}</td>
                     <td class="${bgClass} text-right item-total">₹ ${Number(taxableUnitRate.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>

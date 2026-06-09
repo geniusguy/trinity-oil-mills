@@ -27,6 +27,7 @@ export const products = mysqlTable('products', {
   gstIncluded: boolean('gst_included').default(false).notNull(), // true if GST is included in base price
   unit: varchar('unit', { length: 50 }).notNull().default('liters'),
   barcode: varchar('barcode', { length: 100 }),
+  hsnCode: varchar('hsn_code', { length: 20 }),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().onUpdateNow().notNull(),

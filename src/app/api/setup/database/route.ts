@@ -97,6 +97,17 @@ export async function POST(request: NextRequest) {
           console.log('credited_date column already exists or error:', (error as Error).message);
         }
 
+        // Per-product HSN code (GST invoices)
+        try {
+          const [hsnCols]: any = await connection.query('SHOW COLUMNS FROM products LIKE "hsn_code"');
+          if (!Array.isArray(hsnCols) || hsnCols.length === 0) {
+            await connection.execute('ALTER TABLE products ADD COLUMN hsn_code VARCHAR(20) NULL');
+            console.log('Added products.hsn_code column');
+          }
+        } catch (e) {
+          console.log('products.hsn_code already exists or error:', (e as Error).message);
+        }
+
         // Add billing / delivery contact columns to canteen_addresses if missing
         for (const [colName, def] of [
           ['billing_contact_person', 'VARCHAR(255) NULL'],

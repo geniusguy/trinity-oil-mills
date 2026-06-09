@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
 
     const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
-    const selectSql = `SELECT id, name, category, type, description, base_price as basePrice, retail_price as retailPrice, gst_rate as gstRate, gst_included as gstIncluded, unit, barcode, is_active as isActive, created_at as createdAt, updated_at as updatedAt
+    const selectSql = `SELECT id, name, category, type, description, base_price as basePrice, retail_price as retailPrice, gst_rate as gstRate, gst_included as gstIncluded, unit, barcode, hsn_code as hsnCode, is_active as isActive, created_at as createdAt, updated_at as updatedAt
        FROM products ${whereSql}
        ORDER BY name ASC`;
 
@@ -107,7 +107,7 @@ export async function GET(request: NextRequest) {
     const mergedHasCastor = merged.some((r) => isCastor200mlVariant(r));
     if (!mergedHasCastor) {
       const [castorExtra] = await connection.query(
-        `SELECT id, name, category, type, description, base_price as basePrice, retail_price as retailPrice, gst_rate as gstRate, gst_included as gstIncluded, unit, barcode, is_active as isActive, created_at as createdAt, updated_at as updatedAt
+        `SELECT id, name, category, type, description, base_price as basePrice, retail_price as retailPrice, gst_rate as gstRate, gst_included as gstIncluded, unit, barcode, hsn_code as hsnCode, is_active as isActive, created_at as createdAt, updated_at as updatedAt
          FROM products WHERE id IN (?, ?, ?) AND LOWER(category) <> ?`,
         ['55336', '68539', 'castor-200ml', 'raw_material'],
       );
@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, name, category, type, description, basePrice, retailPrice, gstRate, gstIncluded, unit, barcode, isActive } = body;
+    const { id, name, category, type, description, basePrice, retailPrice, gstRate, gstIncluded, unit, barcode, hsnCode, isActive } = body;
 
     if (!name || !category || !type || basePrice == null || retailPrice == null || !unit) {
       return NextResponse.json({ error: 'Missing required fields (name, category, type, basePrice, retailPrice, unit)' }, { status: 400 });
@@ -188,9 +188,11 @@ export async function POST(request: NextRequest) {
 
     const productId = id || `prod-${Date.now()}`;
 
+    const hsnNormalized = hsnCode != null && String(hsnCode).trim() !== '' ? String(hsnCode).trim() : null;
+
     await connection.execute(
-      `INSERT INTO products (id, name, category, type, description, base_price, retail_price, gst_rate, gst_included, unit, barcode, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      `INSERT INTO products (id, name, category, type, description, base_price, retail_price, gst_rate, gst_included, unit, barcode, hsn_code, is_active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
       [
         productId,
         name,
@@ -203,6 +205,7 @@ export async function POST(request: NextRequest) {
         Boolean(gstIncluded),
         unit,
         barcode ?? null,
+        hsnNormalized,
         isActive ?? true,
       ],
     );
@@ -223,6 +226,7 @@ export async function POST(request: NextRequest) {
           gstIncluded: Boolean(gstIncluded),
           unit,
           barcode: barcode ?? null,
+          hsnCode: hsnNormalized,
           isActive: isActive ?? true,
         },
       },

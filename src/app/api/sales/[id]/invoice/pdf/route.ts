@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createConnection } from '@/lib/database';
 import { collectSaleLookupKeys, resolveDynamicRouteId } from '@/lib/saleRouteLookup';
+import { resolveHsnCode } from '@/lib/productHsn';
 // NOTE: Force ESM/browser bundle to avoid `jspdf.node` -> `fflate/lib/node.cjs`
 // dynamic Worker resolution that breaks with Next 16.2 Turbopack on server builds.
 import { jsPDF } from 'jspdf/dist/jspdf.es.min.js';
@@ -117,9 +118,15 @@ export async function GET(
     }
 
     const [items]: any = await connection.query(
-      `SELECT si.product_id as productId, p.name as productName, si.quantity, si.unit_price as unitPrice, si.gst_rate as gstRate, si.gst_amount as gstAmount, si.total_amount as totalAmount
+      `SELECT si.product_id as productId, p.name as productName, p.hsn_code as hsnCode,
+              si.quantity, si.unit_price as unitPrice, si.gst_rate as gstRate, si.gst_amount as gstAmount, si.total_amount as totalAmount
        FROM sale_items si
-       LEFT JOIN products p ON BINARY p.id = BINARY si.product_id
+       LEFT JOIN products p ON BINARY p.id = BINARY (
+         CASE
+           WHEN si.product_id IN ('55336', '68539') THEN 'castor-200ml'
+           ELSE si.product_id
+         END
+       )
        WHERE si.sale_id = ?`,
       [saleId],
     );
@@ -330,10 +337,10 @@ function renderRetailInvoice(doc: jsPDF, sale: any, items: any[]) {
   
   // Table rows with clean design
   let yPos = itemsTableY + 15;
-  const HSN = '15180011';
   
   items.forEach((item: any, index: number) => {
-    yPos += 12;
+    yPos += 16;
+    const rowHeight = 16;
     
     // Clean alternating rows
     if (index % 2 === 0) {
@@ -341,12 +348,12 @@ function renderRetailInvoice(doc: jsPDF, sale: any, items: any[]) {
     } else {
       doc.setFillColor(255, 255, 255); // White
     }
-    doc.rect(20, yPos - 8, 170, 12, 'F');
+    doc.rect(20, yPos - 10, 170, rowHeight, 'F');
     
     // Professional row borders
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
-    doc.line(20, yPos + 4, 190, yPos + 4);
+    doc.line(20, yPos + 6, 190, yPos + 6);
     
     // Content with better alignment
     doc.setTextColor(30, 41, 59);
@@ -354,28 +361,29 @@ function renderRetailInvoice(doc: jsPDF, sale: any, items: any[]) {
     doc.setFont('helvetica', 'normal');
     
     // Quantity (centered)
-    doc.text(String(item.quantity), 32, yPos);
+    doc.text(String(item.quantity), 32, yPos - 1);
     
-    // Product name (left aligned)
-    doc.text(item.productName, 50, yPos);
+    // Product name + per-line HSN
+    const productLabel = String(item.productName || item.productId || 'Product');
+    doc.text(productLabel, 50, yPos - 2);
+    const lineHsn = resolveHsnCode(item.hsnCode);
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text(lineHsn ? `HSN: ${lineHsn}` : 'HSN:', 50, yPos + 4);
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
     
     // Unit price (right aligned)
     doc.setFont('helvetica', 'bold');
-    doc.text(`₹${Number(item.unitPrice).toFixed(2)}`, 145, yPos);
+    doc.text(`₹${Number(item.unitPrice).toFixed(2)}`, 145, yPos - 1);
     
     // Total (right aligned, highlighted)
     doc.setTextColor(239, 68, 68); // Red for totals
-    doc.text(`₹${Number(item.totalAmount).toFixed(2)}`, 170, yPos);
+    doc.text(`₹${Number(item.totalAmount).toFixed(2)}`, 170, yPos - 1);
     
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'normal');
   });
-  
-  // HSN Code with professional styling
-  yPos += 15;
-  doc.setTextColor(100, 116, 139);
-  doc.setFontSize(8);
-  doc.text(`HSN Code: ${HSN}`, 25, yPos);
   
   // Summary of Charges Section (Right side box)
   const summaryY = yPos + 20;
@@ -694,10 +702,10 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
   
   // Table rows with clean design
   let yPos = itemsTableY + 15;
-  const HSN = '15180011';
   
   items.forEach((item: any, index: number) => {
-    yPos += 12;
+    yPos += 16;
+    const rowHeight = 16;
     
     // Clean alternating rows
     if (index % 2 === 0) {
@@ -705,12 +713,12 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
     } else {
       doc.setFillColor(255, 255, 255); // White
     }
-    doc.rect(20, yPos - 8, 170, 12, 'F');
+    doc.rect(20, yPos - 10, 170, rowHeight, 'F');
     
     // Professional row borders
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
-    doc.line(20, yPos + 4, 190, yPos + 4);
+    doc.line(20, yPos + 6, 190, yPos + 6);
     
     // Content with better alignment
     doc.setTextColor(30, 41, 59);
@@ -718,28 +726,29 @@ function renderCanteenInvoice(doc: jsPDF, sale: any, items: any[]) {
     doc.setFont('helvetica', 'normal');
     
     // Quantity (centered)
-    doc.text(String(item.quantity), 32, yPos);
+    doc.text(String(item.quantity), 32, yPos - 1);
     
-    // Product name (left aligned)
-    doc.text(s(item.productName) || s(item.productId) || 'Product', 50, yPos);
+    // Product name + per-line HSN
+    const productLabel = s(item.productName) || s(item.productId) || 'Product';
+    doc.text(productLabel, 50, yPos - 2);
+    const lineHsn = resolveHsnCode(item.hsnCode);
+    doc.setFontSize(7);
+    doc.setTextColor(100, 116, 139);
+    doc.text(lineHsn ? `HSN: ${lineHsn}` : 'HSN:', 50, yPos + 4);
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
     
     // Unit price (right aligned)
     doc.setFont('helvetica', 'bold');
-    doc.text(`₹${Number(item.unitPrice).toFixed(2)}`, 145, yPos);
+    doc.text(`₹${Number(item.unitPrice).toFixed(2)}`, 145, yPos - 1);
     
     // Total (right aligned, highlighted)
     doc.setTextColor(239, 68, 68); // Red for totals
-    doc.text(`₹${Number(item.totalAmount).toFixed(2)}`, 170, yPos);
+    doc.text(`₹${Number(item.totalAmount).toFixed(2)}`, 170, yPos - 1);
     
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'normal');
   });
-  
-  // HSN Code with professional styling
-  yPos += 15;
-  doc.setTextColor(100, 116, 139);
-  doc.setFontSize(8);
-  doc.text(`HSN Code: ${HSN}`, 25, yPos);
   
   // Totals Section
   yPos += 10;
