@@ -3,6 +3,7 @@ import { createConnection } from '@/lib/database';
 import { collectSaleLookupKeys, resolveDynamicRouteId } from '@/lib/saleRouteLookup';
 import { resolveHsnCode } from '@/lib/productHsn';
 import { formatInvoiceItemLine } from '@/lib/invoiceDisplay';
+import { boxesFromBottleCount, boxesFromSaleItems } from '@/lib/canteenSupply';
 
 // Function to convert number to words
 function convertNumberToWords(num: number): string {
@@ -154,6 +155,18 @@ export async function GET(
     const sale = saleRows[0] as any;
     const items = itemRows as any[];
     const isCanteen = sale.sale_type === 'canteen';
+
+    const invoiceNoOfBoxes = isCanteen
+      ? (() => {
+          const fromItems = boxesFromSaleItems(items);
+          if (fromItems > 0) return fromItems;
+          const storedBottles = Number(sale.total_bottles);
+          if (Number.isFinite(storedBottles) && storedBottles > 0) {
+            return boxesFromBottleCount(storedBottles);
+          }
+          return 0;
+        })()
+      : 0;
     const CASTOR_200ML_NEW_ID = '68539';
     const CASTOR_200ML_NEW_BASE_PRICE = 76.19; // GST extra base rate required for 68539
 
@@ -590,30 +603,7 @@ export async function GET(
                 }
                 return mode;
             })()}</td>
-            <td class="bg-white text-center order-col-3">${(() => {
-                if (!isCanteen) return '0';
-
-                const extractMl = (text: string) => {
-                  const m = (text || '').toLowerCase().match(/(\d+(?:\.\d+)?)\D*ml\b/);
-                  if (!m) return null;
-                  const ml = Number(m[1]);
-                  return Number.isFinite(ml) ? ml : null;
-                };
-
-                const totalNos200ml = (items as any[]).reduce((acc, item) => {
-                  const qty = Number(item.quantity) || 0;
-                  const name = (item.productName || item.product_name || item.name || '') as string;
-                  const unit = (item.unit || item.product_unit || '') as string;
-                  const combined = `${name} ${unit}`.trim();
-                  const ml = extractMl(combined);
-                  return ml === 200 ? acc + qty : acc;
-                }, 0);
-
-                const nosPerBox = 40;
-                const boxes = Math.ceil(totalNos200ml / nosPerBox);
-
-                return `${boxes}`;
-            })()}</td>
+            <td class="bg-white text-center order-col-3">${invoiceNoOfBoxes}</td>
             <td class="bg-white text-center order-col-4">${(() => {
                 // Gross weight in kg: parse volume from product name (e.g. 200ml, 1L), then qty * weight per unit.
                 function getWeightPerUnitKg(name) {
