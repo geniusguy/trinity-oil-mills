@@ -113,21 +113,29 @@ export function boxesFromBottleCount(bottleCount: number, bottlesPerBox: number 
 }
 
 /**
+ * Shipping cases (boxes) for one bottle line; null when line is not a bottle pack.
+ */
+export function casesForSaleLineItem(item: SaleLineForBottles): number | null {
+  const qty = Number(item.quantity) || 0;
+  if (!(qty > 0)) return null;
+  const name = String(item.productName ?? item.product_name ?? item.name ?? '');
+  const unit = String(item.unit ?? item.product_unit ?? '');
+  const pid = String(item.product_id ?? item.productId ?? '');
+  const pack = packLitersPerUnit(name, unit, pid);
+  if (!isBottlePackLiters(pack) || pack == null) return null;
+  const perBox = bottlesPerBoxForPackLiters(pack);
+  return Math.ceil(qty / perBox);
+}
+
+/**
  * Invoice box count: per line ceil(qty / bottles-per-box for that pack), then sum.
  * e.g. 60×500ml → 3 boxes, 45×1L → 3 boxes → total 6.
  */
 export function boxesFromSaleItems(items: SaleLineForBottles[]): number {
   let totalBoxes = 0;
   for (const item of items) {
-    const qty = Number(item.quantity) || 0;
-    if (!(qty > 0)) continue;
-    const name = String(item.productName ?? item.product_name ?? item.name ?? '');
-    const unit = String(item.unit ?? item.product_unit ?? '');
-    const pid = String(item.product_id ?? item.productId ?? '');
-    const pack = packLitersPerUnit(name, unit, pid);
-    if (!isBottlePackLiters(pack) || pack == null) continue;
-    const perBox = bottlesPerBoxForPackLiters(pack);
-    totalBoxes += Math.ceil(qty / perBox);
+    const cases = casesForSaleLineItem(item);
+    if (cases != null) totalBoxes += cases;
   }
   return totalBoxes;
 }

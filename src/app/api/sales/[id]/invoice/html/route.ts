@@ -3,7 +3,7 @@ import { createConnection } from '@/lib/database';
 import { collectSaleLookupKeys, resolveDynamicRouteId } from '@/lib/saleRouteLookup';
 import { resolveHsnCode } from '@/lib/productHsn';
 import { formatInvoiceItemLine } from '@/lib/invoiceDisplay';
-import { boxesFromBottleCount, boxesFromSaleItems } from '@/lib/canteenSupply';
+import { boxesFromBottleCount, boxesFromSaleItems, casesForSaleLineItem } from '@/lib/canteenSupply';
 
 // Function to convert number to words
 function convertNumberToWords(num: number): string {
@@ -170,6 +170,60 @@ export async function GET(
     const CASTOR_200ML_NEW_ID = '68539';
     const CASTOR_200ML_NEW_BASE_PRICE = 76.19; // GST extra base rate required for 68539
 
+    function getWeightPerUnitKg(name: string): number {
+      const n = (name || '').toLowerCase();
+      const mlMatch = n.match(/\b(\d+)\s*ml/);
+      if (mlMatch) {
+        const ml = parseInt(mlMatch[1], 10);
+        if (ml <= 250) return 0.2;
+        if (ml <= 600) return 0.5;
+        return ml / 1000;
+      }
+      const literMatch = n.match(/\b(16|5|1)\s*l(it(er|re))?/);
+      if (literMatch) {
+        const num = parseInt(literMatch[1], 10);
+        if (num >= 16) return 16;
+        if (num >= 5) return 5;
+        return 1;
+      }
+      if (/\b16\b/.test(n) && (n.includes('l') || n.includes('tin'))) return 16;
+      if (/\b5\s*l|\b5l\b/.test(n)) return 5;
+      if (/\b1\s*l|\b1l\b|\b1\s*liter|\b1\s*litre/.test(n)) return 1;
+      if (n.includes('500') && (n.includes('ml') || n.includes('0.5'))) return 0.5;
+      if (n.includes('200') || n.includes('0.2')) return 0.2;
+      return 0.2;
+    }
+
+    const invoiceGrossWeightKg = items
+      .reduce((sum, item) => {
+        const qty = Number(item.quantity) || 0;
+        const name = String(item.productName || item.product_name || '');
+        return sum + qty * getWeightPerUnitKg(name);
+      }, 0)
+      .toFixed(2);
+
+    const orderModeDisplay = (() => {
+      const rawMode = (sale.mode_of_sales || '').toString();
+      if (rawMode) {
+        if (rawMode.startsWith('email:')) {
+          const addr = rawMode.split(':')[1];
+          return '📧 ' + (addr && addr.trim() ? addr.trim() : (sale.gst_number && sale.gst_number.trim() ? sale.gst_number.trim() : 'Email'));
+        }
+        if (rawMode === 'email') {
+          const fallbackEmail = (sale.gst_number && sale.gst_number.trim()) ? sale.gst_number.trim() : '';
+          return fallbackEmail ? ('📧 ' + fallbackEmail) : '📧 Email';
+        }
+        if (rawMode === 'phone') return '📞 Phone';
+        if (rawMode === 'whatsapp') return '📱 WhatsApp';
+        if (rawMode === 'walk_in') return '🚶 Walk-in';
+        if (rawMode === 'online') return '💻 Online';
+        return rawMode;
+      }
+      return sale.sale_type === 'canteen' ? '📧 Email' : '🚶 Walk-in';
+    })();
+
+    const poLine = `PO NO: ${typeof sale.po_number === 'string' && sale.po_number?.trim() ? sale.po_number : 'N/A'}, Dated: ${sale.po_date ? new Date(sale.po_date).toLocaleDateString('en-GB') : new Date(sale.created_at).toLocaleDateString('en-GB')}`;
+
     const invoiceHTML = `
 <!DOCTYPE html>
 <html>
@@ -194,29 +248,80 @@ export async function GET(
             color: #000;
             background: #fff;
             width: 100%;
-            min-height: 100%;
             line-height: 1.3;
             margin: 0;
             padding: 0;
         }
 
         .invoice-sheet {
-            width: 198mm; /* A4 width minus @page margins */
-            max-width: 198mm;
-            min-height: 285mm; /* A4 height minus @page margins */
+            width: 100%;
+            max-width: 210mm;
             margin: 0 auto;
         }
         
         .invoice-table {
             width: 100%;
-            height: 285mm;
             border-collapse: collapse;
-            table-layout: auto;
+            table-layout: fixed;
             border: 2px solid #2d4e52;
             word-wrap: break-word;
         }
+
+        /* Item lines only — order block uses its own nested 4-column table */
+        .invoice-table col.col-wide { width: 50%; }
+        .invoice-table col.col-narrow { width: 9%; }
+        .invoice-table col.col-cases-col { width: 9%; }
+        .invoice-table col.col-money { width: 16%; }
+
+        .order-block-wrap {
+            padding: 0 !important;
+            vertical-align: top;
+        }
+
+        .header-block-wrap {
+            padding: 0 !important;
+            vertical-align: top;
+        }
+
+        .header-block-table,
+        .header-meta-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        .header-block-table td,
+        .header-meta-table td {
+            border: 1px solid #c0c0c0;
+            vertical-align: middle;
+        }
+
+        .order-block-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        .order-block-table td {
+            border: 1px solid #c0c0c0;
+            vertical-align: middle;
+            font-size: 10pt;
+        }
+
+        .order-block-table .order-head {
+            white-space: nowrap;
+            font-size: 9.5pt;
+            padding: 10px 8px;
+        }
+
+        .order-block-table .order-val {
+            padding: 8px;
+            font-size: 10pt;
+            line-height: 1.2;
+        }
         
-        .invoice-table td {
+        .invoice-table > tr > td,
+        .invoice-table > tbody > tr > td {
             border: 1px solid #c0c0c0;
             vertical-align: middle;
             font-size: 11pt;
@@ -272,23 +377,39 @@ export async function GET(
         
         /* Logo styling */
         .logo-img {
-            width: 280px;
-            height: 80px;
+            max-width: 100%;
+            width: 260px;
+            height: auto;
+            max-height: 80px;
             object-fit: contain;
             margin: 5px auto;
             display: block;
         }
         
-        /* Invoice title - very big, same size as logo */
-        .invoice-title {
-            font-size: 48px !important;
+        .invoice-title-cell {
+            vertical-align: middle !important;
+            text-align: center;
+            background-color: #2d4e52 !important;
+            border: 1px solid #2d4e52;
+            padding: 12px 22px 12px 18px;
+            overflow: hidden;
+            box-sizing: border-box;
+        }
+
+        .invoice-title-text {
+            display: inline-block;
+            font-size: 48px;
             font-weight: bold;
             color: #ffffff !important;
             font-family: "Times New Roman", Times, serif !important;
             font-style: italic !important;
+            white-space: nowrap;
+            line-height: 1;
+            padding: 2px 10px;
+            box-sizing: border-box;
+            max-width: 100%;
         }
         
-        /* Document types */
         .doc-types {
             font-size: 9pt;
             line-height: 1.2;
@@ -296,7 +417,6 @@ export async function GET(
             font-weight: normal;
         }
         
-        /* Professional styling for labels */
         .invoice-label {
             font-weight: bold;
             color: #2d4e52;
@@ -314,7 +434,7 @@ export async function GET(
             color: #000;
         }
         
-        .item-qty {
+        .item-qty, .item-cases {
             font-weight: 600;
             color: #000;
         }
@@ -324,21 +444,7 @@ export async function GET(
             color: #2d4e52;
         }
         
-        /* HSN code styling */
-        .hsn-code {
-            font-size: 10pt;
-            color: #666;
-            font-style: italic;
-        }
-        
-        /* Totals styling */
-        .total-label {
-            font-weight: bold;
-            color: #2d4e52;
-            font-size: 11pt;
-        }
-        
-        .total-value {
+        .total-label, .total-value {
             font-weight: bold;
             color: #2d4e52;
             font-size: 11pt;
@@ -350,13 +456,6 @@ export async function GET(
             font-size: 12pt;
         }
         
-        /* Simplified order section styling */
-        .order-col-1 { width: 35%; }
-        .order-col-2 { width: 20%; }
-        .order-col-3 { width: 20%; }
-        .order-col-4 { width: 25%; }
-        
-        /* Professional signature styling */
         .signature-box {
             border: 1px solid #2d4e52;
             padding: 15px;
@@ -378,10 +477,16 @@ export async function GET(
             text-align: center;
         }
         
+        @media screen {
+            .invoice-title-text {
+                font-size: 48px !important;
+            }
+        }
+
         @media print {
             @page {
                 size: A4;
-                margin: 4mm; /* extra printable space so final 2 lines don't spill */
+                margin: 4mm;
             }
 
             body { 
@@ -394,15 +499,54 @@ export async function GET(
             .invoice-sheet {
                 width: 100%;
                 max-width: 100%;
-                min-height: 285mm;
             }
 
-            /* Slightly compact footer/signatures to prevent overflow without shrinking whole page */
+            .order-block-table .order-head {
+                font-size: 8.5pt !important;
+                padding: 8px 4px !important;
+            }
+
+            .invoice-table { 
+                page-break-inside: avoid;
+            }
+
+            /* Large but must fit column — italic “e” needs right padding */
+            .invoice-title-text,
+            .header-block-table .invoice-title-text {
+                font-size: 50px !important;
+                line-height: 1 !important;
+                padding: 2px 12px !important;
+                color: #ffffff !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+
+            .header-block-table tr:first-child {
+                height: 110px !important;
+            }
+
+            .invoice-title-cell {
+                padding: 14px 26px 14px 20px !important;
+                background-color: #2d4e52 !important;
+                overflow: hidden !important;
+                box-sizing: border-box !important;
+            }
+
+            .logo-img {
+                width: 260px !important;
+                max-width: 100% !important;
+                max-height: 80px !important;
+                height: auto !important;
+            }
+
+            .header-meta-table .invoice-label {
+                font-size: 12pt !important;
+            }
+
             .signature-box { min-height: 40px !important; padding: 5px !important; }
             .signature-line { height: 14px !important; margin-bottom: 3px !important; }
             .signature-label { font-size: 8pt !important; line-height: 1.05 !important; }
 
-            /* Keep final footer lines on same page */
             .invoice-table tr:nth-last-child(2) td,
             .invoice-table tr:last-child td {
                 font-size: 8.5pt !important;
@@ -410,25 +554,6 @@ export async function GET(
                 padding-top: 2px !important;
                 padding-bottom: 2px !important;
                 page-break-inside: avoid !important;
-            }
-
-            .invoice-table tr:nth-last-child(2) {
-                height: 44px !important;
-            }
-
-            .invoice-table tr:last-child {
-                height: 16px !important;
-            }
-
-            .invoice-table tr:last-child td {
-                font-size: 8pt !important;
-                font-weight: 700 !important;
-                line-height: 1 !important;
-                border-bottom: 1px solid #000 !important;
-            }
-            
-            .invoice-table { 
-                page-break-inside: avoid;
             }
             
             .print-controls { 
@@ -496,34 +621,62 @@ export async function GET(
 
     <div class="invoice-sheet">
     <table class="invoice-table">
-        <!-- HEADER: Logo and Invoice Title (4 columns) -->
+        <colgroup>
+            <col class="col-wide" />
+            <col class="col-narrow" />
+            <col class="col-cases-col" />
+            <col class="col-money" />
+            <col class="col-money" />
+        </colgroup>
+        <!-- HEADER: Logo + Document Type + Invoice title (nested — not tied to item columns) -->
         <tr style="height: 110px;">
-            <td class="bg-header text-center" style="width: 40%; border-left: 2px solid #2d4e52; border-top: 2px solid #2d4e52; border-bottom: 1px solid #c0c0c0; border-right: none;" colspan="2">
-                <img src="/TOM_logo.png" alt="Trinity Oil Mills" class="logo-img" />
+            <td class="header-block-wrap" colspan="5" style="border-left: 2px solid #2d4e52; border-top: 2px solid #2d4e52; border-right: 2px solid #2d4e52;">
+                <table class="header-block-table">
+                    <colgroup>
+                        <col style="width: 46%;" />
+                        <col style="width: 24%;" />
+                        <col style="width: 30%;" />
+                    </colgroup>
+                    <tr>
+                        <td class="bg-header text-center" style="border-left: none; border-top: none; border-bottom: 1px solid #c0c0c0;">
+                            <img src="/TOM_logo.png" alt="Trinity Oil Mills" class="logo-img" />
+                        </td>
+                        <td class="bg-accent text-right doc-types" style="vertical-align: top; padding-top: 10px; border-top: none; border-bottom: 1px solid #c0c0c0;">
+                            <div style="font-weight: bold; margin-bottom: 5px; color: #2d4e52;">Document Type:</div>
+                            Original ☐<br>Duplicate ☐<br>Triplicate ☐
+                        </td>
+                        <td class="invoice-title-cell" style="border-right: none; border-top: none; border-bottom: 1px solid #c0c0c0;">
+                            <span class="invoice-title-text">Invoice</span>
+                        </td>
+                    </tr>
+                </table>
             </td>
-            <td class="bg-accent text-right doc-types" style="width: 20%; vertical-align: top; padding-top: 10px; border-top: 2px solid #2d4e52; border-bottom: 1px solid #c0c0c0; border-left: none; border-right: none;">
-                <div style="font-weight: bold; margin-bottom: 5px; color: #2d4e52;">Document Type:</div>
-                Original ☐<br>Duplicate ☐<br>Triplicate ☐
-            </td>
-            <td class="bg-dark invoice-title text-center" style="width: 20%; vertical-align: middle; border-right: 2px solid #2d4e52; border-top: 2px solid #2d4e52; border-bottom: 1px solid #c0c0c0; border-left: none;">Invoice</td>
         </tr>
         
-        <!-- INVOICE DETAILS (4 columns) -->
+        <!-- INVOICE DATE + NUMBER -->
         <tr style="height: 35px;">
-            <td class="bg-accent invoice-label" style="font-size: 12pt; border-left: 2px solid #2d4e52; border-top: 1px solid #c0c0c0; border-bottom: 1px solid #c0c0c0; border-right: none;" colspan="2">
-                <strong>Invoice Date:</strong> ${(sale.invoice_date ? new Date(sale.invoice_date) : new Date(sale.created_at)).toLocaleDateString('en-GB')}
-            </td>
-            <td class="bg-accent" style="border-top: 1px solid #c0c0c0; border-bottom: 1px solid #c0c0c0; border-left: none; border-right: none;"></td>
-            <td class="bg-accent invoice-label text-right" style="font-size: 12pt; border-right: 2px solid #2d4e52; border-top: 1px solid #c0c0c0; border-bottom: 1px solid #c0c0c0; border-left: none;">
-                <strong>Invoice #:</strong> ${sale.invoice_number}
+            <td class="header-block-wrap" colspan="5" style="border-left: 2px solid #2d4e52; border-right: 2px solid #2d4e52;">
+                <table class="header-meta-table">
+                    <colgroup>
+                        <col style="width: 50%;" />
+                        <col style="width: 50%;" />
+                    </colgroup>
+                    <tr>
+                        <td class="bg-accent invoice-label" style="font-size: 12pt; border-left: none; border-top: none; border-bottom: 1px solid #c0c0c0;">
+                            <strong>Invoice Date:</strong> ${(sale.invoice_date ? new Date(sale.invoice_date) : new Date(sale.created_at)).toLocaleDateString('en-GB')}
+                        </td>
+                        <td class="bg-accent invoice-label text-right" style="font-size: 12pt; border-right: none; border-top: none; border-bottom: 1px solid #c0c0c0;">
+                            <strong>Invoice #:</strong> ${sale.invoice_number}
+                        </td>
+                    </tr>
+                </table>
             </td>
         </tr>
         
         <!-- MERGED BILLING AND DELIVERY ADDRESSES -->
         <tr style="height: 65px;">
-            <td class="bg-header" style="vertical-align: top;" colspan="4">
+            <td class="bg-header" style="vertical-align: top;" colspan="5">
                 <div style="display: flex; width: 100%;">
-                    <!-- Billing Address - Left Half (billing address + billing person name + email) -->
                     <div style="width: 50%; padding-right: 20px;">
                         <div style="font-weight: bold; color: #2d4e52; margin-bottom: 8px; font-size: 12pt;">Billing To:</div>
                         <div style="color: #2d4e52; line-height: 1.4; font-size: 11pt;">
@@ -567,84 +720,41 @@ export async function GET(
             </td>
         </tr>
         <!-- Blank line below billing/delivery -->
-        <tr style="height: 14px;"><td class="bg-header" colspan="4" style="border-left: 2px solid #2d4e52; border-right: 2px solid #2d4e52; border-bottom: 1px solid #c0c0c0; border-top: none; padding: 0; line-height: 0;"></td></tr>
+        <tr style="height: 14px;"><td class="bg-header" colspan="5" style="border-left: 2px solid #2d4e52; border-right: 2px solid #2d4e52; border-bottom: 1px solid #c0c0c0; border-top: none; padding: 0; line-height: 0;"></td></tr>
         
-        <!-- ORDER HEADER -->
-        <tr style="height: 32px;">
-            <td class="bg-dark text-center font-bold order-col-1">Order No. & Date</td>
-            <td class="bg-dark text-center font-bold order-col-2">Mode of Order</td>
-            <td class="bg-dark text-center font-bold order-col-3">No. of Boxes</td>
-            <td class="bg-dark text-center font-bold order-col-4">Gross Weight in Kgs</td>
-        </tr>
-        
-        <!-- ORDER DETAILS -->
-        <tr style="height: 28px;">
-            <td class="bg-white text-left order-col-1" style="font-size: 10pt; line-height: 1.2; padding: 4px 8px;">PO NO: ${typeof sale.po_number === 'string' && sale.po_number?.trim() ? sale.po_number : 'N/A'},<br>Dated: ${sale.po_date ? new Date(sale.po_date).toLocaleDateString('en-GB') : new Date(sale.created_at).toLocaleDateString('en-GB')}</td>
-            <td class="bg-white text-center order-col-2" style="font-size: 9pt; padding: 4px;">${(() => {
-                const rawMode = (sale.mode_of_sales || '').toString();
-                let mode = '';
-                if (rawMode) {
-                  mode = rawMode.startsWith('email:') ? ( () => {
-                          const addr = rawMode.split(':')[1];
-                          return '📧 ' + (addr && addr.trim() ? addr.trim() : (sale.gst_number && sale.gst_number.trim() ? sale.gst_number.trim() : 'Email'));
-                        })()
-                        : rawMode === 'email' ? ( () => {
-                            const fallbackEmail = (sale.gst_number && sale.gst_number.trim()) ? sale.gst_number.trim() : '';
-                            return fallbackEmail ? ('📧 ' + fallbackEmail) : '📧 Email';
-                          })()
-                        : rawMode === 'phone' ? '📞 Phone'
-                        : rawMode === 'whatsapp' ? '📱 WhatsApp'
-                        : rawMode === 'walk_in' ? '🚶 Walk-in'
-                        : rawMode === 'online' ? '💻 Online'
-                        : rawMode;
-                } else {
-                  // Fallback defaults when not stored
-                  mode = (sale.sale_type === 'canteen') ? '📧 Email' : '🚶 Walk-in';
-                }
-                return mode;
-            })()}</td>
-            <td class="bg-white text-center order-col-3">${invoiceNoOfBoxes}</td>
-            <td class="bg-white text-center order-col-4">${(() => {
-                // Gross weight in kg: parse volume from product name (e.g. 200ml, 1L), then qty * weight per unit.
-                function getWeightPerUnitKg(name) {
-                    const n = (name || '').toLowerCase();
-                    // Extract volume: "200 ml", "200ml", "500 ml", "1 l", "5l", "16 l" etc.
-                    const mlMatch = n.match(/\b(\d+)\s*ml/);
-                    if (mlMatch) {
-                        const ml = parseInt(mlMatch[1], 10);
-                        if (ml <= 250) return 0.2;    // 200ml bottle: 40 x 200ml = 8 L = 8 kg
-                        if (ml <= 600) return 0.5;   // 500ml: 1 L ≈ 1 kg
-                        return (ml / 1000);           // 1 L = 1 kg
-                    }
-                    const literMatch = n.match(/\b(16|5|1)\s*l(it(er|re))?/);
-                    if (literMatch) {
-                        const num = parseInt(literMatch[1], 10);
-                        if (num >= 16) return 16;   // 16L = 16 kg
-                        if (num >= 5) return 5;     // 5L = 5 kg
-                        return 1;                   // 1L = 1 kg
-                    }
-                    if (/\b16\b/.test(n) && (n.includes('l') || n.includes('tin'))) return 16;
-                    if (/\b5\s*l|\b5l\b/.test(n)) return 5;
-                    if (/\b1\s*l|\b1l\b|\b1\s*liter|\b1\s*litre/.test(n)) return 1;
-                    if (n.includes('500') && (n.includes('ml') || n.includes('0.5'))) return 0.5;  // 500ml = 0.5 kg
-                    if (n.includes('200') || n.includes('0.2')) return 0.2;
-                    return 0.2;   // default: assume 200ml (40 x 200ml = 8 kg)
-                }
-                const totalKg = items.reduce((sum, item) => {
-                    const qty = Number(item.quantity) || 0;
-                    const name = item.productName || item.product_name || '';
-                    return sum + qty * getWeightPerUnitKg(name);
-                }, 0);
-                return totalKg.toFixed(2);
-            })()}</td>
+        <!-- ORDER BLOCK (nested 4-col table — headers stay on one line, full width) -->
+        <tr>
+            <td class="order-block-wrap" colspan="5">
+                <table class="order-block-table">
+                    <colgroup>
+                        <col style="width: 34%;" />
+                        <col style="width: 18%;" />
+                        <col style="width: 24%;" />
+                        <col style="width: 24%;" />
+                    </colgroup>
+                    <tr style="height: 32px;">
+                        <td class="bg-dark text-center font-bold order-head">Order No. & Date</td>
+                        <td class="bg-dark text-center font-bold order-head">Mode of Order</td>
+                        <td class="bg-dark text-center font-bold order-head">Total Number of Cases</td>
+                        <td class="bg-dark text-center font-bold order-head">Gross Weight in Kgs</td>
+                    </tr>
+                    <tr style="height: 28px;">
+                        <td class="bg-white text-left order-val">${poLine}</td>
+                        <td class="bg-white text-center order-val">${orderModeDisplay}</td>
+                        <td class="bg-white text-center order-val">${invoiceNoOfBoxes}</td>
+                        <td class="bg-white text-center order-val">${invoiceGrossWeightKg}</td>
+                    </tr>
+                </table>
+            </td>
         </tr>
         
         <!-- ITEMS HEADER -->
         <tr style="height: 28px;">
-            <td class="bg-dark text-left font-bold" style="width: 35%;">Item ID & Item Name</td>
-            <td class="bg-dark text-center font-bold" style="width: 20%;">Qty</td>
-            <td class="bg-dark text-right font-bold" style="width: 20%;">Unit Price</td>
-            <td class="bg-dark text-right font-bold" style="width: 25%;">Line Total</td>
+            <td class="bg-dark text-left font-bold">Item ID & Item Name</td>
+            <td class="bg-dark text-center font-bold">Qty</td>
+            <td class="bg-dark text-center font-bold">Cases</td>
+            <td class="bg-dark text-right font-bold">Unit Price</td>
+            <td class="bg-dark text-right font-bold">Line Total</td>
         </tr>
         
         <!-- PRODUCT ROWS - Show actual items + 4 empty rows with alternating colors -->
@@ -684,6 +794,8 @@ export async function GET(
                 }
                 const line1 = formatInvoiceItemLine(item.product_id, itemName);
                 const hsnCode = resolveHsnCode(item.hsnCode);
+                const lineCases = isCanteen ? casesForSaleLineItem(item) : null;
+                const casesDisplay = lineCases != null ? String(lineCases) : '—';
                 productRowsHTML += `
                 <tr style="height: 35px;">
                     <td class="${bgClass} text-left item-desc" style="padding: 6px 8px; line-height: 1.2; font-size: 10pt;">
@@ -691,18 +803,19 @@ export async function GET(
                         <span style="font-size: 9pt; color: #666;">HSN Code : ${hsnCode}</span>
                     </td>
                     <td class="${bgClass} text-center item-qty">${qty.toFixed(2)}</td>
+                    <td class="${bgClass} text-center item-cases">${casesDisplay}</td>
                     <td class="${bgClass} text-right item-total">₹ ${Number(taxableUnitRate.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td class="${bgClass} text-right item-total">₹ ${Number(taxableLineAmount.toFixed(2)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>`;
                 rowIndex++;
             });
             
-            // Add 4 empty rows for manual entry (increased from 3 to 4)
             const emptyRowsNeeded = Math.max(0, 4 - Math.max(0, items.length - 1));
             for (let i = 0; i < emptyRowsNeeded; i++) {
                 const bgClass = rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray';
                 productRowsHTML += `
                 <tr style="height: 35px;">
+                    <td class="${bgClass}"></td>
                     <td class="${bgClass}"></td>
                     <td class="${bgClass}"></td>
                     <td class="${bgClass}"></td>
@@ -766,31 +879,31 @@ export async function GET(
 
           return `
         <tr style="height: 25px;">
-            <td class="bg-accent border-medium" colspan="2"></td>
+            <td class="bg-accent border-medium" colspan="3"></td>
             <td class="bg-white total-label text-right border-medium" style="font-size: 10pt; padding: 4px;">Subtotal</td>
             <td class="bg-white total-value text-right border-medium" style="font-size: 10pt; padding: 4px;">₹ ${saleSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>
         
         <tr style="height: 25px;">
-            <td class="bg-accent border-light" colspan="2"></td>
+            <td class="bg-accent border-light" colspan="3"></td>
             <td class="bg-white total-label text-right border-light" style="font-size: 10pt; padding: 4px; line-height: 1.1;">SGST / IGST<br>2.5%</td>
             <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">₹ ${sgstDisplay.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>
         
         <tr style="height: 25px;">
-            <td class="bg-accent border-light" colspan="2"></td>
+            <td class="bg-accent border-light" colspan="3"></td>
             <td class="bg-white total-label text-right border-light" style="font-size: 10pt; padding: 4px; line-height: 1.1;">CGST / IGST<br>2.5%</td>
             <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">₹ ${cgstDisplay.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         </tr>
 
         <tr style="height: 25px;">
-            <td class="bg-accent border-light" colspan="2"></td>
+            <td class="bg-accent border-light" colspan="3"></td>
             <td class="bg-white total-label text-right border-light" style="font-size: 10pt; padding: 4px; line-height: 1.1;">Rounded Off</td>
             <td class="bg-white total-value text-right border-light" style="font-size: 10pt; padding: 4px;">${roundedOffDisplay}</td>
         </tr>
         
         <tr style="height: 32px;">
-            <td class="bg-accent border-thick" style="padding: 6px 12px; font-size: 10pt; line-height: 1.2;" colspan="2">
+            <td class="bg-accent border-thick" style="padding: 6px 12px; font-size: 10pt; line-height: 1.2;" colspan="3">
                 <strong>Amount in Words:</strong><br>
                 <em style="font-size: 9pt; color: #666;">${(() => {
                   const totalFixed = round2(totalInvoiceValue);
@@ -810,7 +923,7 @@ export async function GET(
         
         <!-- SIGNATURE SECTION - One row: Customer Signature | Checked By + Prepared By (one box) | For Trinity Oil Mills (fits A4) -->
         <tr style="height: 58px;">
-            <td class="bg-white" style="padding: 6px 8px;" colspan="4">
+            <td class="bg-white" style="padding: 6px 8px;" colspan="5">
                 <div style="display: flex; width: 100%; justify-content: space-between; gap: 4px;">
                     <div class="signature-box" style="flex: 1; text-align: center; padding: 6px; min-height: 44px; display: flex; flex-direction: column; justify-content: flex-end;">
                         <div style="border-bottom: 1px solid #666; margin-bottom: 2px;"></div>
@@ -836,12 +949,12 @@ export async function GET(
         
         <!-- TAX INFORMATION -->
         <tr style="height: 22px;">
-            <td class="bg-header text-center font-bold" colspan="4">Whether Tax is Payable Under Reverse Charge Basis - No</td>
+            <td class="bg-header text-center font-bold" colspan="5">Whether Tax is Payable Under Reverse Charge Basis - No</td>
         </tr>
         
         <!-- REGISTERED OFFICE -->
         <tr style="height: 55px;">
-            <td class="bg-header text-center font-bold" colspan="4" style="font-size: 10pt;">
+            <td class="bg-header text-center font-bold" colspan="5" style="font-size: 10pt;">
                 <div style="font-weight: bold; color: #2d4e52; margin-bottom: 8px;">Registered Office:</div>
                 Trinity Oil Mills, 337, 339, Paper Mills Road, Perambur, Chennai, Tamil Nadu 600011<br>
                 Tel: 99520 55660 / 97109 03330 | www.Trinityoil.in | GST No: 33BOBPS7844L1ZG
@@ -850,7 +963,7 @@ export async function GET(
         
         <!-- THANK YOU -->
         <tr style="height: 22px;">
-            <td class="bg-white text-center font-bold" style="border-bottom: 1px solid #000;" colspan="4">Thank you for your business!</td>
+            <td class="bg-white text-center font-bold" style="border-bottom: 1px solid #000;" colspan="5">Thank you for your business!</td>
         </tr>
     </table>
     </div>
